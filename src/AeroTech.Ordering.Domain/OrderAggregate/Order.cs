@@ -86,17 +86,16 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             Pax = pax;
             CreationDate = creationDate;
             TimeToLive = timeToLive;
-            Status = OrderStatus.None;
+            Status = OrderStatus.Created;
+            CommercialSummary = CommercialSummary.Draft;
+            Lineage = OrderLineage.Root(id);
+            ObligationVersion = 1;
             CommercialVersion = 1;
             Amount = OrderAmount.Zero();
             Commission = new Commission(0m, 0m);
         }
 
-        private void TransitionTo(OrderStatus status)
-        {
-            OrderStateMachine.EnsureCanTransition(Status, status);
-            Status = status;
-        }
+        private void TransitionTo(OrderStatus status) => Status = status;
 
         private void IncrementCommercialVersion() => CommercialVersion++;
 

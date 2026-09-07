@@ -1,12 +1,18 @@
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Framework.Infrastructure.HealthChecks;
+using AeroTech.Ordering.Domain.DocumentStockAggregate.Contracts;
+using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
+using AeroTech.Ordering.Domain.FulfillmentReservationAggregate.Contracts;
 using AeroTech.Ordering.Domain.FulfillmentTaskAggregate.Contracts;
 using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.PaymentAggregate.Contracts;
 using AeroTech.Ordering.Domain.ProviderInteractionAggregate.Contracts;
 using AeroTech.Ordering.Domain.TrafficDocumentAggregate.Contracts;
+using AeroTech.Ordering.Persistence.DocumentStockAggregate;
+using AeroTech.Ordering.Persistence.ElectronicTicketAggregate;
+using AeroTech.Ordering.Persistence.FulfillmentReservationAggregate;
 using AeroTech.Ordering.Persistence.FulfillmentTaskAggregate;
 using AeroTech.Ordering.Persistence.Inbox;
 using AeroTech.Ordering.Persistence.OrderAggregate;
@@ -38,6 +44,9 @@ namespace AeroTech.Ordering.Persistence
             services.AddScoped<IPaymentRepository, PaymentRepository>();
             services.AddScoped<ITrafficDocumentRepository, TrafficDocumentRepository>();
             services.AddScoped<IProviderInteractionRepository, ProviderInteractionRepository>();
+            services.AddScoped<IFulfillmentReservationRepository, FulfillmentReservationRepository>();
+            services.AddScoped<IDocumentStockRepository, DocumentStockRepository>();
+            services.AddScoped<IElectronicTicketRepository, ElectronicTicketRepository>();
             services.Configure<IntegrationEventOptions>(configuration.GetSection("IntegrationEvents"));
             services.AddScoped<IOutboxWriter, OutboxWriter>();
             services.AddScoped<IInboxStore, InboxStore>();

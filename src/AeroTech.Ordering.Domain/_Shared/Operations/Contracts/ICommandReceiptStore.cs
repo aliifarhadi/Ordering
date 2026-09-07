@@ -15,6 +15,8 @@ namespace AeroTech.Ordering.Domain._Shared.Operations.Contracts
 
     public interface ICommandReceiptStore
     {
+        Task AttachOrderAsync(long receiptId, long orderId, CancellationToken cancellationToken = default);
+
         Task<CommandReceiptResult> AcquireAsync(
             string operationName,
             string idempotencyKey,

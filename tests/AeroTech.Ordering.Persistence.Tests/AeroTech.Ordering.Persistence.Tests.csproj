@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AeroTech.Ordering.Synchronizer\AeroTech.Ordering.Synchronizer.csproj" />
     <ProjectReference Include="..\..\src\AeroTech.Ordering.ServiceHost\AeroTech.Ordering.ServiceHost.csproj" />
+    <ProjectReference Include="..\AeroTech.Ordering.Domain.Tests\AeroTech.Ordering.Domain.Tests.csproj" />
   </ItemGroup>
 
 </Project>

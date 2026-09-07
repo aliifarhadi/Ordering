@@ -77,6 +77,41 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 
         public DateTimeOffset CreatedAt { get; private set; }
 
+        public long? ElectronicTicketId { get; private set; }
+
+        public long? TicketCouponId { get; private set; }
+
+        internal void Activate()
+        {
+            if (Status == OrderServiceStatus.Pending)
+            {
+                Status = OrderServiceStatus.Active;
+                CommercialStatus = OrderServiceCommercialStatus.Active;
+            }
+        }
+
+        internal void MarkReservationConfirmed()
+        {
+            FulfillmentStatus = OrderFulfillmentStatus.Confirmed;
+
+            if (Status is OrderServiceStatus.Pending or OrderServiceStatus.Active)
+                Status = OrderServiceStatus.Fulfilled;
+        }
+
+        internal void MarkReservationReleased()
+        {
+            FulfillmentStatus = OrderFulfillmentStatus.Cancelled;
+            HoldBatchId = null;
+            SeatHoldReference = null;
+        }
+
+        internal void MarkDocumented(long electronicTicketId, long ticketCouponId)
+        {
+            DocumentStatus = OrderServiceDocumentStatus.Issued;
+            ElectronicTicketId = electronicTicketId;
+            TicketCouponId = ticketCouponId;
+        }
+
         internal void MarkFulfilled(string? holdBatchId, string? seatHoldReference)
         {
             FulfillmentStatus = OrderFulfillmentStatus.Confirmed;

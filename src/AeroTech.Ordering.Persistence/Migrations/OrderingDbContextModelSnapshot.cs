@@ -23,6 +23,394 @@ namespace AeroTech.Ordering.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("AeroTech.Ordering.Domain.DocumentStockAggregate.DocumentStock", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("AirlineOfficeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("CheckDigitProfile")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("DocumentType")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("NextNumber")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OwnerAirlineId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Prefix")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<long>("RangeFrom")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("RangeTo")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("SerialWidth")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerAirlineId", "DocumentType", "Status");
+
+                    b.ToTable("DocumentStocks", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.DocumentStockAggregate.Entities.DocumentStockAllocation", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("AllocatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DocumentNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("DocumentRole")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<long>("DocumentStockId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Serial")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("SettledAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentNumber")
+                        .IsUnique();
+
+                    b.HasIndex("DocumentStockId", "Serial")
+                        .IsUnique();
+
+                    b.HasIndex("OperationId", "DocumentRole")
+                        .IsUnique();
+
+                    b.ToTable("DocumentStockAllocations", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.ElectronicTicket", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Authority")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<long>("CurrentServicingOrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("DocumentNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<int>("DocumentVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("IssuedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<decimal>("IssuedTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("IssuerCarrierId")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("IssuingOfficeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OriginalOrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ProviderReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("StatusSummary")
+                        .HasColumnType("int");
+
+                    b.Property<long>("TravelerId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("VoidDeadline")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrentServicingOrderId");
+
+                    b.HasIndex("DocumentNumber")
+                        .IsUnique();
+
+                    b.HasIndex("OriginalOrderId");
+
+                    b.HasIndex("OperationId", "TravelerId")
+                        .IsUnique();
+
+                    b.ToTable("ElectronicTickets", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentPriceLink", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("AllocationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("AttributedValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<long?>("CouponId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("CurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("PricingLineId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("TicketId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PricingLineId");
+
+                    b.HasIndex("TicketId", "CouponId");
+
+                    b.ToTable("DocumentPriceLinks", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.TicketCoupon", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("ControlStatus")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CouponNumber")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<long>("CurrentOrderServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("FareBasisSnapshot")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<int>("FinancialStatus")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("IssuanceValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<long>("JourneySegmentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OrderServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ProviderCouponStatusCode")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<long>("TicketId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrentOrderServiceId");
+
+                    b.HasIndex("TicketId", "CouponNumber")
+                        .IsUnique();
+
+                    b.ToTable("TicketCoupons", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.FulfillmentReservationAggregate.Entities.FulfillmentReservationService", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ExternalServiceRef")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("ExternalStatus")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<long>("FulfillmentReservationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ObservedBookingClass")
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)");
+
+                    b.Property<int>("ObservedStatus")
+                        .HasColumnType("int");
+
+                    b.Property<long>("OrderServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("ValidUntil")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderServiceId");
+
+                    b.HasIndex("FulfillmentReservationId", "OrderServiceId")
+                        .IsUnique();
+
+                    b.ToTable("FulfillmentReservationServices", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.FulfillmentReservationAggregate.FulfillmentReservation", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ExternalReservationRef")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("LastUpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ProviderCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<int>("ProviderType")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperationId")
+                        .IsUnique();
+
+                    b.HasIndex("OrderId");
+
+                    b.ToTable("FulfillmentReservations", "Order");
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Domain.FulfillmentTaskAggregate.Entities.FulfillmentTaskAttempt", b =>
                 {
                     b.Property<long>("Id")
@@ -255,6 +643,45 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.HasIndex("OrderContactId");
 
                     b.ToTable("OrderContactPoints", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderExternalReference", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "Type");
+
+                    b.HasIndex("SourceSystem", "Reference");
+
+                    b.ToTable("OrderExternalReferences", "Order");
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderItem", b =>
@@ -796,6 +1223,9 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<int>("DocumentStatus")
                         .HasColumnType("int");
 
+                    b.Property<long?>("ElectronicTicketId")
+                        .HasColumnType("bigint");
+
                     b.Property<int>("FinancialStatus")
                         .HasColumnType("int");
 
@@ -854,6 +1284,9 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<long?>("TicketCouponId")
+                        .HasColumnType("bigint");
+
                     b.Property<long?>("TrafficDocumentId")
                         .HasColumnType("bigint");
 
@@ -864,6 +1297,45 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("OrderServices", "Order");
 
                     b.UseTptMappingStrategy();
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderTimeLimit", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("DueAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("SettledAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("SourceReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "DueAt");
+
+                    b.HasIndex("OrderId", "Type", "Status");
+
+                    b.ToTable("OrderTimeLimits", "Order");
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderTraveller", b =>
@@ -960,6 +1432,12 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<int>("Channel")
                         .HasColumnType("int");
 
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("CommercialSummary")
+                        .HasColumnType("int");
+
                     b.Property<int>("CommercialVersion")
                         .HasColumnType("int");
 
@@ -988,6 +1466,9 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<long>("ObligationVersion")
+                        .HasColumnType("bigint");
+
                     b.Property<int>("Pax")
                         .HasColumnType("int");
 
@@ -1013,6 +1494,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CommercialSummary");
 
                     b.HasIndex("Status", "TimeToLive");
 
@@ -1638,6 +2121,89 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.HasDiscriminator().HasValue("Ticket");
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.Domain.DocumentStockAggregate.Entities.DocumentStockAllocation", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.DocumentStockAggregate.DocumentStock", null)
+                        .WithMany("Allocations")
+                        .HasForeignKey("DocumentStockId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentPriceLink", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.ElectronicTicketAggregate.ElectronicTicket", null)
+                        .WithMany("PriceLinks")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.TicketCoupon", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.ElectronicTicketAggregate.ElectronicTicket", null)
+                        .WithMany("Coupons")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.OwnsOne("AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects.IssuedSegmentSnapshot", "IssuedSegment", b1 =>
+                        {
+                            b1.Property<long>("TicketCouponId")
+                                .HasColumnType("bigint");
+
+                            b1.Property<DateTimeOffset>("ArrivalDateTime")
+                                .HasColumnType("datetimeoffset")
+                                .HasColumnName("IssuedArrivalDateTime");
+
+                            b1.Property<string>("BookingClass")
+                                .HasMaxLength(8)
+                                .HasColumnType("nvarchar(8)")
+                                .HasColumnName("IssuedBookingClass");
+
+                            b1.Property<DateTimeOffset>("DepartureDateTime")
+                                .HasColumnType("datetimeoffset")
+                                .HasColumnName("IssuedDepartureDateTime");
+
+                            b1.Property<int>("DestinationAirportId")
+                                .HasColumnType("int")
+                                .HasColumnName("IssuedDestinationAirportId");
+
+                            b1.Property<string>("FlightNumber")
+                                .IsRequired()
+                                .HasMaxLength(16)
+                                .HasColumnType("nvarchar(16)")
+                                .HasColumnName("IssuedFlightNumber");
+
+                            b1.Property<int>("MarketingAirlineId")
+                                .HasColumnType("int")
+                                .HasColumnName("IssuedMarketingAirlineId");
+
+                            b1.Property<int>("OriginAirportId")
+                                .HasColumnType("int")
+                                .HasColumnName("IssuedOriginAirportId");
+
+                            b1.HasKey("TicketCouponId");
+
+                            b1.ToTable("TicketCoupons", "Order");
+
+                            b1.WithOwner()
+                                .HasForeignKey("TicketCouponId");
+                        });
+
+                    b.Navigation("IssuedSegment")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.FulfillmentReservationAggregate.Entities.FulfillmentReservationService", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.FulfillmentReservationAggregate.FulfillmentReservation", null)
+                        .WithMany("Services")
+                        .HasForeignKey("FulfillmentReservationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Domain.FulfillmentTaskAggregate.Entities.FulfillmentTaskAttempt", b =>
                 {
                     b.HasOne("AeroTech.Ordering.Domain.FulfillmentTaskAggregate.FulfillmentTask", null)
@@ -1670,6 +2236,15 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderContact", null)
                         .WithMany("ContactPoints")
                         .HasForeignKey("OrderContactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderExternalReference", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Order", null)
+                        .WithMany("ExternalReferences")
+                        .HasForeignKey("OrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -1821,6 +2396,15 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderTimeLimit", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Order", null)
+                        .WithMany("TimeLimits")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderTraveller", b =>
                 {
                     b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Order", null)
@@ -1943,6 +2527,33 @@ namespace AeroTech.Ordering.Persistence.Migrations
                                 .HasForeignKey("OrderId");
                         });
 
+                    b.OwnsOne("AeroTech.Ordering.Domain.OrderAggregate.ValueObjects.OrderLineage", "Lineage", b1 =>
+                        {
+                            b1.Property<long>("OrderId")
+                                .HasColumnType("bigint");
+
+                            b1.Property<long?>("ParentOrderId")
+                                .HasColumnType("bigint")
+                                .HasColumnName("ParentOrderId");
+
+                            b1.Property<long>("RootOrderId")
+                                .HasColumnType("bigint")
+                                .HasColumnName("RootOrderId");
+
+                            b1.Property<long?>("SplitFromChangeId")
+                                .HasColumnType("bigint")
+                                .HasColumnName("SplitFromChangeId");
+
+                            b1.HasKey("OrderId");
+
+                            b1.HasIndex("RootOrderId");
+
+                            b1.ToTable("Orders", "Order");
+
+                            b1.WithOwner()
+                                .HasForeignKey("OrderId");
+                        });
+
                     b.OwnsOne("AeroTech.Ordering.Domain.OrderAggregate.ValueObjects.OrderPaymentSummary", "PaymentSummary", b1 =>
                         {
                             b1.Property<long>("OrderId")
@@ -2004,6 +2615,9 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Commission")
+                        .IsRequired();
+
+                    b.Navigation("Lineage")
                         .IsRequired();
 
                     b.Navigation("PaymentSummary");
@@ -2079,6 +2693,23 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Navigation("CabinBaggage");
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.Domain.DocumentStockAggregate.DocumentStock", b =>
+                {
+                    b.Navigation("Allocations");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.ElectronicTicket", b =>
+                {
+                    b.Navigation("Coupons");
+
+                    b.Navigation("PriceLinks");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.FulfillmentReservationAggregate.FulfillmentReservation", b =>
+                {
+                    b.Navigation("Services");
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Domain.FulfillmentTaskAggregate.FulfillmentTask", b =>
                 {
                     b.Navigation("Attempts");
@@ -2116,6 +2747,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
                 {
                     b.Navigation("Contact");
 
+                    b.Navigation("ExternalReferences");
+
                     b.Navigation("Items");
 
                     b.Navigation("Itineraries");
@@ -2127,6 +2760,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Navigation("Remarks");
 
                     b.Navigation("Segments");
+
+                    b.Navigation("TimeLimits");
 
                     b.Navigation("Travellers");
                 });

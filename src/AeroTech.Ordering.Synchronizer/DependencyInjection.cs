@@ -10,6 +10,7 @@ namespace AeroTech.Ordering.Synchronizer
         public static IServiceCollection AddSynchronizer(this IServiceCollection services)
         {
             services.AddScoped<IOrderQueryDbSynchronizer, OrderQueryDbSynchronizer>();
+            services.AddScoped<IOrderProjector, OrderProjector>();
             services.AddScoped<IUnitOfWork, OrderingUnitOfWork>();
 
             return services;

@@ -23,6 +23,27 @@ namespace AeroTech.Ordering.Query.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("AeroTech.Ordering.Query.OrderAggregate.Models.OrderDetailsReadModel", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ProjectionRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("OrderDetails", "ReadModel");
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Query.OrderAggregate.Models.OrderFlightReadModel", b =>
                 {
                     b.Property<long>("Id")
@@ -78,6 +99,9 @@ namespace AeroTech.Ordering.Query.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<int>("CommercialSummary")
+                        .HasColumnType("int");
+
                     b.Property<int>("CommercialVersion")
                         .HasColumnType("int");
 
@@ -88,6 +112,9 @@ namespace AeroTech.Ordering.Query.Migrations
                     b.Property<decimal>("CommissionRate")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("CoverageSummary")
+                        .HasColumnType("int");
 
                     b.Property<DateTimeOffset>("CreationDate")
                         .HasColumnType("datetimeoffset");
@@ -100,6 +127,9 @@ namespace AeroTech.Ordering.Query.Migrations
 
                     b.Property<long>("CustomerId")
                         .HasColumnType("bigint");
+
+                    b.Property<int?>("DocumentSummary")
+                        .HasColumnType("int");
 
                     b.Property<decimal>("GrandTotal")
                         .HasPrecision(18, 2)
@@ -118,9 +148,15 @@ namespace AeroTech.Ordering.Query.Migrations
                     b.Property<int>("Pax")
                         .HasColumnType("int");
 
+                    b.Property<long>("ProjectionRevision")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("RecordLocator")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
+
+                    b.Property<int?>("ReservationSummary")
+                        .HasColumnType("int");
 
                     b.Property<string>("Status")
                         .IsRequired()

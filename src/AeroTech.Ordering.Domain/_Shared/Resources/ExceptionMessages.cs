@@ -105,6 +105,21 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string CallerContextUnavailable = "The request has no authenticated caller context.";
         public const string CallerContextIncomplete = "The authenticated caller context is missing the required '{0}' claim.";
 
+        // P1 reservation, document stock and electronic ticket
+        public const string ReservationRequiresAtLeastOneService = "A fulfillment reservation requires at least one order service.";
+        public const string ReservationServiceNotFound = "Order service {0} is not a member of reservation {1}.";
+        public const string DocumentStockRangeInvalid = "Document stock range {0}-{1} is not a valid ascending positive range.";
+        public const string DocumentStockNotAllocatable = "Document stock {0} is {1} and cannot allocate a number.";
+        public const string DocumentStockExhausted = "Document stock {0} is exhausted.";
+        public const string DocumentStockAllocationNotFound = "No active stock allocation exists for operation {0} and role '{1}'.";
+        public const string DocumentStockCheckDigitProfileUnsupported = "Check-digit profile '{0}' is not supported by this deployment; only an explicitly configured profile may be used.";
+        public const string NoDocumentStockConfigured = "No active {0} document stock is configured for airline {1}.";
+        public const string TicketRequiresAtLeastOneCoupon = "An electronic ticket requires at least one coupon.";
+
+        // P1 eligibility
+        public const string OrderOperationNotEligible = "Operation '{0}' is not permitted for order {1}: {2}.";
+        public const string OrderCommercialVersionMismatch = "Expected commercial version {0} but order {1} is at {2}.";
+
         // Home operator identity
         public const string HomeOperatorNotProvisioned = "The trusted home operator identity ('{0}') has not been synchronized from Core; the operation cannot establish its owning airline.";
     }

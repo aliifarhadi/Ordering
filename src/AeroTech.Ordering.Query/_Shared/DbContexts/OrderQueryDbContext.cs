@@ -17,6 +17,8 @@ namespace AeroTech.Ordering.Query._Shared.DbContexts
 
         public DbSet<OrderReadModel> Orders => Set<OrderReadModel>();
 
+        public DbSet<OrderDetailsReadModel> OrderDetails => Set<OrderDetailsReadModel>();
+
         public DbSet<OrderTravellerReadModel> OrderTravellers => Set<OrderTravellerReadModel>();
 
         public DbSet<OrderFlightReadModel> OrderFlights => Set<OrderFlightReadModel>();

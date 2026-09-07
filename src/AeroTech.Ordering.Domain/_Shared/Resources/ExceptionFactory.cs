@@ -248,6 +248,40 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException OperationsWriteBoundaryViolated(params object?[] args) =>
             new(2707, ExceptionMessages.OperationsWriteBoundaryViolated, args) { HttpStatus = 500 };
 
+        // P1 reservation, stock and document: 2720-2749
+        public static BusinessException ReservationRequiresAtLeastOneService() =>
+            new(2720, ExceptionMessages.ReservationRequiresAtLeastOneService) { HttpStatus = 422 };
+
+        public static BusinessException ReservationServiceNotFound(params object?[] args) =>
+            new(2721, ExceptionMessages.ReservationServiceNotFound, args) { HttpStatus = 422 };
+
+        public static BusinessException DocumentStockRangeInvalid(params object?[] args) =>
+            new(2722, ExceptionMessages.DocumentStockRangeInvalid, args) { HttpStatus = 422 };
+
+        public static BusinessException DocumentStockNotAllocatable(params object?[] args) =>
+            new(2723, ExceptionMessages.DocumentStockNotAllocatable, args) { HttpStatus = 409 };
+
+        public static BusinessException DocumentStockExhausted(params object?[] args) =>
+            new(2724, ExceptionMessages.DocumentStockExhausted, args) { HttpStatus = 409 };
+
+        public static BusinessException DocumentStockAllocationNotFound(params object?[] args) =>
+            new(2725, ExceptionMessages.DocumentStockAllocationNotFound, args) { HttpStatus = 409 };
+
+        public static BusinessException DocumentStockCheckDigitProfileUnsupported(params object?[] args) =>
+            new(2726, ExceptionMessages.DocumentStockCheckDigitProfileUnsupported, args) { HttpStatus = 500 };
+
+        public static BusinessException NoDocumentStockConfigured(params object?[] args) =>
+            new(2727, ExceptionMessages.NoDocumentStockConfigured, args) { HttpStatus = 409 };
+
+        public static BusinessException TicketRequiresAtLeastOneCoupon() =>
+            new(2728, ExceptionMessages.TicketRequiresAtLeastOneCoupon) { HttpStatus = 422 };
+
+        public static BusinessException OrderOperationNotEligible(params object?[] args) =>
+            new(2729, ExceptionMessages.OrderOperationNotEligible, args) { HttpStatus = 409 };
+
+        public static BusinessException OrderCommercialVersionMismatch(params object?[] args) =>
+            new(2730, ExceptionMessages.OrderCommercialVersionMismatch, args) { HttpStatus = 409 };
+
         // Home operator identity: 2710-2719
         public static BusinessException HomeOperatorNotProvisioned(params object?[] args) =>
             new(2710, ExceptionMessages.HomeOperatorNotProvisioned, args) { HttpStatus = 500 };

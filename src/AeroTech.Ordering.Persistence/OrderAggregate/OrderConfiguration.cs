@@ -14,6 +14,16 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.Property(order => order.Id).ValueGeneratedNever();
 
             builder.HasIndex(order => new { order.Status, order.TimeToLive });
+            builder.HasIndex(order => order.CommercialSummary);
+
+            builder.OwnsOne(order => order.Lineage, lineage =>
+            {
+                lineage.Property(value => value.RootOrderId).HasColumnName("RootOrderId");
+                lineage.Property(value => value.ParentOrderId).HasColumnName("ParentOrderId");
+                lineage.Property(value => value.SplitFromChangeId).HasColumnName("SplitFromChangeId");
+                lineage.HasIndex(value => value.RootOrderId);
+            });
+            builder.Navigation(order => order.Lineage).IsRequired();
 
             builder.OwnsOne(order => order.Amount, amount =>
             {
@@ -55,6 +65,8 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.HasMany(order => order.OrderServices).WithOne().HasForeignKey(service => service.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.Itineraries).WithOne().HasForeignKey(itinerary => itinerary.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.Remarks).WithOne().HasForeignKey(remark => remark.OrderId).OnDelete(DeleteBehavior.Cascade);
+            builder.HasMany(order => order.TimeLimits).WithOne().HasForeignKey(limit => limit.OrderId).OnDelete(DeleteBehavior.Cascade);
+            builder.HasMany(order => order.ExternalReferences).WithOne().HasForeignKey(reference => reference.OrderId).OnDelete(DeleteBehavior.Cascade);
 
             builder.Navigation(order => order.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.PricingLines).UsePropertyAccessMode(PropertyAccessMode.Field);
@@ -63,6 +75,8 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.Navigation(order => order.OrderServices).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.Itineraries).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.Remarks).UsePropertyAccessMode(PropertyAccessMode.Field);
+            builder.Navigation(order => order.TimeLimits).UsePropertyAccessMode(PropertyAccessMode.Field);
+            builder.Navigation(order => order.ExternalReferences).UsePropertyAccessMode(PropertyAccessMode.Field);
         }
     }
 }

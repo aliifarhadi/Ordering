@@ -87,6 +87,18 @@ namespace AeroTech.Ordering.Persistence.Operations
             return Project(receipt, isReplay: false);
         }
 
+        public async Task AttachOrderAsync(long receiptId, long orderId, CancellationToken cancellationToken = default)
+        {
+            var receipt = await _dbContext.Set<CommandReceipt>()
+                .SingleOrDefaultAsync(candidate => candidate.Id == receiptId, cancellationToken);
+
+            if (receipt is null || receipt.OrderId == orderId)
+                return;
+
+            receipt.OrderId = orderId;
+            receipt.UpdatedAt = _clock.GetDateTime();
+        }
+
         private Task<CommandReceipt?> FindAsync(
             long ownerAirlineId,
             string callerScope,

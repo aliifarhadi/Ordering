@@ -8,6 +8,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer.Ota;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Expiry;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Payment;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
@@ -17,6 +18,11 @@ using AeroTech.Ordering.Domain.TrafficDocumentAggregate.Contracts;
 using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.Configuration;
+using AeroTech.Ordering.Application.OrderAggregate.Operations;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AeroTech.Ordering.Application
@@ -66,6 +72,13 @@ namespace AeroTech.Ordering.Application
             services.AddScoped<IOrderIssuanceService, OrderIssuanceService>();
             services.AddScoped<IOrderExpiryService, OrderExpiryService>();
             services.AddScoped<IOrderSplitService, OrderSplitService>();
+
+            services.Configure<OrderOperationOptions>(configuration.GetSection(OrderOperationOptions.SectionName));
+            services.AddScoped<IOrderOperationCoordinator, OrderOperationCoordinator>();
+            services.AddScoped<ICreateOrderService, CreateOrderService>();
+            services.AddScoped<IReserveOrderService, ReserveOrderService>();
+            services.AddScoped<IIssueOrderService, IssueOrderService>();
+            services.AddScoped<IWithdrawOrderService, WithdrawOrderService>();
 
             return services;
         }

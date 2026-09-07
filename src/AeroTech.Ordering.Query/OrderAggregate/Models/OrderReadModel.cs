@@ -46,5 +46,15 @@ namespace AeroTech.Ordering.Query.OrderAggregate.Models
         public DateTimeOffset CreationDate { get; set; }
 
         public DateTimeOffset LastProjectedAt { get; set; }
+
+        public long ProjectionRevision { get; set; }
+
+        public CommercialSummary CommercialSummary { get; set; }
+
+        public FulfillmentReservationStatus? ReservationSummary { get; set; }
+
+        public FundingCoverageOutcome? CoverageSummary { get; set; }
+
+        public ElectronicTicketStatus? DocumentSummary { get; set; }
     }
 }

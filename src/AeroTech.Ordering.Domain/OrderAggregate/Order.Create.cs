@@ -40,7 +40,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             order.AssignInfantParents(args);
             order.RecalculateTotal();
             order.ApplyCommission(args.CommissionRate);
-            order.TransitionTo(OrderStatus.Created);
+            order.AcceptCommercially();
             order.RaiseCreated(idGenerator, clock);
 
             return order;
