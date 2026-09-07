@@ -12,7 +12,7 @@ namespace AeroTech.Messages.Ordering.IntegrationEvents.V1
         long AirlineOfficeId,
         string? RecordLocator,
         Guid UniqueIdentifierId,
-        int Version,
+        int CommercialVersion,
         OrderStatus Status,
         OrderType Type,
         SalesChannel Channel,

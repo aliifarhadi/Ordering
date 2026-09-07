@@ -65,7 +65,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 Amount.TaxTotal,
                 Commission.CommissionAmount,
                 Commission.CommissionRate,
-                OrderVersion,
+                CommercialVersion,
                 LinkedOrderId,
                 LinkedPNR,
                 TimeToLive,

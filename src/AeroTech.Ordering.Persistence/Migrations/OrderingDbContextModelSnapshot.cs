@@ -960,6 +960,9 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<int>("Channel")
                         .HasColumnType("int");
 
+                    b.Property<int>("CommercialVersion")
+                        .HasColumnType("int");
+
                     b.Property<DateTimeOffset>("CreationDate")
                         .HasColumnType("datetimeoffset");
 
@@ -984,9 +987,6 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<string>("LinkedPNR")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
-
-                    b.Property<int>("OrderVersion")
-                        .HasColumnType("int");
 
                     b.Property<int>("Pax")
                         .HasColumnType("int");
@@ -1372,6 +1372,154 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("InboxMessages", "dbo");
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.CommandReceipt", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("CallerScope")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<long?>("OperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("OperationName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<long?>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OwnerAirlineId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PayloadRef")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("ResultRef")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("OwnerAirlineId", "CallerScope", "OperationName", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("CommandReceipts", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.OperationOrderClaim", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("AcquiredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsBlocking")
+                        .HasColumnType("bit");
+
+                    b.Property<long>("OperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("RecoveryLeaseUntil")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperationId");
+
+                    b.HasIndex("OrderId")
+                        .IsUnique()
+                        .HasFilter("[IsBlocking] = 1");
+
+                    b.ToTable("OperationOrderClaims", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.ServicingOperation", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ClaimGeneration")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("CommandReceiptId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int?>("ExpectedCommercialVersion")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<long>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OwnerAirlineId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("QuoteRef")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CommandReceiptId");
+
+                    b.HasIndex("OrderId", "Status");
+
+                    b.ToTable("ServicingOperations", "Order");
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Persistence.Outbox.OutboxMessage", b =>
                 {
                     b.Property<long>("Id")
@@ -1565,8 +1713,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
                                 .HasColumnName("NumberOfDecimalPlaces");
 
                             b1.Property<decimal>("RateOfExchange")
-                                .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)")
+                                .HasPrecision(28, 12)
+                                .HasColumnType("decimal(28,12)")
                                 .HasColumnName("RateOfExchange");
 
                             b1.Property<string>("RateOfExchangeId")
@@ -1607,8 +1755,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
                                 .HasColumnName("NumberOfDecimalPlaces");
 
                             b1.Property<decimal>("RateOfExchange")
-                                .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)")
+                                .HasPrecision(28, 12)
+                                .HasColumnType("decimal(28,12)")
                                 .HasColumnName("RateOfExchange");
 
                             b1.Property<string>("RateOfExchangeId")

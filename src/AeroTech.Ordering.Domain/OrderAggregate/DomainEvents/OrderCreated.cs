@@ -22,7 +22,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.DomainEvents
         decimal TotalTax,
         decimal CommissionAmount,
         decimal CommissionRate,
-        int OrderVersion,
+        int CommercialVersion,
         long? LinkedOrderId,
         string? LinkedPNR,
         DateTimeOffset? TimeToLive,

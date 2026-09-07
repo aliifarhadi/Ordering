@@ -20,7 +20,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             var remark = OrderRemark.Create(idGenerator.NewId(), Id, args, clock.GetDateTime());
             _remarks.Add(remark);
-            IncrementVersion();
+            IncrementCommercialVersion();
 
             Causes(new OrderRemarkAdded(
                 idGenerator.NewId().ToString(),
@@ -40,7 +40,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             var remark = GetRemark(remarkId);
             remark.Modify(newText, modifiedBy, clock.GetDateTime());
-            IncrementVersion();
+            IncrementCommercialVersion();
 
             Causes(new OrderRemarkModified(
                 idGenerator.NewId().ToString(),
@@ -56,7 +56,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             var remark = GetRemark(remarkId);
             remark.Delete(deletedBy, clock.GetDateTime());
-            IncrementVersion();
+            IncrementCommercialVersion();
 
             Causes(new OrderRemarkDeleted(
                 idGenerator.NewId().ToString(),

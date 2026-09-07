@@ -17,9 +17,14 @@ namespace AeroTech.Framework.Presentation.AspNetCore.Services
 
         public List<Claim>? Claims => HttpContext?.User.Claims.ToList();
 
-        public long? CurrentUserId => IsAuthenticated ? ParseLong("UserId") : null;
+        public long? CurrentUserId => IsAuthenticated
+            ? ParseLong("airline_user_id")
+              ?? ParseLong("travel_agency_user_id")
+              ?? ParseLong("individual_id")
+              ?? ParseLong("partner_api_access_profile_id")
+            : null;
 
-        public long? CurrentCustomerId => IsAuthenticated ? ParseLong("CustomerId") : null;
+        public long? CurrentCustomerId => IsAuthenticated ? ParseLong("customer_id") : null;
 
         public long RequiredCurrentUserId => CurrentUserId!.Value;
 
@@ -42,7 +47,7 @@ namespace AeroTech.Framework.Presentation.AspNetCore.Services
 
         private long? ParseLong(string claimType)
         {
-            var value = Claims?.SingleOrDefault(claim => claim.Type == claimType)?.Value;
+            var value = Claims?.FirstOrDefault(claim => claim.Type == claimType)?.Value;
             return long.TryParse(value, out var parsed) ? parsed : null;
         }
     }

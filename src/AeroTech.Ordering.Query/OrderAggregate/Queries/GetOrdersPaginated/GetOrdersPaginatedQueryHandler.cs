@@ -165,7 +165,7 @@ namespace AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrdersPaginated
                 Currency = row.Currency?.Code,
                 CommissionAmount = order.CommissionAmount.ToString("n2", CultureInfo.InvariantCulture),
                 CommissionRate = order.CommissionRate.ToString("n2", CultureInfo.InvariantCulture),
-                OrderVersion = order.OrderVersion,
+                CommercialVersion = order.CommercialVersion,
                 TimeToLive = order.TimeToLive,
                 RemainingTtl = MapRemainingTtl(order.TimeToLive, now),
                 UniqueIdentifierId = order.UniqueIdentifierId.ToString(),

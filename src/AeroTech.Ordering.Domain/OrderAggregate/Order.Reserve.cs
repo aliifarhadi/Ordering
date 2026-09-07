@@ -21,7 +21,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
         public void FailReservation(string reason, IIdGenerator idGenerator, IClock clock)
         {
             TransitionTo(OrderStatus.ReserveFailed);
-            IncrementVersion();
 
             Causes(new OrderReserveFailed(
                 idGenerator.NewId().ToString(),
@@ -37,7 +36,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             ReservationFailureReason = reason;
 
             TransitionTo(OrderStatus.ReservationUnconfirmed);
-            IncrementVersion();
 
             Causes(new OrderReservationUnconfirmed(
                 idGenerator.NewId().ToString(),
@@ -69,7 +67,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             }
 
             TransitionTo(OrderStatus.Confirmed);
-            IncrementVersion();
 
             Causes(new OrderReserved(
                 idGenerator.NewId().ToString(),

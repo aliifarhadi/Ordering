@@ -7,6 +7,7 @@ using AeroTech.Ordering.Domain.PaymentAggregate;
 using AeroTech.Ordering.Domain.ProviderInteractionAggregate;
 using AeroTech.Ordering.Domain.TrafficDocumentAggregate;
 using AeroTech.Ordering.Persistence.Inbox;
+using AeroTech.Ordering.Persistence.Operations;
 using AeroTech.Ordering.Persistence.Outbox;
 using Microsoft.EntityFrameworkCore;
 
@@ -39,6 +40,12 @@ namespace AeroTech.Ordering.Persistence
         public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
         public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
+
+        public DbSet<CommandReceipt> CommandReceipts => Set<CommandReceipt>();
+
+        public DbSet<ServicingOperation> ServicingOperations => Set<ServicingOperation>();
+
+        public DbSet<OperationOrderClaim> OperationOrderClaims => Set<OperationOrderClaim>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

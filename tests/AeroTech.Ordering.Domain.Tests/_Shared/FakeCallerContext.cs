@@ -1,0 +1,68 @@
+using AeroTech.Messages.Aegis.Enums;
+using AeroTech.Messages.Shared.Enums;
+using AeroTech.Ordering.Domain._Shared.Contracts;
+
+namespace AeroTech.Ordering.Domain.Tests._Shared
+{
+    public sealed class FakeCallerContext : ICallerContext
+    {
+        public bool IsAuthenticated { get; set; } = true;
+
+        public string? Subject { get; set; }
+
+        public string? ClientId { get; set; }
+
+        public BusinessContextType? ContextType { get; set; }
+
+        public PrincipalType? PrincipalType { get; set; }
+
+        public AuthorizationSurface? AuthorizationSurface { get; set; }
+
+        public long? AirlineUserId { get; set; }
+
+        public long? AirlineOfficeId { get; set; }
+
+        public long? TravelAgencyUserId { get; set; }
+
+        public long? TravelAgencyId { get; set; }
+
+        public IReadOnlyCollection<long> TravelAgencyOfficeIds { get; set; } = [];
+
+        public long? IndividualId { get; set; }
+
+        public long? PartnerApiAccessProfileId { get; set; }
+
+        public long? CustomerId { get; set; }
+
+        public long? ActorId => AirlineUserId ?? TravelAgencyUserId ?? IndividualId ?? PartnerApiAccessProfileId;
+
+        public static FakeCallerContext AgencyUser(long agencyId, string subject) => new()
+        {
+            Subject = subject,
+            ContextType = BusinessContextType.TravelAgency,
+            PrincipalType = Messages.Aegis.Enums.PrincipalType.Human,
+            AuthorizationSurface = Messages.Shared.Enums.AuthorizationSurface.OtaPanel,
+            TravelAgencyId = agencyId,
+            TravelAgencyUserId = 500
+        };
+
+        public static FakeCallerContext AirlineUser(long officeId, string subject) => new()
+        {
+            Subject = subject,
+            ContextType = BusinessContextType.Airline,
+            PrincipalType = Messages.Aegis.Enums.PrincipalType.Human,
+            AuthorizationSurface = Messages.Shared.Enums.AuthorizationSurface.Backoffice,
+            AirlineOfficeId = officeId,
+            AirlineUserId = 900
+        };
+
+        public static FakeCallerContext AgencyApiClient(long agencyId, string clientId) => new()
+        {
+            ClientId = clientId,
+            ContextType = BusinessContextType.TravelAgency,
+            PrincipalType = Messages.Aegis.Enums.PrincipalType.TravelAgencyApi,
+            AuthorizationSurface = Messages.Shared.Enums.AuthorizationSurface.Api,
+            TravelAgencyId = agencyId
+        };
+    }
+}

@@ -10,7 +10,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
     {
         public Guid UniqueIdentifierId { get; private set; }
         public RecordLocator? RecordLocator { get; private set; }
-        public int OrderVersion { get; private set; }
+        public int CommercialVersion { get; private set; }
         public long? LinkedOrderId { get; private set; }
         public string? LinkedPNR { get; private set; }
 
@@ -87,7 +87,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             CreationDate = creationDate;
             TimeToLive = timeToLive;
             Status = OrderStatus.None;
-            OrderVersion = 1;
+            CommercialVersion = 1;
             Amount = OrderAmount.Zero();
             Commission = new Commission(0m, 0m);
         }
@@ -98,7 +98,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             Status = status;
         }
 
-        private void IncrementVersion() => OrderVersion++;
+        private void IncrementCommercialVersion() => CommercialVersion++;
 
         private void AddItem(OrderItem item) => _items.Add(item);
         private void AddPricingLine(OrderPricingLine pricingLine) => _pricingLines.Add(pricingLine);

@@ -14,7 +14,7 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
 
             builder.OwnsOne(allocation => allocation.ExchangeRate, rate =>
             {
-                rate.Property(value => value.RateOfExchange).HasColumnName("RateOfExchange");
+                rate.Property(value => value.RateOfExchange).HasColumnName("RateOfExchange").HasPrecision(28, 12);
                 rate.Property(value => value.NumberOfDecimalPlaces).HasColumnName("NumberOfDecimalPlaces");
                 rate.Property(value => value.RateOfExchangeId).HasColumnName("RateOfExchangeId");
                 rate.Property(value => value.RoundingFactor).HasColumnName("RoundingFactor");

@@ -1,5 +1,6 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using MassTransit;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace AeroTech.Ordering.Consumers.Inbox
@@ -37,9 +38,28 @@ namespace AeroTech.Ordering.Consumers.Inbox
                 return;
             }
 
-            await next.Send(context);
+            _inboxStore.EnlistProcessed(messageId, consumer, messageType);
 
-            await _inboxStore.MarkProcessedAsync(messageId, consumer, messageType, context.CancellationToken);
+            try
+            {
+                await next.Send(context);
+                await _inboxStore.PersistProcessedAsync(context.CancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                if (await _inboxStore.HasProcessedAsync(messageId, consumer, context.CancellationToken))
+                {
+                    _logger.LogInformation(
+                        "Discarded concurrent duplicate message {MessageId} of type {MessageType} on {Consumer}.",
+                        messageId,
+                        messageType,
+                        consumer);
+
+                    return;
+                }
+
+                throw;
+            }
         }
 
         public void Probe(ProbeContext context) => context.CreateFilterScope("inbox");

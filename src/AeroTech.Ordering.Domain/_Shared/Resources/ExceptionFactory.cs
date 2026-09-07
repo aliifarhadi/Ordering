@@ -1,4 +1,4 @@
-﻿using AeroTech.Framework.Core.Domain.Exceptions;
+using AeroTech.Framework.Core.Domain.Exceptions;
 
 namespace AeroTech.Ordering.Domain._Shared.Resources
 {
@@ -221,6 +221,30 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
 
         public static BusinessException FareReservationCouldNotBeValidated(string? detail) =>
             new(2607, Detail(detail, ExceptionMessages.FareReservationCouldNotBeValidated)) { HttpStatus = 502 };
+
+        // Durable operations and claims: 2700-2719
+        public static BusinessException OperationInProgress(params object?[] args) =>
+            new(2700, ExceptionMessages.OperationInProgress, args) { HttpStatus = 409 };
+
+        public static BusinessException OperationClaimNotHeld(params object?[] args) =>
+            new(2701, ExceptionMessages.OperationClaimNotHeld, args) { HttpStatus = 409 };
+
+        public static BusinessException OperationClaimGenerationStale(params object?[] args) =>
+            new(2702, ExceptionMessages.OperationClaimGenerationStale, args) { HttpStatus = 409 };
+
+        public static BusinessException IdempotencyPayloadConflict(params object?[] args) =>
+            new(2703, ExceptionMessages.IdempotencyPayloadConflict, args) { HttpStatus = 409 };
+
+        // Authenticated caller context: 2704-2709
+        public static BusinessException CallerContextUnavailable() =>
+            new(2704, ExceptionMessages.CallerContextUnavailable) { HttpStatus = 401 };
+
+        public static BusinessException CallerContextIncomplete(params object?[] args) =>
+            new(2705, ExceptionMessages.CallerContextIncomplete, args) { HttpStatus = 403 };
+
+        // Home operator identity: 2710-2719
+        public static BusinessException HomeOperatorNotProvisioned(params object?[] args) =>
+            new(2710, ExceptionMessages.HomeOperatorNotProvisioned, args) { HttpStatus = 500 };
 
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;

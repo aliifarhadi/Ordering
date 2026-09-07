@@ -23,7 +23,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             PaymentSummary = summary;
 
             TransitionTo(OrderStatus.Paid);
-            IncrementVersion();
 
             var paidAt = clock.GetDateTime();
 
@@ -48,7 +47,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             PaymentSummary = summary;
 
             TransitionTo(OrderStatus.PaymentFailed);
-            IncrementVersion();
 
             Causes(new OrderPaymentFailed(
                 idGenerator.NewId().ToString(),
@@ -66,7 +64,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             PaymentSummary = summary;
 
             TransitionTo(OrderStatus.PaymentUnconfirmed);
-            IncrementVersion();
 
             Causes(new OrderPaymentUnconfirmed(
                 idGenerator.NewId().ToString(),

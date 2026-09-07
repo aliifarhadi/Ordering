@@ -26,7 +26,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             TransitionTo(OrderStatus.Cancelled);
             TimeToLive = null;
-            IncrementVersion();
+            IncrementCommercialVersion();
 
             Causes(new OrderCancelled(
                 idGenerator.NewId().ToString(),
@@ -36,7 +36,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 AirlineOfficeId,
                 RecordLocator?.Value,
                 UniqueIdentifierId,
-                OrderVersion,
+                CommercialVersion,
                 Status,
                 Type,
                 Channel,

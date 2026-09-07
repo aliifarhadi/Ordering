@@ -33,7 +33,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             TimeToLive = null;
 
             TransitionTo(OrderStatus.Ticketed);
-            IncrementVersion();
 
             var issuedAt = clock.GetDateTime();
 
@@ -45,7 +44,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 AirlineOfficeId,
                 RecordLocator?.Value,
                 UniqueIdentifierId,
-                OrderVersion,
+                CommercialVersion,
                 Status,
                 Type,
                 Channel,
@@ -59,7 +58,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
         public void FailIssue(string reason, IIdGenerator idGenerator, IClock clock)
         {
             TransitionTo(OrderStatus.TicketingFailed);
-            IncrementVersion();
 
             Causes(new OrderIssueFailed(
                 idGenerator.NewId().ToString(),
@@ -73,7 +71,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
         public void MarkTicketingUnconfirmed(string detail, IIdGenerator idGenerator, IClock clock)
         {
             TransitionTo(OrderStatus.TicketingUnconfirmed);
-            IncrementVersion();
 
             Causes(new OrderTicketingUnconfirmed(
                 idGenerator.NewId().ToString(),

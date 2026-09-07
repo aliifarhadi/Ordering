@@ -160,7 +160,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 .Select(line => line with { OriginalLineId = pricingLineMap[line.LineId] })
                 .ToList();
 
-            IncrementVersion();
+            IncrementCommercialVersion();
 
             Causes(new OrderSplit(
                 idGenerator.NewId().ToString(),
@@ -170,7 +170,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 AirlineOfficeId,
                 RecordLocator?.Value,
                 UniqueIdentifierId,
-                OrderVersion,
+                CommercialVersion,
                 Status,
                 Type,
                 Channel,
@@ -185,7 +185,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     newOrder.Id,
                     newOrder.RecordLocator?.Value,
                     newOrder.UniqueIdentifierId,
-                    newOrder.OrderVersion,
+                    newOrder.CommercialVersion,
                     newOrder.Amount.GrandTotal,
                     newOrderLines)));
 

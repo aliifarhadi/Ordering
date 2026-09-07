@@ -29,7 +29,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             if (Status == OrderStatus.Ticketed && _orderServices.All(service => service.DocumentStatus != OrderServiceDocumentStatus.Issued))
                 TransitionTo(OrderStatus.Cancelled);
 
-            IncrementVersion();
+            IncrementCommercialVersion();
 
             var reversedLineIds = reversals.Select(line => line.Id).ToHashSet();
             var reversedLines = BuildPricingLines()
@@ -46,7 +46,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 AirlineOfficeId,
                 RecordLocator?.Value,
                 UniqueIdentifierId,
-                OrderVersion,
+                CommercialVersion,
                 Status,
                 Type,
                 Channel,

@@ -19,6 +19,7 @@ namespace AeroTech.Ordering.ReferenceData.Persistence
         public DbSet<AirportReadModel> Airports => Set<AirportReadModel>();
         public DbSet<AirportTerminalReadModel> AirportTerminals => Set<AirportTerminalReadModel>();
         public DbSet<CustomerReadModel> Customers => Set<CustomerReadModel>();
+        public DbSet<OperatorSettingsReadModel> OperatorSettings => Set<OperatorSettingsReadModel>();
         public DbSet<ReferenceSyncState> SyncStates => Set<ReferenceSyncState>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -77,6 +78,15 @@ namespace AeroTech.Ordering.ReferenceData.Persistence
                 entity.Property(customer => customer.Id).ValueGeneratedNever();
                 entity.Property(customer => customer.UniqueIdentifier).HasMaxLength(64);
                 entity.HasIndex(customer => customer.UniqueIdentifier);
+            });
+
+            modelBuilder.Entity<OperatorSettingsReadModel>(entity =>
+            {
+                entity.ToTable("OperatorSettings");
+                entity.HasKey(settings => settings.Id);
+                entity.Property(settings => settings.Id).ValueGeneratedNever();
+                entity.Property(settings => settings.ScopeKey).HasMaxLength(64).IsRequired();
+                entity.HasIndex(settings => settings.ScopeKey).IsUnique();
             });
 
             modelBuilder.Entity<ReferenceSyncState>(entity =>

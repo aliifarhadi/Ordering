@@ -34,7 +34,7 @@ namespace AeroTech.Ordering.Query.OrderAggregate.Dto
         [Grid("Comm.")] public string? CommissionAmount { get; set; }
         public string? CommissionRate { get; set; }
 
-        [Grid("Ver.")] public int OrderVersion { get; set; }
+        [Grid("Ver.")] public int CommercialVersion { get; set; }
 
         [Grid("TTL")] public DateTimeOffset? TimeToLive { get; set; }
         public RemainingTtlDto? RemainingTtl { get; set; }

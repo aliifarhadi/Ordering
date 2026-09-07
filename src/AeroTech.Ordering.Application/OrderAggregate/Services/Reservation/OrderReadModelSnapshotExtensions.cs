@@ -22,7 +22,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Reservation
                 order.Amount.TaxTotal,
                 order.Commission.CommissionAmount,
                 order.Commission.CommissionRate,
-                order.OrderVersion,
+                order.CommercialVersion,
                 order.LinkedOrderId,
                 order.LinkedPNR,
                 order.TimeToLive,

@@ -78,6 +78,9 @@ namespace AeroTech.Ordering.Query.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<int>("CommercialVersion")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("CommissionAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -111,9 +114,6 @@ namespace AeroTech.Ordering.Query.Migrations
                     b.Property<string>("LinkedPNR")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
-
-                    b.Property<int>("OrderVersion")
-                        .HasColumnType("int");
 
                     b.Property<int>("Pax")
                         .HasColumnType("int");

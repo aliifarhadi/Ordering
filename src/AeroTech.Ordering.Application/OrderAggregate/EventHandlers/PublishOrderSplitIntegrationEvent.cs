@@ -24,7 +24,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.EventHandlers
                 @event.AirlineOfficeId,
                 @event.RecordLocator,
                 @event.UniqueIdentifierId,
-                @event.Version,
+                @event.CommercialVersion,
                 @event.Status,
                 @event.Type,
                 @event.Channel,
@@ -39,7 +39,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.EventHandlers
                     @event.NewOrder.OrderId,
                     @event.NewOrder.RecordLocator,
                     @event.NewOrder.UniqueIdentifierId,
-                    @event.NewOrder.Version,
+                    @event.NewOrder.CommercialVersion,
                     @event.NewOrder.GrandTotal,
                     Map(@event.NewOrder.PricingLines))), @event, cancellationToken);
         }

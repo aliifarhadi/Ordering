@@ -215,6 +215,30 @@ namespace AeroTech.Ordering.ReferenceData.Migrations
                     b.ToTable("Customers", "ReferenceData");
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.ReferenceData.ReadModels.OperatorSettingsReadModel", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("HomeAirlineId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ScopeKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScopeKey")
+                        .IsUnique();
+
+                    b.ToTable("OperatorSettings", "ReferenceData");
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.ReferenceData.ReadModels.ReferenceSyncState", b =>
                 {
                     b.Property<string>("Id")

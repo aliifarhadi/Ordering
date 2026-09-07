@@ -24,7 +24,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.EventHandlers
                 @event.AirlineOfficeId,
                 @event.RecordLocator,
                 @event.UniqueIdentifierId,
-                @event.Version,
+                @event.CommercialVersion,
                 @event.Status,
                 @event.Type,
                 @event.Channel,

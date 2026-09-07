@@ -35,7 +35,7 @@ namespace AeroTech.Ordering.Query.OrderAggregate.Models
 
         public decimal CommissionRate { get; set; }
 
-        public int OrderVersion { get; set; }
+        public int CommercialVersion { get; set; }
 
         public long? LinkedOrderId { get; set; }
 

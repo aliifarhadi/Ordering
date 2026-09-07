@@ -92,5 +92,18 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string SeatHoldCouldNotBeReleased = "The seat hold '{0}' could not be released. {1}";
         public const string OfferCouldNotBeRetrieved = "The offer '{0}' could not be retrieved.";
         public const string FareReservationCouldNotBeValidated = "The fare reservation could not be validated.";
+
+        // Durable operations and claims
+        public const string OperationInProgress = "Operation {0} is already holding an unresolved servicing claim on order {1}.";
+        public const string OperationClaimNotHeld = "Operation {0} does not hold a servicing claim on order {1}.";
+        public const string OperationClaimGenerationStale = "The servicing claim on order {0} has advanced to generation {1}; generation {2} is stale.";
+        public const string IdempotencyPayloadConflict = "Idempotency key '{0}' for operation '{1}' was already used with a different request payload.";
+
+        // Authenticated caller context
+        public const string CallerContextUnavailable = "The request has no authenticated caller context.";
+        public const string CallerContextIncomplete = "The authenticated caller context is missing the required '{0}' claim.";
+
+        // Home operator identity
+        public const string HomeOperatorNotProvisioned = "The trusted home operator identity ('{0}') has not been synchronized from Core; the operation cannot establish its owning airline.";
     }
 }

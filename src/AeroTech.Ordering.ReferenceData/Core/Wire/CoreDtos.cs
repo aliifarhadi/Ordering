@@ -32,6 +32,14 @@ namespace AeroTech.Ordering.ReferenceData.Core.Wire
         public DateTimeOffset LastUpdateTime { get; set; }
     }
 
+    public sealed class OperatorSettingsDto : ISyncSourceDto<long>
+    {
+        public long Id { get; set; }
+        public string ScopeKey { get; set; } = default!;
+        public long HomeAirlineId { get; set; }
+        public DateTimeOffset LastUpdateTime { get; set; }
+    }
+
     public sealed class CustomerContactDto
     {
         public string? Email { get; set; }

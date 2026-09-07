@@ -168,7 +168,7 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
             target.TotalTax = snapshot.TotalTax;
             target.CommissionAmount = snapshot.CommissionAmount;
             target.CommissionRate = snapshot.CommissionRate;
-            target.OrderVersion = snapshot.OrderVersion;
+            target.CommercialVersion = snapshot.CommercialVersion;
             target.LinkedOrderId = snapshot.LinkedOrderId;
             target.LinkedPNR = snapshot.LinkedPNR;
             target.TimeToLive = snapshot.TimeToLive;

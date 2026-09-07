@@ -14,7 +14,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             TransitionTo(OrderStatus.Expired);
             TimeToLive = null;
-            IncrementVersion();
+            IncrementCommercialVersion();
 
             Causes(new OrderExpired(
                 idGenerator.NewId().ToString(),

@@ -14,19 +14,22 @@ namespace AeroTech.Ordering.ReferenceData.Api
         private readonly CitySyncer _citySyncer;
         private readonly AirportSyncer _airportSyncer;
         private readonly CustomerSyncer _customerSyncer;
+        private readonly OperatorSettingsSyncer _operatorSettingsSyncer;
 
         public ReferenceSyncController(
             CurrencySyncer currencySyncer,
             AirlineSyncer airlineSyncer,
             CitySyncer citySyncer,
             AirportSyncer airportSyncer,
-            CustomerSyncer customerSyncer)
+            CustomerSyncer customerSyncer,
+            OperatorSettingsSyncer operatorSettingsSyncer)
         {
             _currencySyncer = currencySyncer;
             _airlineSyncer = airlineSyncer;
             _citySyncer = citySyncer;
             _airportSyncer = airportSyncer;
             _customerSyncer = customerSyncer;
+            _operatorSettingsSyncer = operatorSettingsSyncer;
         }
 
         [HttpPost("Currencies")]
@@ -61,6 +64,13 @@ namespace AeroTech.Ordering.ReferenceData.Api
         public async Task<IActionResult> SyncCustomers(CancellationToken cancellationToken)
         {
             await _customerSyncer.SyncAsync(cancellationToken);
+            return Ok();
+        }
+
+        [HttpPost("OperatorSettings")]
+        public async Task<IActionResult> SyncOperatorSettings(CancellationToken cancellationToken)
+        {
+            await _operatorSettingsSyncer.SyncAsync(cancellationToken);
             return Ok();
         }
     }

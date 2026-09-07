@@ -4,7 +4,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Dto
         long OrderId,
         string? RecordLocator,
         Guid UniqueIdentifierId,
-        int Version,
+        int CommercialVersion,
         decimal GrandTotal,
         IReadOnlyList<PricingLineSnapshot> PricingLines);
 }

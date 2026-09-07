@@ -18,7 +18,7 @@ namespace AeroTech.Messages.Ordering.IntegrationEvents.V1
         decimal TotalTax,
         decimal CommissionAmount,
         decimal CommissionRate,
-        int OrderVersion,
+        int CommercialVersion,
         long? LinkedOrderId,
         string? LinkedPNR,
         DateTimeOffset? TimeToLive,
