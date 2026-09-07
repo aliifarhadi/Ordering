@@ -40,6 +40,8 @@ namespace AeroTech.Ordering.Persistence.Operations
             ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
             ArgumentException.ThrowIfNullOrWhiteSpace(requestHash);
 
+            OperationsWriteBoundary.EnsureNoPendingDomainState(_dbContext);
+
             var ownerAirlineId = await _homeOperatorProvider.GetOwnerAirlineIdAsync(cancellationToken);
             var callerScope = CallerScope.For(_callerContext);
 
@@ -58,6 +60,7 @@ namespace AeroTech.Ordering.Persistence.Operations
                 OperationName = operationName,
                 IdempotencyKey = idempotencyKey,
                 RequestHash = requestHash,
+                OperationId = _idGenerator.NewId(),
                 Status = CommandReceiptStatus.Pending,
                 CreatedAt = now,
                 UpdatedAt = now
@@ -67,7 +70,7 @@ namespace AeroTech.Ordering.Persistence.Operations
 
             try
             {
-                await _dbContext.SaveChangesAsync(cancellationToken);
+                await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
             }
             catch (DbUpdateException)
             {
@@ -117,6 +120,6 @@ namespace AeroTech.Ordering.Persistence.Operations
                 receipt.Status,
                 isReplay,
                 receipt.OrderId,
-                receipt.OperationId);
+                receipt.OperationId!.Value);
     }
 }

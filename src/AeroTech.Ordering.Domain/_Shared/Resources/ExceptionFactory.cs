@@ -242,6 +242,12 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException CallerContextIncomplete(params object?[] args) =>
             new(2705, ExceptionMessages.CallerContextIncomplete, args) { HttpStatus = 403 };
 
+        public static BusinessException OperationClaimConcurrentlyAcquired(params object?[] args) =>
+            new(2706, ExceptionMessages.OperationClaimConcurrentlyAcquired, args) { HttpStatus = 409 };
+
+        public static BusinessException OperationsWriteBoundaryViolated(params object?[] args) =>
+            new(2707, ExceptionMessages.OperationsWriteBoundaryViolated, args) { HttpStatus = 500 };
+
         // Home operator identity: 2710-2719
         public static BusinessException HomeOperatorNotProvisioned(params object?[] args) =>
             new(2710, ExceptionMessages.HomeOperatorNotProvisioned, args) { HttpStatus = 500 };

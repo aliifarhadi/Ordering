@@ -2,6 +2,7 @@ using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
+using Microsoft.EntityFrameworkCore;
 
 namespace AeroTech.Ordering.Persistence.Operations
 {
@@ -9,22 +10,20 @@ namespace AeroTech.Ordering.Persistence.Operations
     {
         private readonly OrderingDbContext _dbContext;
         private readonly IHomeOperatorProvider _homeOperatorProvider;
-        private readonly IIdGenerator _idGenerator;
         private readonly IClock _clock;
 
         public ServicingOperationStore(
             OrderingDbContext dbContext,
             IHomeOperatorProvider homeOperatorProvider,
-            IIdGenerator idGenerator,
             IClock clock)
         {
             _dbContext = dbContext;
             _homeOperatorProvider = homeOperatorProvider;
-            _idGenerator = idGenerator;
             _clock = clock;
         }
 
         public async Task<ServicingOperationRecord> PrepareAsync(
+            long operationId,
             long orderId,
             ServicingOperationKind kind,
             string requestHash,
@@ -34,13 +33,27 @@ namespace AeroTech.Ordering.Persistence.Operations
             CancellationToken cancellationToken = default)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(requestHash);
+            OperationsWriteBoundary.EnsureNoPendingDomainState(_dbContext);
+
+            var existing = await _dbContext.Set<ServicingOperation>()
+                .SingleOrDefaultAsync(operation => operation.Id == operationId, cancellationToken);
+
+            if (existing is not null)
+            {
+                existing.ClaimGeneration = claimGeneration;
+                existing.UpdatedAt = _clock.GetDateTime();
+
+                await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
+
+                return Project(existing);
+            }
 
             var ownerAirlineId = await _homeOperatorProvider.GetOwnerAirlineIdAsync(cancellationToken);
             var now = _clock.GetDateTime();
 
             var operation = new ServicingOperation
             {
-                Id = _idGenerator.NewId(),
+                Id = operationId,
                 OwnerAirlineId = ownerAirlineId,
                 OrderId = orderId,
                 CommandReceiptId = commandReceiptId,
@@ -54,15 +67,35 @@ namespace AeroTech.Ordering.Persistence.Operations
             };
 
             _dbContext.Set<ServicingOperation>().Add(operation);
-            await _dbContext.SaveChangesAsync(cancellationToken);
 
-            return new ServicingOperationRecord(
+            try
+            {
+                await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                _dbContext.Entry(operation).State = EntityState.Detached;
+
+                var winner = await _dbContext.Set<ServicingOperation>()
+                    .AsNoTracking()
+                    .SingleOrDefaultAsync(candidate => candidate.Id == operationId, cancellationToken);
+
+                if (winner is null)
+                    throw;
+
+                return Project(winner);
+            }
+
+            return Project(operation);
+        }
+
+        private static ServicingOperationRecord Project(ServicingOperation operation)
+            => new(
                 operation.Id,
                 operation.OwnerAirlineId,
                 operation.OrderId,
                 operation.Kind,
                 operation.Status,
                 operation.ClaimGeneration);
-        }
     }
 }

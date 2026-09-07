@@ -146,10 +146,10 @@ namespace AeroTech.Ordering.Persistence.Tests.Operations
             var store = new ServicingOperationStore(
                 command,
                 new ReferenceDataHomeOperatorProvider(reference),
-                new TestIdGenerator(),
                 new OrderingDatabaseFixture.FixedClock());
 
-            var operation = await store.PrepareAsync(NewId(), ServicingOperationKind.Cancel, "hash", claimGeneration: 1);
+            var operation = await store.PrepareAsync(
+                NewId(), NewId(), ServicingOperationKind.Cancel, "hash", claimGeneration: 1);
 
             Assert.Equal(HomeAirlineId, operation.OwnerAirlineId);
             Assert.Equal(ServicingOperationStatus.Prepared, operation.Status);

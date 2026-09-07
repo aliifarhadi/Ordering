@@ -97,6 +97,8 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string OperationInProgress = "Operation {0} is already holding an unresolved servicing claim on order {1}.";
         public const string OperationClaimNotHeld = "Operation {0} does not hold a servicing claim on order {1}.";
         public const string OperationClaimGenerationStale = "The servicing claim on order {0} has advanced to generation {1}; generation {2} is stale.";
+        public const string OperationClaimConcurrentlyAcquired = "Another recovery worker acquired the servicing claim on order {0} while this one was taking it.";
+        public const string OperationsWriteBoundaryViolated = "Durable operation state cannot be persisted while unrelated changes are pending on the unit of work: {0}.";
         public const string IdempotencyPayloadConflict = "Idempotency key '{0}' for operation '{1}' was already used with a different request payload.";
 
         // Authenticated caller context

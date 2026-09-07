@@ -24,6 +24,8 @@ namespace AeroTech.Ordering.Persistence.Operations
             DateTimeOffset recoveryLeaseUntil,
             CancellationToken cancellationToken = default)
         {
+            OperationsWriteBoundary.EnsureNoPendingDomainState(_dbContext);
+
             var existing = await BlockingClaimQuery(orderId).SingleOrDefaultAsync(cancellationToken);
 
             if (existing is not null)
@@ -34,7 +36,15 @@ namespace AeroTech.Ordering.Persistence.Operations
                 existing.Generation++;
                 existing.RecoveryLeaseUntil = recoveryLeaseUntil;
 
-                await _dbContext.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    _dbContext.Entry(existing).State = EntityState.Detached;
+                    throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
+                }
 
                 return Project(existing);
             }
@@ -54,7 +64,7 @@ namespace AeroTech.Ordering.Persistence.Operations
 
             try
             {
-                await _dbContext.SaveChangesAsync(cancellationToken);
+                await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
             }
             catch (DbUpdateException)
             {
@@ -65,7 +75,10 @@ namespace AeroTech.Ordering.Persistence.Operations
                 if (winner is null)
                     throw;
 
-                throw ExceptionFactory.OperationInProgress(winner.OperationId, orderId);
+                if (winner.OperationId != operationId)
+                    throw ExceptionFactory.OperationInProgress(winner.OperationId, orderId);
+
+                throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
             }
 
             return Project(claim);

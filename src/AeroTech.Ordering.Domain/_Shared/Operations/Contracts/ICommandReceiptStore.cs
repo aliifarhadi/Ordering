@@ -11,7 +11,7 @@ namespace AeroTech.Ordering.Domain._Shared.Operations.Contracts
         CommandReceiptStatus Status,
         bool IsReplay,
         long? OrderId,
-        long? OperationId);
+        long OperationId);
 
     public interface ICommandReceiptStore
     {

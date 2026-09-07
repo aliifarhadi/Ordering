@@ -13,6 +13,7 @@ namespace AeroTech.Ordering.Domain._Shared.Operations.Contracts
     public interface IServicingOperationStore
     {
         Task<ServicingOperationRecord> PrepareAsync(
+            long operationId,
             long orderId,
             ServicingOperationKind kind,
             string requestHash,

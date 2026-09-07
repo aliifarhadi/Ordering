@@ -10,6 +10,7 @@ namespace AeroTech.Ordering.Persistence.Operations
             builder.ToTable("OperationOrderClaims");
             builder.HasKey(claim => claim.Id);
             builder.Property(claim => claim.Id).ValueGeneratedNever();
+            builder.Property(claim => claim.RowVersion).IsRowVersion();
 
             builder
                 .HasIndex(claim => claim.OrderId)

@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AeroTech.Ordering.Persistence.Operations
 {
     public sealed class OperationOrderClaim
@@ -17,5 +19,8 @@ namespace AeroTech.Ordering.Persistence.Operations
         public DateTimeOffset RecoveryLeaseUntil { get; set; }
 
         public DateTimeOffset? ResolvedAt { get; set; }
+
+        [Timestamp]
+        public byte[] RowVersion { get; set; } = null!;
     }
 }

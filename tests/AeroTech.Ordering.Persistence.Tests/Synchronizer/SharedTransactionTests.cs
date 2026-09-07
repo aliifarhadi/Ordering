@@ -93,6 +93,88 @@ namespace AeroTech.Ordering.Persistence.Tests.Synchronizer
         }
 
         [Fact]
+        public async Task A_caller_owned_transaction_leaves_no_association_after_commit()
+        {
+            var id = NewId();
+
+            await using var command = _fixture.NewCommandContext();
+            await using var query = _fixture.NewQueryContext();
+
+            query.Database.SetDbConnection(command.Database.GetDbConnection(), contextOwnsConnection: false);
+
+            await using (var ambient = await command.Database.BeginTransactionAsync())
+            {
+                command.Set<CommandReceipt>().Add(Receipt(id));
+                query.Orders.Add(ReadModel(id));
+
+                await new OrderingUnitOfWork(command, query).SaveChangesAsync();
+
+                Assert.Null(query.Database.CurrentTransaction);
+
+                await ambient.CommitAsync();
+            }
+
+            Assert.Null(query.Database.CurrentTransaction);
+
+            await using var verification = _fixture.NewQueryContext();
+            Assert.True(await verification.Orders.AnyAsync(order => order.Id == id));
+        }
+
+        [Fact]
+        public async Task A_caller_owned_transaction_leaves_no_association_after_rollback()
+        {
+            var id = NewId();
+
+            await using var command = _fixture.NewCommandContext();
+            await using var query = _fixture.NewQueryContext();
+
+            query.Database.SetDbConnection(command.Database.GetDbConnection(), contextOwnsConnection: false);
+
+            await using (var ambient = await command.Database.BeginTransactionAsync())
+            {
+                command.Set<CommandReceipt>().Add(Receipt(id));
+                query.Orders.Add(ReadModel(id));
+
+                await new OrderingUnitOfWork(command, query).SaveChangesAsync();
+                await ambient.RollbackAsync();
+            }
+
+            Assert.Null(query.Database.CurrentTransaction);
+        }
+
+        [Fact]
+        public async Task The_scoped_query_context_is_reusable_after_an_external_transaction_ends()
+        {
+            var discardedId = NewId();
+
+            await using var command = _fixture.NewCommandContext();
+            await using var query = _fixture.NewQueryContext();
+
+            query.Database.SetDbConnection(command.Database.GetDbConnection(), contextOwnsConnection: false);
+
+            await using (var ambient = await command.Database.BeginTransactionAsync())
+            {
+                command.Set<CommandReceipt>().Add(Receipt(discardedId));
+                query.Orders.Add(ReadModel(discardedId));
+
+                await new OrderingUnitOfWork(command, query).SaveChangesAsync();
+                await ambient.RollbackAsync();
+            }
+
+            var survivingId = NewId();
+
+            command.Set<CommandReceipt>().Add(Receipt(survivingId));
+            query.Orders.Add(ReadModel(survivingId));
+
+            await new OrderingUnitOfWork(command, query).SaveChangesAsync();
+
+            await using var verification = _fixture.NewQueryContext();
+
+            Assert.False(await verification.Orders.AnyAsync(order => order.Id == discardedId));
+            Assert.True(await verification.Orders.AnyAsync(order => order.Id == survivingId));
+        }
+
+        [Fact]
         public async Task A_rolled_back_projection_leaves_the_read_model_untouched()
         {
             var orderId = NewId();

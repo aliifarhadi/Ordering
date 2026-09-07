@@ -44,10 +44,6 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                 await transaction.RollbackAsync(cancellationToken);
                 throw;
             }
-            finally
-            {
-                await _queryDbContext.Database.UseTransactionAsync(null, cancellationToken);
-            }
         }
 
         private async Task<int> SaveBothAsync(DbTransaction transaction, CancellationToken cancellationToken)
@@ -55,10 +51,23 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
             ShareConnection();
             await _queryDbContext.Database.UseTransactionAsync(transaction, cancellationToken);
 
-            var affected = await _commandDbContext.SaveChangesAsync(cancellationToken);
-            await _queryDbContext.SaveChangesAsync(cancellationToken);
+            try
+            {
+                var affected = await _commandDbContext.SaveChangesAsync(cancellationToken);
+                await _queryDbContext.SaveChangesAsync(cancellationToken);
 
-            return affected;
+                return affected;
+            }
+            finally
+            {
+                await DetachQueryTransactionAsync(cancellationToken);
+            }
+        }
+
+        private async Task DetachQueryTransactionAsync(CancellationToken cancellationToken)
+        {
+            if (_queryDbContext.Database.CurrentTransaction is not null)
+                await _queryDbContext.Database.UseTransactionAsync(null, cancellationToken);
         }
 
         private void ShareConnection()

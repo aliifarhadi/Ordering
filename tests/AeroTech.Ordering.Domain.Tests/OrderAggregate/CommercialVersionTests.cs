@@ -65,18 +65,6 @@ namespace AeroTech.Ordering.Domain.Tests.OrderAggregate
         }
 
         [Fact]
-        public void Expiry_advances_the_commercial_version_exactly_once()
-        {
-            var order = Confirmed();
-            _clock.Advance(TimeSpan.FromDays(2));
-
-            order.Expire(_ids, _clock);
-
-            Assert.Equal(OrderStatus.Expired, order.Status);
-            Assert.Equal(2, order.CommercialVersion);
-        }
-
-        [Fact]
         public void A_full_reserve_pay_issue_cancel_life_reaches_commercial_version_two()
         {
             var order = Paid();

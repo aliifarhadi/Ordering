@@ -1,0 +1,2 @@
+Passed!  - Failed:     0, Passed:    30, Skipped:     0, Total:    30, Duration: 267 ms - AeroTech.Ordering.Domain.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:    91, Skipped:     0, Total:    91, Duration: 11 s - AeroTech.Ordering.Persistence.Tests.dll (net10.0)

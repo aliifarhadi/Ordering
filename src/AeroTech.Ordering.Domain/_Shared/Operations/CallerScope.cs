@@ -8,6 +8,7 @@ namespace AeroTech.Ordering.Domain._Shared.Operations
     public static class CallerScope
     {
         public const string Separator = "|";
+        public const string ContextPartSeparator = "+";
 
         public static string For(ICallerContext caller)
         {
@@ -29,26 +30,42 @@ namespace AeroTech.Ordering.Domain._Shared.Operations
         {
             BusinessContextType.Airline => AuthorizationContextScopeKey.AirlineOffice(
                 Required(caller.AirlineOfficeId, ClaimNames.AirlineOfficeId)),
-            BusinessContextType.TravelAgency => AuthorizationContextScopeKey.TravelAgency(
-                Required(caller.TravelAgencyId, ClaimNames.TravelAgencyId)),
+
+            BusinessContextType.TravelAgency => string.Join(
+                ContextPartSeparator,
+                AuthorizationContextScopeKey.TravelAgency(Required(caller.TravelAgencyId, ClaimNames.TravelAgencyId)),
+                AuthorizationContextScopeKey.TravelAgencyOffice(
+                    Required(caller.TravelAgencyOfficeId, ClaimNames.TravelAgencyOfficeId))),
+
             BusinessContextType.Individual => AuthorizationContextScopeKey.Individual(
                 Required(caller.IndividualId, ClaimNames.IndividualId)),
-            BusinessContextType.PartnerApi => AuthorizationContextScopeKey.PartnerApiAccessProfile(
-                Required(caller.PartnerApiAccessProfileId, ClaimNames.PartnerApiAccessProfileId)),
-            BusinessContextType.Service => contextType.ToString(),
-            BusinessContextType.Global => contextType.ToString(),
+
+            BusinessContextType.PartnerApi => PartnerApiKey(caller),
+
+            BusinessContextType.Service => $"{BusinessContextType.Service}:{Required(caller.ServiceCode, ClaimNames.ServiceCode)}",
+
+            BusinessContextType.Global => BusinessContextType.Global.ToString(),
+
             _ => throw ExceptionFactory.CallerContextIncomplete(ClaimNames.ContextType)
         };
 
+        private static string PartnerApiKey(ICallerContext caller)
+        {
+            var profile = AuthorizationContextScopeKey.PartnerApiAccessProfile(
+                Required(caller.PartnerApiAccessProfileId, ClaimNames.PartnerApiAccessProfileId));
+
+            return caller.TravelAgencyOfficeId is { } officeId
+                ? string.Join(ContextPartSeparator, profile, AuthorizationContextScopeKey.TravelAgencyOffice(officeId))
+                : profile;
+        }
+
         private static string PrincipalKey(ICallerContext caller)
         {
-            if (caller.PrincipalType == Messages.Aegis.Enums.PrincipalType.Human)
-                return $"Subject:{Required(caller.Subject, ClaimNames.Subject)}";
+            var subject = $"Subject:{Required(caller.Subject, ClaimNames.Subject)}";
 
-            if (!string.IsNullOrWhiteSpace(caller.ClientId))
-                return $"Client:{caller.ClientId}";
-
-            return $"Subject:{Required(caller.Subject, ClaimNames.Subject)}";
+            return string.IsNullOrWhiteSpace(caller.ClientId)
+                ? subject
+                : string.Join(ContextPartSeparator, subject, $"Client:{caller.ClientId}");
         }
 
         private static long Required(long? value, string claim)
@@ -64,8 +81,10 @@ namespace AeroTech.Ordering.Domain._Shared.Operations
             public const string AuthorizationSurface = "authz_surface";
             public const string AirlineOfficeId = "airline_office_id";
             public const string TravelAgencyId = "travel_agency_id";
+            public const string TravelAgencyOfficeId = "travel_agency_office_id";
             public const string IndividualId = "individual_id";
             public const string PartnerApiAccessProfileId = "partner_api_access_profile_id";
+            public const string ServiceCode = "service_code";
         }
     }
 }

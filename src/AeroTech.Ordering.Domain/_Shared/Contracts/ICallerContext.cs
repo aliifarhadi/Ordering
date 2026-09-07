@@ -25,13 +25,15 @@ namespace AeroTech.Ordering.Domain._Shared.Contracts
 
         long? TravelAgencyId { get; }
 
-        IReadOnlyCollection<long> TravelAgencyOfficeIds { get; }
+        long? TravelAgencyOfficeId { get; }
 
         long? IndividualId { get; }
 
         long? PartnerApiAccessProfileId { get; }
 
         long? CustomerId { get; }
+
+        string? ServiceCode { get; }
 
         long? ActorId { get; }
     }

@@ -26,7 +26,9 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
 
         public long? TravelAgencyId { get; set; }
 
-        public IReadOnlyCollection<long> TravelAgencyOfficeIds { get; set; } = [];
+        public long? TravelAgencyOfficeId { get; set; }
+
+        public string? ServiceCode { get; set; }
 
         public long? IndividualId { get; set; }
 
@@ -43,6 +45,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             PrincipalType = Messages.Aegis.Enums.PrincipalType.Human,
             AuthorizationSurface = Messages.Shared.Enums.AuthorizationSurface.OtaPanel,
             TravelAgencyId = agencyId,
+            TravelAgencyOfficeId = 5001,
             TravelAgencyUserId = 500
         };
 
@@ -56,13 +59,15 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             AirlineUserId = 900
         };
 
-        public static FakeCallerContext AgencyApiClient(long agencyId, string clientId) => new()
+        public static FakeCallerContext AgencyApiClient(long agencyId, string clientId, string subject = "machine-subject") => new()
         {
+            Subject = subject,
             ClientId = clientId,
             ContextType = BusinessContextType.TravelAgency,
             PrincipalType = Messages.Aegis.Enums.PrincipalType.TravelAgencyApi,
             AuthorizationSurface = Messages.Shared.Enums.AuthorizationSurface.Api,
-            TravelAgencyId = agencyId
+            TravelAgencyId = agencyId,
+            TravelAgencyOfficeId = 5001
         };
     }
 }

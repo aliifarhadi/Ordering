@@ -20,6 +20,7 @@ namespace AeroTech.Ordering.ServiceHost.CallerContext
         public const string IndividualIdClaim = "individual_id";
         public const string PartnerApiAccessProfileIdClaim = "partner_api_access_profile_id";
         public const string CustomerIdClaim = "customer_id";
+        public const string ServiceCodeClaim = "service_code";
 
         private readonly IHttpContextAccessor _httpContextAccessor;
 
@@ -36,7 +37,7 @@ namespace AeroTech.Ordering.ServiceHost.CallerContext
 
         public BusinessContextType? ContextType => ReadEnum<BusinessContextType>(ContextTypeClaim);
 
-        public PrincipalType? PrincipalType => ReadEnum<PrincipalType>(PrincipalTypeClaim);
+        public PrincipalType? PrincipalType => PrincipalTypeTokens.Parse(Read(PrincipalTypeClaim));
 
         public AuthorizationSurface? AuthorizationSurface => ReadEnum<AuthorizationSurface>(AuthorizationSurfaceClaim);
 
@@ -48,20 +49,15 @@ namespace AeroTech.Ordering.ServiceHost.CallerContext
 
         public long? TravelAgencyId => ReadId(TravelAgencyIdClaim);
 
-        public IReadOnlyCollection<long> TravelAgencyOfficeIds =>
-            !IsAuthenticated
-                ? []
-                : [.. Principal!
-                    .FindAll(TravelAgencyOfficeIdClaim)
-                    .Select(claim => long.TryParse(claim.Value, out var id) ? id : (long?)null)
-                    .Where(id => id.HasValue)
-                    .Select(id => id!.Value)];
+        public long? TravelAgencyOfficeId => ReadId(TravelAgencyOfficeIdClaim);
 
         public long? IndividualId => ReadId(IndividualIdClaim);
 
         public long? PartnerApiAccessProfileId => ReadId(PartnerApiAccessProfileIdClaim);
 
         public long? CustomerId => ReadId(CustomerIdClaim);
+
+        public string? ServiceCode => Read(ServiceCodeClaim);
 
         public long? ActorId =>
             AirlineUserId
