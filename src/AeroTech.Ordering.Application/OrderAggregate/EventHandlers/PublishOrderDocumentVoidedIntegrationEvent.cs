@@ -1,0 +1,58 @@
+using AeroTech.Framework.Core.ServiceContracts;
+using AeroTech.Ordering.Application._Shared.Events;
+using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
+using MediatR;
+using IntegrationEvent = AeroTech.Messages.Ordering.IntegrationEvents.V1.OrderDocumentVoided;
+using IntegrationPricingLine = AeroTech.Messages.Ordering.IntegrationEvents.V1.OrderDocumentVoidedPricingLine;
+
+namespace AeroTech.Ordering.Application.OrderAggregate.EventHandlers
+{
+    public sealed class PublishOrderDocumentVoidedIntegrationEvent : INotificationHandler<DomainEventNotification<OrderDocumentVoided>>
+    {
+        private readonly IOutboxWriter _outboxWriter;
+
+        public PublishOrderDocumentVoidedIntegrationEvent(IOutboxWriter outboxWriter) => _outboxWriter = outboxWriter;
+
+        public Task Handle(DomainEventNotification<OrderDocumentVoided> notification, CancellationToken cancellationToken)
+        {
+            var @event = notification.DomainEvent;
+
+            return _outboxWriter.WriteAsync(new IntegrationEvent(
+                @event.DocumentId,
+                @event.DocumentNumber,
+                @event.OrderId,
+                @event.AirlineOfficeId,
+                @event.RecordLocator,
+                @event.UniqueIdentifierId,
+                @event.Version,
+                @event.Status,
+                @event.Type,
+                @event.Channel,
+                @event.GrandTotal,
+                @event.CurrencyId,
+                @event.CustomerId,
+                @event.Reason,
+                @event.VoidedBy,
+                @event.VoidedAt,
+                @event.ReversedAmount,
+                @event.PricingLines
+                    .Select(line => new IntegrationPricingLine(
+                        line.LineId,
+                        line.OriginalLineId,
+                        line.Amount,
+                        line.CurrencyId,
+                        line.EquivalentAmount,
+                        line.RateOfExchange,
+                        line.NumberOfDecimalPlaces,
+                        line.RateOfExchangeId,
+                        line.RoundingFactor,
+                        line.Category,
+                        line.Direction,
+                        line.Code,
+                        line.Description,
+                        line.Reference,
+                        line.DocumentCouponId))
+                    .ToList()), @event, cancellationToken);
+        }
+    }
+}

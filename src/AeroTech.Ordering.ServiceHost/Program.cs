@@ -1,0 +1,37 @@
+using AeroTech.Framework.Infrastructure;
+using AeroTech.Framework.Presentation.Extensions;
+using AeroTech.Ordering.Application;
+using AeroTech.Ordering.Consumers;
+using AeroTech.Ordering.Persistence;
+using AeroTech.Ordering.Providers;
+using AeroTech.Ordering.Query;
+using AeroTech.Ordering.ReferenceData;
+using AeroTech.Ordering.RestApi;
+using AeroTech.Ordering.Synchronizer;
+using Serilog;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, configuration) =>
+    configuration.ReadFrom.Configuration(context.Configuration).Enrich.FromLogContext().WriteTo.Console());
+
+builder.Services
+    .AddFrameworkInfrastructure(builder.Configuration)
+    .AddPersistence(builder.Configuration)
+    .AddProviders(builder.Configuration)
+    .AddQuery(builder.Configuration)
+    .AddSynchronizer()
+    .AddConsumers(builder.Configuration)
+    .AddApplication(builder.Configuration)
+    .AddReferenceData(builder.Configuration)
+    .AddPresentation(builder.Configuration, typeof(RestApiAssembly).Assembly, typeof(ReferenceDataAssembly).Assembly);
+
+var app = builder.Build();
+
+app.UsePresentation();
+
+app.Run();
+
+public partial class Program
+{
+}

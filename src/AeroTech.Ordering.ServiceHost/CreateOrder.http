@@ -1,0 +1,78 @@
+@host = http://localhost:5055
+
+### Health
+GET {{host}}/health
+
+### Ping
+GET {{host}}/api/v1/ping
+
+### Create order
+# Before running:
+#   1) Replace "offerId" with a REAL offer id served by the Offer service (Providers:Offer:BaseUrl, e.g. localhost:5095).
+#   2) Each traveller "index" must match the offer's TravellerIndex.
+#   3) Each seatSelections "boundId" must match a BoundId from the offer's bounds.
+# Enums are sent as strings:
+#   channel: IBE | BackOffice | API | GUI | GDS | System
+#   passengerType: ADT | CHD | INF | ...        ageRange: Adult | Child | Infant
+#   gender: Female | Male | UnSpecified | UnDisclosed
+#   document type: Passport | Identity | Visa | Redress | KnownTraveller
+#   contact point type: Email | Phone | Sms | WhatsApp | Telegram
+POST {{host}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "customerId": 1001,
+  "channel": "IBE",
+  "creatorUserId": 5001,
+  "officeId": 20,
+  "offerId": "REPLACE_WITH_A_REAL_OFFER_ID",
+  "commissionRate": 0,
+  "travellers": [
+    {
+      "index": 0,
+      "parentIndex": null,
+      "firstName": "JOHN",
+      "surName": "DOE",
+      "noSurname": false,
+      "passengerType": "ADT",
+      "ageRange": "Adult",
+      "dateOfBirth": "1990-05-15",
+      "gender": "Male",
+      "nationalityId": 364,
+      "countryOfResidenceId": 364,
+      "documents": [
+        {
+          "type": "Passport",
+          "number": "A12345678",
+          "expiryDate": "2032-01-01",
+          "issuanceCountryId": 364,
+          "holder": true
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "parentIndex": 0,
+      "firstName": "BABY",
+      "surName": "DOE",
+      "noSurname": false,
+      "passengerType": "INF",
+      "ageRange": "Infant",
+      "dateOfBirth": "2024-03-01",
+      "gender": "Female",
+      "nationalityId": 364,
+      "countryOfResidenceId": 364,
+      "documents": []
+    }
+  ],
+  "contact": {
+    "contactName": "John Doe",
+    "contactPoints": [
+      { "type": "Email", "value": "john.doe@example.com", "countryCode": null, "isPrimary": true },
+      { "type": "WhatsApp", "value": "9123456789", "countryCode": "98", "isPrimary": false }
+    ]
+  },
+  "seatSelections": [
+    { "boundId": "REPLACE_WITH_A_REAL_BOUND_ID", "travellerIndex": 0, "seatNumber": "12A" }
+  ]
+}

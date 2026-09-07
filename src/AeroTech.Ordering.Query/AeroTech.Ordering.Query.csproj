@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Framework\AeroTech.Framework.Infrastructure\AeroTech.Framework.Infrastructure.csproj" />
+    <ProjectReference Include="..\AeroTech.Ordering.Application\AeroTech.Ordering.Application.csproj" />
+    <ProjectReference Include="..\AeroTech.Ordering.Providers\AeroTech.Ordering.Providers.csproj" />
+    <ProjectReference Include="..\AeroTech.Ordering.ReferenceData\AeroTech.Ordering.ReferenceData.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

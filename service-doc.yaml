@@ -1,0 +1,113 @@
+---
+name: DotAir.AeroTech.OrderingFlow #name of service , usually name of project in gitlab
+stack: indra #name of the stack that this service belongs to , zii or indra
+ingress:
+  enable: true # If you whant Ingress resource
+description: 'DotAir OrderingFlow Service' # a one line description of service
+Edge: true  # if your service directly listens to user traffic set true , and if it's internal set false 
+project:
+  source: https://git.alibaba.ir/dotair/aerotech.orderingflow
+  docs: https://git.alibaba.ir/dotair/aerotech.orderingflow/-/tree/k8s-stg/Documents
+  endpoint:
+    container_port: 80
+    expose_port: 80
+  url:
+    staging: https://ws.indraproject.ir/dotair/order # service endpoint in staging environment
+    production: https://ws.dotair.ir/order # service endpoint in production environment
+
+dependencies: #define your service dependencies and dependents 
+  upstream:
+   
+  downstream:
+    - "Frontend"
+  services:
+    - SQLServer
+    - Redis 
+    - Rabbitmq
+    - Kafka
+dependentQueuesOnEventBus:
+    
+
+maintainers: 
+  id: al.farhadi # Company id of maintainer 
+  email: al.farhadi@alibaba.ir 
+  
+## Specify EnvFrom Resources
+envFrom:
+  - configMapRef:
+      name: aerotech.orderingflow-configmap
+  - secretRef:
+      name: aerotech.orderingflow-secret
+
+livenessProbe:
+  httpGet:
+    scheme: HTTP
+    path: /health
+    port: 80
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    scheme: HTTP
+    path: /health
+    port: 80
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+resources: # required resources per pod 
+  dev:
+    replica: 3
+    hpa: false
+    requests: 
+      memory: "256Mi" 
+      cpu: "500m"
+      minReplica: 3
+    limits:
+      memory: "256Mi"
+      cpu: "500m"
+      maxReplica: 5 
+  staging:
+    requests: # minimum required resources for service to function
+      memory: "128Mi" 
+      cpu: "500m"
+      minReplica: 2 #minium number of pods for service 
+    limits: #maximum required amount of resource for service to function
+      memory: "1024Mi"
+      cpu: "2000m"
+      maxReplica: 5 #maximum number of pods for service 
+  production:
+    requests: # minimum required resources for service to function
+      memory: "4096Mi" 
+      cpu: "2000m"
+      minReplica: 5 #minium number of pods for service 
+    limits: #maximum required amount of resource for service to function
+      memory: "2048Mi"
+      cpu: "1000m"
+      maxReplica: 20 #maximum number of pods for service 
+
+Ingress:
+   dev:        
+    enabled: false         
+    rules:
+    - host: aerotech.orderingflow.projectzii.ir
+      path: /
+    className: ingress-dev
+   staging:        
+    enabled: true         
+    rules:
+    - host: aerotech-orderingflow.indraproject.ir
+      path: /
+    className: nginx
+
+test: # if this endpoint gets called , service integration tests shall be run
+  address: /test
+  healthy: 200
+  unhealthyorDegraded: 503 
+
+# Providers Info # Needed by infrastructure team in build time
+buildTimeProviders:
+  endpoint01: 
+    name: "nuget"
+    destinationAddress: "nuget.org"
+    description: "dotnet package manager"
