@@ -42,6 +42,14 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
             return Ok(result);
         }
 
+        [HttpGet("{orderId:long}")]
+        public async Task<IActionResult> Get([FromRoute] long orderId, CancellationToken cancellationToken)
+        {
+            var order = await _mediator.Send(new GetOrderDetailsQuery(orderId), cancellationToken);
+
+            return order is null ? NotFound() : Ok(order);
+        }
+
         [HttpPost("{orderId:long}/Change")]
         public async Task<IActionResult> Change(
             [FromRoute] long orderId,

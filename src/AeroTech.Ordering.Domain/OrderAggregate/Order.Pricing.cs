@@ -1,6 +1,7 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
+using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.OrderAggregate.Dto;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
@@ -91,6 +92,107 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             return staged.ChangeSet;
         }
+
+        internal void RaisePricingChanged(
+            OrderChange change,
+            OrderPriceChangeSet changeSet,
+            IIdGenerator idGenerator,
+            DateTimeOffset now)
+        {
+            var lines = _pricingLines.Where(line => line.PriceChangeSetId == changeSet.Id).ToList();
+
+            Causes(new OrderPricingChanged(
+                idGenerator.NewId().ToString(),
+                Id.ToString(),
+                now,
+                Id,
+                OwnerAirlineId,
+                change.Id,
+                change.OperationId,
+                changeSet.Id,
+                changeSet.FinancialSequence,
+                CommercialVersion,
+                NextEventOrdinal(),
+                ObligationVersion,
+                changeSet.Reason,
+                changeSet.Source,
+                changeSet.SourceOfferId,
+                changeSet.SourcePricingRef,
+                changeSet.CommittedAt ?? now,
+                CurrencyId,
+                lines.Where(line => line.AffectsCustomerBalance).Sum(line => line.SignedSaleAmount),
+                CustomerTotal,
+                lines.Select(DescribePricingLine).ToList()));
+        }
+
+        private static PricingChangeLine DescribePricingLine(OrderPricingLine line)
+            => new(
+                line.Id,
+                line.ComponentType,
+                line.Effect,
+                line.Direction,
+                line.LineRole,
+                line.OriginalAmount,
+                line.OriginalCurrencyId,
+                line.SaleAmount,
+                line.SaleCurrencyId,
+                DescribeExchangeRate(line.ExchangeRate),
+                line.Refundability,
+                line.BasisType,
+                line.BasisReferenceId,
+                line.OrderItemId,
+                line.ApplicationLevel,
+                line.Quantity,
+                line.UnitOfMeasure,
+                line.UnitPrice,
+                line.Code,
+                line.Description,
+                line.SourceLineRef,
+                line.OccurrenceKey,
+                line.OriginalPricingLineId,
+                line.OriginalAllocationId,
+                line.RelatedOperationId,
+                line.SettlementPartyRef,
+                line.SettlementCategory,
+                line.AllocationSets.Select(DescribeAllocationSet).ToList());
+
+        private static PricingChangeAllocationSet DescribeAllocationSet(OrderPricingAllocationSet set)
+            => new(
+                set.Id,
+                set.Purpose,
+                set.Version,
+                set.Source,
+                set.Method,
+                set.Completeness,
+                set.SupersedesAllocationSetId,
+                set.PricingContextRef,
+                set.PolicyVersion,
+                set.Allocations.Select(DescribeAllocation).ToList());
+
+        private static PricingChangeAllocation DescribeAllocation(OrderPricingAllocation allocation)
+            => new(
+                allocation.Id,
+                allocation.SaleAmount,
+                allocation.SaleCurrencyId,
+                allocation.OrderItemIdAtAllocation,
+                allocation.OrderServiceId,
+                allocation.TravellerId,
+                allocation.ItineraryIdAtAllocation,
+                allocation.SegmentIdAtAllocation,
+                allocation.CoveragePortionRef,
+                allocation.OriginalAmount,
+                allocation.OriginalCurrencyId,
+                DescribeExchangeRate(allocation.ExchangeRate),
+                allocation.OriginalAllocationId);
+
+        private static PricingChangeExchangeRate? DescribeExchangeRate(ValueObjects.ExchangeRate? rate)
+            => rate is null
+                ? null
+                : new PricingChangeExchangeRate(
+                    rate.RateOfExchange,
+                    rate.NumberOfDecimalPlaces,
+                    rate.RateOfExchangeId,
+                    rate.RoundingFactor);
 
         private OrderPricingLine StagePricingLine(
             OrderPriceChangeSet changeSet,

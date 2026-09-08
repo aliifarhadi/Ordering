@@ -155,6 +155,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 CustomerTotal,
                 CurrencyId));
 
+            RaisePricingChanged(staged.Change, changeSet, idGenerator, now);
+
             return new AddedProduct(
                 staged.Change.Id,
                 staged.Item.Id,

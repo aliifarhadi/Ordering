@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
+using AeroTech.Ordering.Query.OrderAggregate.View;
 
 namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests
 {
@@ -11,7 +12,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests
         [property: Required] string QuotedOfferId,
         [property: Required] IReadOnlyList<string> SelectedOfferItemIds);
 
-    public sealed record OrderChangeResponse(long OperationId, int CommercialVersion, object? Order);
+    public sealed record OrderChangeResponse(long OperationId, int CommercialVersion, OrderView? Order);
 
     public static class OrderChangeRequestMapper
     {

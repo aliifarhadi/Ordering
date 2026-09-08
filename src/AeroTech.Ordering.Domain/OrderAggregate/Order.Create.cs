@@ -62,6 +62,12 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             order.AcceptCommercially();
             order.RaiseCreated(idGenerator, clock);
 
+            order.RaisePricingChanged(
+                order._changes.Single(change => change.Id == changeSet.ChangeId),
+                changeSet,
+                idGenerator,
+                clock.GetDateTime());
+
             return order;
         }
 

@@ -1,0 +1,39 @@
+﻿P2-G - Benchmark-aligned OrderView, projection and pricing-change events
+Repository: E:\Projects\DotAir\Ordering   Branch: k8s-stg   Date: 2026-09-09
+Baseline entering P2-G: 745 passed / 0 failed (436 domain + 309 persistence), commit 72f4fe2
+No new migration: P2-G changes the query contract, projection payload and integration events only.
+
+=== dotnet build AeroTech.Ordering.sln ===
+
+    24 Warning(s)
+    0 Error(s)
+
+
+
+=== dotnet test AeroTech.Ordering.Domain.Tests ===
+
+Passed!  - Failed:     0, Passed:   451, Skipped:     0, Total:   451, Duration: 732 ms - 
+AeroTech.Ordering.Domain.Tests.dll (net10.0)
+
+
+
+=== dotnet test AeroTech.Ordering.Persistence.Tests (real SQL Server) ===
+
+Passed!  - Failed:     0, Passed:   337, Skipped:     0, Total:   337, Duration: 1 m 36 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+
+
+TOTAL: 788 passed / 0 failed  (baseline 745 -> +43, zero regressions)
+
+=== P2-G suites ===
+
+Passed!  - Failed:     0, Passed:    15, Skipped:     0, Total:    15, Duration: 307 ms - 
+AeroTech.Ordering.Domain.Tests.dll (net10.0)
+
+
+
+Passed!  - Failed:     0, Passed:    28, Skipped:     0, Total:    28, Duration: 27 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+

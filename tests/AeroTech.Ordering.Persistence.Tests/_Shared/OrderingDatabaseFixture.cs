@@ -43,13 +43,15 @@ namespace AeroTech.Ordering.Persistence.Tests._Shared
                 """);
         }
 
-        public OrderingDbContext NewCommandContext()
+        public OrderingDbContext NewCommandContext() => NewCommandContext(new NullDomainEventDispatcher());
+
+        public OrderingDbContext NewCommandContext(IDomainEventDispatcher dispatcher)
         {
             var options = new DbContextOptionsBuilder<OrderingDbContext>()
                 .UseSqlServer(ConnectionString)
                 .Options;
 
-            return new OrderingDbContext(options, new NullIdentityService(), new FixedClock(), new NullDomainEventDispatcher());
+            return new OrderingDbContext(options, new NullIdentityService(), new FixedClock(), dispatcher);
         }
 
         public OrderQueryDbContext NewQueryContext()
@@ -81,13 +83,13 @@ namespace AeroTech.Ordering.Persistence.Tests._Shared
             public DateOnly GetDate() => new(2026, 9, 8);
         }
 
-        private sealed class NullDomainEventDispatcher : IDomainEventDispatcher
+        public sealed class NullDomainEventDispatcher : IDomainEventDispatcher
         {
             public Task DispatchAsync(IReadOnlyCollection<IDomainEvent> domainEvents, CancellationToken cancellationToken = default)
                 => Task.CompletedTask;
         }
 
-        private sealed class NullIdentityService : IIdentityService
+        public sealed class NullIdentityService : IIdentityService
         {
             public long? CurrentUserId => 1;
 

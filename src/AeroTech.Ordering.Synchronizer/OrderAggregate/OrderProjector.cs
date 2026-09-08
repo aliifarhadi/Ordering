@@ -47,7 +47,11 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                 .Include(candidate => candidate.ItemServiceLinks)
                 .Include(candidate => candidate.Changes)
                 .Include(candidate => candidate.PriceChangeSets)
-                .Include(candidate => candidate.PricingLines)
+                .Include(candidate => candidate.PricingLines).ThenInclude(line => line.AllocationSets).ThenInclude(set => set.Allocations)
+                .Include(candidate => candidate.FareConstructions).ThenInclude(construction => construction.Items)
+                .Include(candidate => candidate.FareConstructions).ThenInclude(construction => construction.PricingGroups).ThenInclude(group => group.Travellers)
+                .Include(candidate => candidate.FareConstructions).ThenInclude(construction => construction.PricingGroups).ThenInclude(group => group.PricingUnits).ThenInclude(unit => unit.FareComponents).ThenInclude(component => component.Services)
+                .Include(candidate => candidate.FareConstructions).ThenInclude(construction => construction.PricingGroups).ThenInclude(group => group.PricingUnits).ThenInclude(unit => unit.FareComponents).ThenInclude(component => component.Segments)
                 .Include(candidate => candidate.TimeLimits)
                 .Include(candidate => candidate.ExternalReferences)
                 .AsSplitQuery()
@@ -74,10 +78,8 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
             var reservationSummary = RollUpReservation(reservations.Select(reservation => reservation.Status).ToList());
             var documentSummary = RollUpDocuments(order);
 
-            var snapshot = BuildSnapshot(order, reservations, tickets, miscDocuments, reservationSummary, documentSummary);
-
             await UpsertSearchAsync(order, reservationSummary, documentSummary, cancellationToken);
-            await UpsertDetailsAsync(order, snapshot, cancellationToken);
+            await UpsertDetailsAsync(order, reservations, tickets, miscDocuments, reservationSummary, cancellationToken);
             await ReconcileTravellersAsync(order, cancellationToken);
             await ReconcileFlightsAsync(order, cancellationToken);
         }
@@ -124,7 +126,10 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
 
         private async Task UpsertDetailsAsync(
             Domain.OrderAggregate.Order order,
-            object snapshot,
+            IReadOnlyList<Domain.FulfillmentReservationAggregate.FulfillmentReservation> reservations,
+            IReadOnlyList<Domain.ElectronicTicketAggregate.ElectronicTicket> tickets,
+            IReadOnlyList<Domain.ElectronicMiscDocumentAggregate.ElectronicMiscDocument> miscDocuments,
+            FulfillmentReservationStatus? reservationSummary,
             CancellationToken cancellationToken)
         {
             var row = await _queryDbContext.OrderDetails.SingleOrDefaultAsync(candidate => candidate.Id == order.Id, cancellationToken);
@@ -135,9 +140,19 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                 _queryDbContext.OrderDetails.Add(row);
             }
 
-            row.SnapshotJson = JsonSerializer.Serialize(snapshot, SnapshotOptions);
-            row.UpdatedAt = _clock.GetDateTime();
             row.ProjectionRevision++;
+            row.UpdatedAt = _clock.GetDateTime();
+
+            var view = OrderViewBuilder.Build(
+                order,
+                reservations,
+                tickets,
+                miscDocuments,
+                reservationSummary,
+                row.ProjectionRevision,
+                row.UpdatedAt);
+
+            row.SnapshotJson = JsonSerializer.Serialize(view, SnapshotOptions);
         }
 
         private async Task ReconcileTravellersAsync(Domain.OrderAggregate.Order order, CancellationToken cancellationToken)
@@ -199,258 +214,6 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                 _queryDbContext.OrderFlights.Remove(stale);
         }
 
-        private static object BuildSnapshot(
-            Domain.OrderAggregate.Order order,
-            IReadOnlyList<Domain.FulfillmentReservationAggregate.FulfillmentReservation> reservations,
-            IReadOnlyList<Domain.ElectronicTicketAggregate.ElectronicTicket> tickets,
-            IReadOnlyList<Domain.ElectronicMiscDocumentAggregate.ElectronicMiscDocument> miscDocuments,
-            FulfillmentReservationStatus? reservationSummary,
-            OrderServiceDocumentStatus? documentSummary)
-            => new
-            {
-                order.Id,
-                order.UniqueIdentifierId,
-                RecordLocator = order.RecordLocator?.Value,
-                order.CommercialVersion,
-                order.CommercialSummary,
-                order.ObligationVersion,
-                order.CurrencyId,
-                order.CustomerId,
-                order.AirlineOfficeId,
-                order.Channel,
-                order.Pax,
-                order.CreationDate,
-                order.TimeToLive,
-                Totals = new
-                {
-                    order.Amount.GrandTotal,
-                    order.Amount.BaseFareTotal,
-                    order.Amount.TaxTotal,
-                    order.Amount.FeeTotal
-                },
-                Facets = new
-                {
-                    Commercial = order.CommercialSummary,
-                    Reservation = reservationSummary,
-                    Document = new
-                    {
-                        Status = documentSummary,
-                        RequiredServices = order.RequiredDocumentServiceIds().Count,
-                        DocumentedServices = order.DocumentedServiceIds().Count
-                    }
-                },
-                Travelers = order.Travellers
-                    .OrderBy(traveller => traveller.Index)
-                    .Select(traveller => new
-                    {
-                        traveller.Id,
-                        traveller.Index,
-                        traveller.Name.FirstName,
-                        traveller.Name.SurName,
-                        traveller.AgeRange,
-                        traveller.PassengerType
-                    }),
-                Journeys = order.Itineraries
-                    .OrderBy(itinerary => itinerary.Sequence)
-                    .Select(itinerary => new
-                    {
-                        itinerary.Id,
-                        itinerary.Sequence,
-                        itinerary.OriginAirportId,
-                        itinerary.DestinationAirportId,
-                        Segments = order.Segments
-                            .Where(segment => segment.OrderItineraryId == itinerary.Id)
-                            .OrderBy(segment => segment.Sequence)
-                            .Select(segment => new
-                            {
-                                segment.Id,
-                                segment.Sequence,
-                                segment.Number,
-                                segment.MarketingAirlineId,
-                                segment.OperatingAirlineId,
-                                segment.OriginAirportId,
-                                segment.DestinationAirportId,
-                                segment.DepartureDateTime,
-                                segment.ArrivalDateTime,
-                                segment.BookingClass
-                            })
-                    }),
-                Items = order.Items.Select(item => new
-                {
-                    item.Id,
-                    item.ProductType,
-                    item.ProductCode,
-                    item.ProductName,
-                    item.Quantity,
-                    item.UnitOfMeasure,
-                    item.CommercialStatus,
-                    ProductSnapshot = item.ProductSnapshot is null ? null : new
-                    {
-                        item.ProductSnapshot.ProductType,
-                        item.ProductSnapshot.SourceSystem,
-                        item.ProductSnapshot.SourceOfferId,
-                        item.ProductSnapshot.SourceProductReference,
-                        item.ProductSnapshot.SourcePricingReference,
-                        item.ProductSnapshot.ProductCode,
-                        item.ProductSnapshot.ProductName,
-                        item.ProductSnapshot.BrandCode,
-                        item.ProductSnapshot.BrandName,
-                        item.ProductSnapshot.SupplierCode,
-                        item.ProductSnapshot.AcceptedAt
-                    },
-                    CommercialTerms = item.CommercialTermsSnapshot is null ? null : new
-                    {
-                        item.CommercialTermsSnapshot.RefundabilitySummary,
-                        item.CommercialTermsSnapshot.ChangeabilitySummary,
-                        item.CommercialTermsSnapshot.UpgradeEligibilitySummary,
-                        item.CommercialTermsSnapshot.SourceSystem,
-                        item.CommercialTermsSnapshot.SourcePolicyReference,
-                        item.CommercialTermsSnapshot.TermsCapturedAt
-                    },
-                    Services = order.OrderServices
-                        .Where(service => service.OrderItemId == item.Id)
-                        .Select(service => new
-                        {
-                            service.Id,
-                            service.ServiceType,
-                            service.ServiceCode,
-                            service.Name,
-                            service.Status,
-                            service.CommercialStatus,
-                            service.FulfillmentStatus,
-                            service.DeliveryStatus,
-                            service.DocumentStatus,
-                            service.PriceTreatment,
-                            CurrentItemId = service.OrderItemId,
-                            OriginalItemIds = order.ItemServiceLinks
-                                .Where(link => link.OrderServiceId == service.Id)
-                                .Select(link => link.OrderItemId)
-                                .ToList(),
-                            Beneficiaries = service.Beneficiaries.Select(beneficiary => beneficiary.OrderTravellerId).ToList(),
-                            Fulfillment = new
-                            {
-                                service.RequiresReservation,
-                                service.RequiresSupplierConfirmation,
-                                service.RequiresDocument,
-                                service.DocumentKind,
-                                service.RequiresPaymentCoverage,
-                                service.ProviderType,
-                                service.SupplierCode
-                            },
-                            Coverage = new
-                            {
-                                Services = service.CoveredServices.Select(covered => covered.CoveredOrderServiceId).ToList(),
-                                Segments = service.CoveredSegments.Select(covered => covered.OrderSegmentId).ToList()
-                            },
-                            Detail = DescribeServiceDetail(service),
-                            TravelerId = service.Beneficiaries.Count == 1 ? service.Beneficiaries.First().OrderTravellerId : (long?)null,
-                            SegmentId = service.SoldSegmentId,
-                            service.ElectronicTicketId,
-                            service.TicketCouponId
-                        })
-                }),
-                Changes = order.Changes
-                    .OrderBy(change => change.OccurredAt)
-                    .ThenBy(change => change.Id)
-                    .Select(change => new
-                    {
-                        change.Id,
-                        change.ChangeType,
-                        change.Source,
-                        change.OperationId,
-                        change.OccurredAt,
-                        Items = order.ItemServiceLinks
-                            .Where(link => link.LinkedByChangeId == change.Id)
-                            .Select(link => link.OrderItemId)
-                            .Distinct()
-                            .ToList(),
-                        Services = order.ItemServiceLinks
-                            .Where(link => link.LinkedByChangeId == change.Id)
-                            .Select(link => link.OrderServiceId)
-                            .ToList()
-                    }),
-                PriceChangeSets = order.PriceChangeSets
-                    .OrderBy(set => set.FinancialSequence)
-                    .Select(set => new
-                    {
-                        set.Id,
-                        set.ChangeId,
-                        set.FinancialSequence,
-                        set.Reason,
-                        set.Source,
-                        set.CommittedAt,
-                        Impact = order.PricingLines
-                            .Where(line => line.PriceChangeSetId == set.Id && line.AffectsCustomerBalance)
-                            .Sum(line => line.SignedSaleAmount)
-                    }),
-                Reservations = reservations.Select(reservation => new
-                {
-                    reservation.Id,
-                    reservation.Status,
-                    reservation.ExternalReservationRef,
-                    reservation.ExpiresAt,
-                    Members = reservation.Services.Select(service => new
-                    {
-                        service.OrderServiceId,
-                        service.ObservedStatus,
-                        service.ExternalServiceRef
-                    })
-                }),
-                Documents = tickets.Select(ticket => new
-                {
-                    ticket.Id,
-                    ticket.DocumentNumber,
-                    ticket.TravelerId,
-                    ticket.StatusSummary,
-                    ticket.IssuedAt,
-                    ticket.IssuedTotal,
-                    ticket.CurrencyId,
-                    Coupons = ticket.Coupons.OrderBy(coupon => coupon.CouponNumber).Select(coupon => new
-                    {
-                        coupon.Id,
-                        coupon.CouponNumber,
-                        coupon.OrderServiceId,
-                        coupon.JourneySegmentId,
-                        coupon.FinancialStatus,
-                        coupon.ControlStatus,
-                        coupon.IssuanceValue
-                    })
-                }),
-                MiscellaneousDocuments = miscDocuments.Select(document => new
-                {
-                    document.Id,
-                    document.DocumentNumber,
-                    document.Type,
-                    document.ReasonForIssuanceCode,
-                    Status = document.StatusSummary,
-                    document.IssuedAt,
-                    document.IssuedTotal,
-                    document.CurrencyId,
-                    document.TravelerId,
-                    document.ProviderReference,
-                    Coupons = document.Coupons.OrderBy(coupon => coupon.CouponNumber).Select(coupon => new
-                    {
-                        coupon.Id,
-                        coupon.CouponNumber,
-                        coupon.Purpose,
-                        coupon.ReasonForIssuanceSubCode,
-                        coupon.OrderServiceId,
-                        coupon.PricingLineId,
-                        coupon.AssociatedTicketCouponId,
-                        coupon.ExternalValueReference,
-                        coupon.IssuanceValue,
-                        coupon.Status
-                    })
-                }),
-                TimeLimits = order.TimeLimits.Select(limit => new { limit.Type, limit.DueAt, limit.Status }),
-                ExternalReferences = order.ExternalReferences.Select(reference => new
-                {
-                    reference.Type,
-                    reference.SourceSystem,
-                    reference.Reference
-                })
-            };
-
         private static FulfillmentReservationStatus? RollUpReservation(IReadOnlyList<FulfillmentReservationStatus> statuses)
         {
             if (statuses.Count == 0)
@@ -474,35 +237,6 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
             return required.All(documented.Contains)
                 ? OrderServiceDocumentStatus.Issued
                 : OrderServiceDocumentStatus.Pending;
-        }
-
-        private static object DescribeServiceDetail(Domain.OrderAggregate.Entities.OrderService service)
-        {
-            if (service.AirTransportDetail is { } air)
-                return new { Kind = "AirTransport", air.OrderSegmentId, air.TransitionalFareBasis };
-
-            if (service.SeatDetail is { } seat)
-                return new { Kind = "Seat", seat.AssociatedAirOrderServiceId, seat.SoldSeatNumber };
-
-            if (service.BaggageDetail is { } baggage)
-                return new { Kind = "Baggage", BaggageKind = baggage.Kind, baggage.Pieces, baggage.Weight, baggage.WeightUnit, baggage.PerPieceWeightLimit };
-
-            if (service.MealDetail is { } meal)
-                return new { Kind = "Meal", meal.MealCode, meal.Quantity, meal.SpecialMealCode };
-
-            if (service.LoungeDetail is { } lounge)
-                return new { Kind = "Lounge", lounge.AirportId, lounge.LoungeCode, lounge.AccessStart, lounge.AccessEnd, lounge.GuestCount };
-
-            if (service.HotelDetail is { } hotel)
-                return new { Kind = "Hotel", hotel.PropertyReference, hotel.CheckIn, hotel.CheckOut, hotel.RoomCount, hotel.GuestCount, hotel.RoomTypeCode };
-
-            if (service.GroundTransportDetail is { } ground)
-                return new { Kind = "GroundTransport", ground.PickupLocationReference, ground.DropoffLocationReference, ground.PickupAt, ground.PassengerCount, ground.VehicleTypeCode };
-
-            if (service.GenericDetail is { } generic)
-                return new { Kind = "Generic", generic.SchemaName, generic.SchemaVersion };
-
-            return new { Kind = "None" };
         }
 
     }

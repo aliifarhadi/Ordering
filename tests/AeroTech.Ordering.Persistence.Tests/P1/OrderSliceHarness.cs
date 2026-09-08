@@ -17,6 +17,7 @@ using AeroTech.Ordering.Persistence.ElectronicTicketAggregate;
 using AeroTech.Ordering.Persistence.FulfillmentReservationAggregate;
 using AeroTech.Ordering.Persistence.OrderAggregate;
 using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Outbox;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.Providers.Testing;
 using AeroTech.Ordering.Query._Shared.DbContexts;
@@ -45,7 +46,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public OrderSliceHarness(OrderingDatabaseFixture fixture, ICallerContext caller)
         {
             _fixture = fixture;
-            _command = fixture.NewCommandContext();
+
+            Events = new OutboxDomainEventDispatcher(() => new OutboxWriter(
+                _command!,
+                new OrderingDatabaseFixture.FixedClock(),
+                new OrderingDatabaseFixture.NullIdentityService(),
+                Options.Create(new IntegrationEventOptions { TenantId = 1, SourceSystem = "Ordering" })));
+
+            _command = fixture.NewCommandContext(Events);
             _query = fixture.NewQueryContext();
             _reference = fixture.NewReferenceContext();
 
@@ -118,6 +126,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicDocumentIssuanceAdapter Documents { get; }
 
         public DeterministicEmdIssuanceAdapter MiscDocuments { get; }
+
+        public OutboxDomainEventDispatcher Events { get; }
 
         public ElectronicMiscDocumentRepository MiscDocumentRepository { get; } = default!;
 

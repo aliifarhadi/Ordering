@@ -281,7 +281,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             Assert.Contains(outcome.PriceChangeSetId.ToString(), details.SnapshotJson);
             Assert.Contains("\"ProductSnapshot\"", details.SnapshotJson);
             Assert.Contains("\"CommercialTerms\"", details.SnapshotJson);
-            Assert.Contains("\"PriceChangeSets\"", details.SnapshotJson);
+            Assert.Contains("\"PricingHistory\"", details.SnapshotJson);
             Assert.Contains(ProductAdditionFactory.QuotedOfferId, details.SnapshotJson);
         }
 

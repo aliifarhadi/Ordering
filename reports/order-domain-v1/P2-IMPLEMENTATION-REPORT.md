@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt), [`audit/p2/P2-E.1-TEST-RUN.txt`](audit/p2/P2-E.1-TEST-RUN.txt), [`audit/p2/P2-F-TEST-RUN.txt`](audit/p2/P2-F-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt), [`audit/p2/P2-E.1-TEST-RUN.txt`](audit/p2/P2-E.1-TEST-RUN.txt), [`audit/p2/P2-F-TEST-RUN.txt`](audit/p2/P2-F-TEST-RUN.txt), [`audit/p2/P2-G-TEST-RUN.txt`](audit/p2/P2-G-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -16,7 +16,7 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-E** idempotent add-service commercial mutation | **Complete — P2-D.1 frozen** |
 | **P2-E.1** benchmark-aligned Order Change / Add Service | **Complete — P2-E frozen** |
 | **P2-F** ElectronicMiscDocument | **Complete — P2-E.1 frozen** |
-| P2-G projections / APIs / events | Not started |
+| **P2-G** OrderView, projection & pricing-change events | **Complete — P2-F frozen** |
 | P2-H verification | Not started |
 
 ---
@@ -595,9 +595,57 @@ implemented. No SSR subsystem, SVC segment, TSM, real EMD host, JetPay, Ledger o
 
 ---
 
+## P2-G — Benchmark-aligned OrderView, projection & pricing-change events
+
+**Complete. P2-F is frozen.** Full detail in
+[`P2-G-ORDERVIEW-AND-EVENTS-REPORT.md`](P2-G-ORDERVIEW-AND-EVENTS-REPORT.md); benchmark audit in
+[`audit/p2/P2-G-ORDERVIEW-AND-EVENT-BENCHMARK-AUDIT.md`](audit/p2/P2-G-ORDERVIEW-AND-EVENT-BENCHMARK-AUDIT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **451 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **337 passed**, 0 failed (real SQL Server) |
+| Total | **788 passed, 0 failed** (baseline 745 -> +43, zero regressions) |
+
+**One typed local Order View.** The query contract returned `object` / `JsonElement`; it is now the strongly
+typed `OrderView`. The projector builds that same type through `OrderViewBuilder` and the handler deserialises
+it, so one schema replaces a projector-side anonymous shape plus a reader-side dynamic document. JSON remains
+the local storage mechanism, with `SchemaVersion` as a payload marker. `GET /Backoffice/v1/Orders/{id}/Details`,
+the new REST-native `GET /Api/v1/Bookings/{id}`, and the `POST .../{id}/Change` response all return the same
+view; retrieval is entirely local with no upstream provider call (asserted).
+
+**Complete read surface.** The view now redisplays totals from the existing amount cache (nothing recomputed),
+per-document-family facets, travellers, journeys, items with both accepted snapshots, services with
+beneficiaries, coverage, price treatment, membership, fulfilment profile, typed or generic detail and EMD
+issuance evidence, **fare constructions** (previously absent), commercial changes, and committed **pricing
+history** with full modern P2-A pricing lines and allocation sets. Nothing is inferred while projecting, generic
+services expose schema identity only, and no legacy pricing category appears.
+
+**Version semantics kept honest.** `CommercialVersion` is exposed under its own name and never relabelled as an
+IATA Order Version; no speculative `ExternalOrderVersion` was created. `ProjectionRevision` stays technical
+freshness evidence - a test proves issuance advances it while `CommercialVersion` stands still.
+
+**`OrderPricingChanged`.** A new additive internal integration contract raised from domain truth at the point
+where the price change set is committed and all counters are final - **exactly one event per committed
+`PriceChangeSet`**, never one per line, service or tax. Sibling events from one mutation share the final
+`CommercialVersion` and take distinct `EventOrdinal`s, so the event never publishes the set's
+`ExpectedCommercialVersion` as its version. The payload is the focused middle ground: envelope facts plus every
+pricing line with its allocations - magnitudes with explicit direction, commission still `SettlementOnly`,
+repeated tax occurrences still distinguishable, no fabricated references, no provider DTO, no serialised Order,
+and nothing routed through `LegacyPricingLineTranslation`.
+
+Reserve, ET/EMD issuance, recovery, provider confirmation and projection refresh emit no pricing event; replay,
+rejection and a failed quote write no outbox row. The event is written through the existing `IOutboxWriter`
+inside the same UnitOfWork as the mutation and the projection - no second outbox, no dedup table, no broker code
+in Domain/Application, and **no Ledger call**. `OrderCreated` and the legacy `OrderIssued` polarity adapter are
+untouched, and no historical events were back-filled.
+
+---
+
 ## Scope
 
-P2-G and P2-H were not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
+P2-H was not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
 `Money`, `CurrencyCode`, ExchangeRate framework, currency service, ROE engine or rounding library was
 created — the existing `ExchangeRate` value object at `decimal(28,12)` is reused unchanged. No parallel
 `PricingV2` / `OrderV2` model exists. Refund, exchange, void, split, DCS, disruption, group booking, tax
