@@ -5,7 +5,7 @@ namespace AeroTech.Messages.Ordering.Enums
     public enum OrderChangeType
     {
         [Display(Name = "Create")] Create = 1,
-        [Display(Name = "Add Product")] AddProduct = 2,
+        [Display(Name = "Add Service")] AddProduct = 2,
         [Display(Name = "Cancel")] Cancel = 3,
         [Display(Name = "Voluntary Change")] VoluntaryChange = 4,
         [Display(Name = "Exchange")] Exchange = 5,

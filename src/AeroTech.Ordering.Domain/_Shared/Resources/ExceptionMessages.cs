@@ -206,7 +206,8 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string ExpectedCommercialVersionRequired = "A commercial mutation on order {0} requires the expected commercial version.";
         public const string ProductAdditionQuantityMustBePositive = "An added order item must have a positive quantity.";
         public const string ProductAdditionServiceRefNotUnique = "The accepted product addition repeats service reference '{0}'.";
-        public const string AcceptedProductAdditionNotUsable = "The accepted product addition '{0}' is not available or is no longer usable; a new source decision is required.";
-        public const string ProductAdditionSourceNotConfigured = "No accepted product addition source is configured for this deployment.";
+        public const string AcceptedQuotedOfferNotUsable = "The selected quoted offer '{0}' is not available or is no longer valid; a new quote is required.";
+        public const string OrderChangeQuoteSourceNotConfigured = "No authoritative order-change quote source is configured for this deployment.";
+        public const string OrderChangeAcceptsOneOfferItem = "This order change accepts exactly one selected quoted offer item; {0} were supplied.";
     }
 }

@@ -1,6 +1,7 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer.Ota;
-using AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition;
+using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
+using AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrderDetails;
 using AeroTech.Ordering.RestApi._Shared;
 using AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests;
 using Asp.Versioning;
@@ -18,13 +19,13 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
     {
         private readonly IMediator _mediator;
         private readonly IIdentityService _identity;
-        private readonly IAddProductService _addProductService;
+        private readonly IOrderChangeService _orderChangeService;
 
-        public OtaController(IMediator mediator, IIdentityService identity, IAddProductService addProductService)
+        public OtaController(IMediator mediator, IIdentityService identity, IOrderChangeService orderChangeService)
         {
             _mediator = mediator;
             _identity = identity;
-            _addProductService = addProductService;
+            _orderChangeService = orderChangeService;
         }
 
         [HttpPost("FlightOffers")]
@@ -41,18 +42,22 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
             return Ok(result);
         }
 
-        [HttpPost("{orderId:long}/AddProduct")]
-        public async Task<IActionResult> AddProduct(
+        [HttpPost("{orderId:long}/Change")]
+        public async Task<IActionResult> Change(
             [FromRoute] long orderId,
-            [FromBody] OtaAddProductRequest request,
+            [FromBody] OrderChangeRequest request,
             CancellationToken cancellationToken)
-            => Ok(await _addProductService.AddProductAsync(
+        {
+            var outcome = await _orderChangeService.AddServiceAsync(
                 orderId,
-                request.SourceReference,
+                OrderChangeRequestMapper.ToSelections(request),
                 IdempotencyKey.Require(Request),
                 request.ExpectedCommercialVersion,
-                cancellationToken));
-    }
+                cancellationToken);
 
-    public sealed record OtaAddProductRequest(string SourceReference, int? ExpectedCommercialVersion);
+            var order = await _mediator.Send(new GetOrderDetailsQuery(orderId), cancellationToken);
+
+            return Ok(new OrderChangeResponse(outcome.OperationId, outcome.CommercialVersion, order));
+        }
+    }
 }

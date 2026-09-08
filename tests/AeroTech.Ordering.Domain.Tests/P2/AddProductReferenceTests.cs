@@ -302,7 +302,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             Assert.Equal(2861, exception.Code);
         }
 
-        private static AeroTech.Ordering.Domain.OrderAggregate.Arguments.AcceptedProductAdditionArgs WithService(
+        private static AeroTech.Ordering.Domain.OrderAggregate.Arguments.AcceptedAddServiceChangeArgs WithService(
             Order order,
             Func<AcceptedAddedService, AcceptedAddedService> mutate,
             long operationId = ProductAdditionFactory.OperationId)

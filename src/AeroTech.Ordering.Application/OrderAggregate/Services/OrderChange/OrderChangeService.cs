@@ -6,15 +6,17 @@ using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Dto;
-using AeroTech.Ordering.Domain.OrderAggregate.Entities;
-using AeroTech.Ordering.Domain.Ports.ProductAddition;
+using Entities = AeroTech.Ordering.Domain.OrderAggregate.Entities;
+using AeroTech.Ordering.Domain.Ports.OrderChange;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain._Shared.Operations;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
+namespace AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange
 {
-    public sealed record AddProductOutcome(
+    public sealed record SelectedQuotedOffer(string QuotedOfferId, IReadOnlyList<string> SelectedOfferItemIds);
+
+    public sealed record OrderChangeOutcome(
         long OrderId,
         long OperationId,
         long OrderChangeId,
@@ -28,22 +30,22 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
         int CurrencyId,
         bool IsReplay);
 
-    public interface IAddProductService
+    public interface IOrderChangeService
     {
-        Task<AddProductOutcome> AddProductAsync(
+        Task<OrderChangeOutcome> AddServiceAsync(
             long orderId,
-            string sourceReference,
+            IReadOnlyList<SelectedQuotedOffer> acceptSelectedQuotedOfferList,
             string idempotencyKey,
             int? expectedCommercialVersion,
             CancellationToken cancellationToken = default);
     }
 
-    public sealed class AddProductService : IAddProductService
+    public sealed class OrderChangeService : IOrderChangeService
     {
-        public const string ProviderStep = "add-product";
+        public const string ProviderStep = "accept-quoted-offer";
 
         private readonly IOrderRepository _orders;
-        private readonly IAcceptedProductAdditionPort _additions;
+        private readonly IOrderChangeQuoteProvider _quotes;
         private readonly IOrderOperationCoordinator _operations;
         private readonly ICallerContext _callerContext;
         private readonly IUnitOfWork _unitOfWork;
@@ -51,9 +53,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
         private readonly IClock _clock;
         private readonly IOrderProjector _projector;
 
-        public AddProductService(
+        public OrderChangeService(
             IOrderRepository orders,
-            IAcceptedProductAdditionPort additions,
+            IOrderChangeQuoteProvider quotes,
             IOrderOperationCoordinator operations,
             ICallerContext callerContext,
             IUnitOfWork unitOfWork,
@@ -62,7 +64,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
             IOrderProjector projector)
         {
             _orders = orders;
-            _additions = additions;
+            _quotes = quotes;
             _operations = operations;
             _callerContext = callerContext;
             _unitOfWork = unitOfWork;
@@ -71,14 +73,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
             _projector = projector;
         }
 
-        public async Task<AddProductOutcome> AddProductAsync(
+        public async Task<OrderChangeOutcome> AddServiceAsync(
             long orderId,
-            string sourceReference,
+            IReadOnlyList<SelectedQuotedOffer> acceptSelectedQuotedOfferList,
             string idempotencyKey,
             int? expectedCommercialVersion,
             CancellationToken cancellationToken = default)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(sourceReference);
+            var selection = RequireSingleSelection(acceptSelectedQuotedOfferList);
 
             if (expectedCommercialVersion is null)
                 throw ExceptionFactory.ExpectedCommercialVersionRequired(orderId);
@@ -88,19 +90,21 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
 
             var operation = await _operations.BeginAsync(
                 orderId,
-                ServicingOperationKind.AddProduct,
+                ServicingOperationKind.AddService,
                 idempotencyKey,
                 new
                 {
-                    Operation = "AddProduct",
+                    Operation = "OrderChange",
+                    Subtype = "AddService",
                     OrderId = orderId,
-                    SourceReference = sourceReference,
+                    selection.QuotedOfferId,
+                    SelectedOfferItemIds = selection.SelectedOfferItemIds.Order().ToArray(),
                     ExpectedCommercialVersion = expectedCommercialVersion
                 },
                 expectedCommercialVersion,
                 cancellationToken);
 
-            var committed = CommittedAddition(order, operation.OperationId);
+            var committed = CommittedChange(order, operation.OperationId);
 
             if (committed is not null)
                 return await ReplayAsync(order, operation, committed, cancellationToken);
@@ -115,17 +119,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
                         orderId,
                         order.CommercialVersion);
 
-                var accepted = await _additions.GetAcceptedAdditionAsync(
-                    new AcceptedProductAdditionRequest(
+                var accepted = await _quotes.AcceptSelectedQuotedOfferAsync(
+                    new AcceptedQuotedOfferSelection(
                         _operations.ProviderOperationKey(operation, ProviderStep),
                         orderId,
                         operation.OperationId,
-                        sourceReference,
+                        selection.QuotedOfferId,
+                        selection.SelectedOfferItemIds.Single(),
                         order.CurrencyId),
                     cancellationToken);
 
                 added = order.AddProduct(
-                    new AcceptedProductAdditionArgs(
+                    new AcceptedAddServiceChangeArgs(
                         accepted,
                         operation.OperationId,
                         _callerContext.ActorId,
@@ -143,7 +148,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
             await _projector.ProjectAsync(orderId, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return new AddProductOutcome(
+            return new OrderChangeOutcome(
                 orderId,
                 operation.OperationId,
                 added.OrderChangeId,
@@ -158,14 +163,34 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
                 IsReplay: false);
         }
 
-        private static OrderChange? CommittedAddition(Order order, long operationId)
+        private static SelectedQuotedOffer RequireSingleSelection(
+            IReadOnlyList<SelectedQuotedOffer> acceptSelectedQuotedOfferList)
+        {
+            ArgumentNullException.ThrowIfNull(acceptSelectedQuotedOfferList);
+
+            if (acceptSelectedQuotedOfferList.Count != 1)
+                throw ExceptionFactory.OrderChangeAcceptsOneOfferItem(acceptSelectedQuotedOfferList.Count);
+
+            var selection = acceptSelectedQuotedOfferList[0];
+
+            ArgumentException.ThrowIfNullOrWhiteSpace(selection.QuotedOfferId);
+
+            if (selection.SelectedOfferItemIds is not { Count: 1 })
+                throw ExceptionFactory.OrderChangeAcceptsOneOfferItem(selection.SelectedOfferItemIds?.Count ?? 0);
+
+            ArgumentException.ThrowIfNullOrWhiteSpace(selection.SelectedOfferItemIds[0]);
+
+            return selection;
+        }
+
+        private static Entities.OrderChange? CommittedChange(Order order, long operationId)
             => order.Changes.FirstOrDefault(change =>
                 change.OperationId == operationId && change.ChangeType == OrderChangeType.AddProduct);
 
-        private async Task<AddProductOutcome> ReplayAsync(
+        private async Task<OrderChangeOutcome> ReplayAsync(
             Order order,
             OrderOperation operation,
-            OrderChange committed,
+            Entities.OrderChange committed,
             CancellationToken cancellationToken)
         {
             var links = order.ItemServiceLinks
@@ -177,7 +202,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition
             await _operations.ResolveAsync(order.Id, operation, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return new AddProductOutcome(
+            return new OrderChangeOutcome(
                 order.Id,
                 operation.OperationId,
                 committed.Id,

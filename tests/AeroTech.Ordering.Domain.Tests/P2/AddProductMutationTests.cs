@@ -275,7 +275,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             Assert.Equal(2, order.Changes.Count(change => change.ChangeType == OrderChangeType.AddProduct));
         }
 
-        private static AeroTech.Ordering.Domain.OrderAggregate.Arguments.AcceptedProductAdditionArgs RejectedAddition(Order order)
+        private static AeroTech.Ordering.Domain.OrderAggregate.Arguments.AcceptedAddServiceChangeArgs RejectedAddition(Order order)
         {
             var accepted = ProductAdditionFactory.Seat(order);
 

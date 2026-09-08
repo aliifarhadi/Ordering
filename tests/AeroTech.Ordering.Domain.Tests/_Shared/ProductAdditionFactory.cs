@@ -10,28 +10,30 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
     public static class ProductAdditionFactory
     {
         public const string SourceSystem = "AncillaryPricing";
-        public const string SourceReference = "ADD-REF-1";
-        public const string SourceOfferId = "ADD-QUOTE-1";
+        public const string QuotedOfferId = "QOFFER-1";
+        public const string SelectedOfferItemId = "QOFFERITEM-1";
+        public const string SourceOfferId = QuotedOfferId;
         public const string ProductRef = "ADD-PRODUCT";
         public const int CurrencyId = MultiPassengerOrderFactory.CurrencyId;
         public const long OperationId = 990_000_001;
 
-        public static AcceptedProductAdditionArgs Args(
-            AcceptedProductAddition accepted,
+        public static AcceptedAddServiceChangeArgs Args(
+            AcceptedAddServiceChange accepted,
             long operationId = OperationId)
             => new(accepted, operationId, ActorId: 7, ActorScope: "test|agency");
 
-        public static AcceptedProductAddition Addition(
+        public static AcceptedAddServiceChange Addition(
             AcceptedAddedProduct product,
             IReadOnlyList<AcceptedAdditionPricingLine> lines,
-            string sourceReference = SourceReference)
+            string quotedOfferId = QuotedOfferId,
+            string selectedOfferItemId = SelectedOfferItemId)
             => new(
                 SourceSystem,
-                sourceReference,
+                quotedOfferId,
+                selectedOfferItemId,
                 PricingSource.PricingEngine,
                 product,
                 lines,
-                SourceOfferId,
                 SourcePricingReference: null);
 
         public static AcceptedAddedProduct Product(
@@ -133,7 +135,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 null,
                 null,
                 null,
-                sourceLineRef ?? $"{SourceReference}:{componentType}:{serviceRef ?? productRef ?? "-"}",
+                sourceLineRef ?? $"{QuotedOfferId}:{componentType}:{serviceRef ?? productRef ?? "-"}",
                 occurrenceKey,
                 settlementPartyRef,
                 settlementCategory,
@@ -154,7 +156,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                                   && service.SoldSegmentId != outbound.SoldSegmentId);
         }
 
-        public static AcceptedProductAddition Seat(Order order, decimal amount = 200_000m, string? seatNumber = "14C")
+        public static AcceptedAddServiceChange Seat(Order order, decimal amount = 200_000m, string? seatNumber = "14C")
         {
             var air = OutboundAirService(order);
 
@@ -171,7 +173,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderService, "SEAT-1")]);
         }
 
-        public static AcceptedProductAddition SeatWithTaxAndCommission(
+        public static AcceptedAddServiceChange SeatWithTaxAndCommission(
             Order order,
             decimal charge = 200_000m,
             decimal tax = 20_000m,
@@ -197,7 +199,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             };
         }
 
-        public static AcceptedProductAddition RoundTripBaggageBundle(Order order, decimal amount = 500_000m)
+        public static AcceptedAddServiceChange RoundTripBaggageBundle(Order order, decimal amount = 500_000m)
         {
             var outbound = OutboundAirService(order);
             var inbound = InboundAirService(order);
@@ -227,7 +229,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderItem)]);
         }
 
-        public static AcceptedProductAddition GroundTransport(Order order, decimal amount = 300_000m)
+        public static AcceptedAddServiceChange GroundTransport(Order order, decimal amount = 300_000m)
         {
             var travellerIds = order.Travellers.OrderBy(traveller => traveller.Index).Select(traveller => traveller.Id).ToList();
 
@@ -249,7 +251,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderService, "GRD-1")]);
         }
 
-        public static AcceptedProductAddition Hotel(Order order, decimal amount = 900_000m, int nights = 3)
+        public static AcceptedAddServiceChange Hotel(Order order, decimal amount = 900_000m, int nights = 3)
         {
             var travellerIds = order.Travellers.OrderBy(traveller => traveller.Index).Select(traveller => traveller.Id).ToList();
 
@@ -275,7 +277,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderItem)]);
         }
 
-        public static AcceptedProductAddition WiFi(Order order, decimal amount = 50_000m)
+        public static AcceptedAddServiceChange WiFi(Order order, decimal amount = 50_000m)
         {
             var air = OutboundAirService(order);
 
@@ -292,7 +294,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderService, "WIFI-1")]);
         }
 
-        public static AcceptedProductAddition ExtraSeat(Order order, decimal amount = 700_000m)
+        public static AcceptedAddServiceChange ExtraSeat(Order order, decimal amount = 700_000m)
         {
             var air = OutboundAirService(order);
 
@@ -309,7 +311,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderService, "EXST-1")]);
         }
 
-        public static AcceptedProductAddition EmdBaggage(Order order, decimal amount = 400_000m)
+        public static AcceptedAddServiceChange EmdBaggage(Order order, decimal amount = 400_000m)
         {
             var air = OutboundAirService(order);
 
@@ -328,7 +330,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderService, "BAG-EMD")]);
         }
 
-        public static AcceptedProductAddition SettlementOnly(Order order, decimal commission = 30_000m)
+        public static AcceptedAddServiceChange SettlementOnly(Order order, decimal commission = 30_000m)
         {
             var air = OutboundAirService(order);
 

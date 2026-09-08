@@ -518,11 +518,14 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ProductAdditionServiceRefNotUnique(params object?[] args) =>
             new(2861, ExceptionMessages.ProductAdditionServiceRefNotUnique, args) { HttpStatus = 422 };
 
-        public static BusinessException AcceptedProductAdditionNotUsable(params object?[] args) =>
-            new(2862, ExceptionMessages.AcceptedProductAdditionNotUsable, args) { HttpStatus = 409 };
+        public static BusinessException AcceptedQuotedOfferNotUsable(params object?[] args) =>
+            new(2862, ExceptionMessages.AcceptedQuotedOfferNotUsable, args) { HttpStatus = 409 };
 
-        public static BusinessException ProductAdditionSourceNotConfigured() =>
-            new(2863, ExceptionMessages.ProductAdditionSourceNotConfigured) { HttpStatus = 501 };
+        public static BusinessException OrderChangeQuoteSourceNotConfigured() =>
+            new(2863, ExceptionMessages.OrderChangeQuoteSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException OrderChangeAcceptsOneOfferItem(params object?[] args) =>
+            new(2864, ExceptionMessages.OrderChangeAcceptsOneOfferItem, args) { HttpStatus = 422 };
 
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;

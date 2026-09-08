@@ -1,7 +1,7 @@
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Domain.OrderAggregate;
-using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.ProductAddition;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence.OrderAggregate;
 using AeroTech.Ordering.Persistence.Tests._Shared;
@@ -12,23 +12,25 @@ using Xunit;
 namespace AeroTech.Ordering.Persistence.Tests.P2
 {
     [Collection(OrderingDatabaseCollection.Name)]
-    public sealed class AddProductIdempotencyTests
+    public sealed class OrderChangeAddServiceIdempotencyTests
     {
+        private const string SecondOfferId = "QOFFER-2";
+        private const string SecondOfferItemId = "QOFFERITEM-2";
+
         private readonly OrderingDatabaseFixture _fixture;
 
-        public AddProductIdempotencyTests(OrderingDatabaseFixture fixture) => _fixture = fixture;
+        public OrderChangeAddServiceIdempotencyTests(OrderingDatabaseFixture fixture) => _fixture = fixture;
 
         [Fact]
-        public async Task The_first_command_commits_one_mutation()
+        public async Task The_first_accepted_quote_commits_one_mutation()
         {
             await using var harness = NewHarness();
             var order = await harness.CreateOrderAsync();
             var key = NewKey();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
-            var outcome = await harness.AddProduct.AddProductAsync(
-                order.Id, ProductAdditionFactory.SourceReference, key, 1);
+            var outcome = await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
 
             Assert.False(outcome.IsReplay);
             Assert.Equal(2, outcome.CommercialVersion);
@@ -48,10 +50,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var order = await harness.CreateOrderAsync();
             var key = NewKey();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
-            var first = await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 1);
-            var replay = await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 1);
+            var first = await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
+            var replay = await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
 
             Assert.True(replay.IsReplay);
             Assert.Equal(first.OrderItemId, replay.OrderItemId);
@@ -68,10 +70,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var order = await harness.CreateOrderAsync();
             var key = NewKey();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
-            var first = await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 1);
-            var replay = await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 1);
+            var first = await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
+            var replay = await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
 
             Assert.Equal(first.CommercialVersion, replay.CommercialVersion);
             Assert.Equal(first.FinancialSequence, replay.FinancialSequence);
@@ -87,37 +89,59 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
         }
 
         [Fact]
-        public async Task A_committed_replay_does_not_call_the_product_provider_again()
+        public async Task A_committed_replay_does_not_resolve_the_quote_provider_again()
         {
             await using var harness = NewHarness();
             var order = await harness.CreateOrderAsync();
             var key = NewKey();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
-            await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 1);
+            await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
 
-            Assert.Equal(1, harness.ProductAdditions.CallCount);
+            Assert.Equal(1, harness.Quotes.CallCount);
 
-            await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 1);
+            await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
 
-            Assert.Equal(1, harness.ProductAdditions.CallCount);
+            Assert.Equal(1, harness.Quotes.CallCount);
         }
 
         [Fact]
-        public async Task The_same_key_with_a_different_source_reference_is_rejected()
+        public async Task The_same_key_with_a_different_quoted_offer_is_rejected()
         {
             await using var harness = NewHarness();
             var order = await harness.CreateOrderAsync();
             var key = NewKey();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
-            Publish(harness, order, ProductAdditionFactory.Seat(order) with { SourceReference = "ADD-REF-2" }, "ADD-REF-2");
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order) with { QuotedOfferId = SecondOfferId });
 
-            await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 1);
+            await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
 
             var exception = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.AddProduct.AddProductAsync(order.Id, "ADD-REF-2", key, 1));
+                () => harness.OrderChange.AddServiceAsync(order.Id, Selection(SecondOfferId), key, 1));
+
+            Assert.Equal(2703, exception.Code);
+        }
+
+        [Fact]
+        public async Task The_same_key_with_a_different_selected_offer_item_is_rejected()
+        {
+            await using var harness = NewHarness();
+            var order = await harness.CreateOrderAsync();
+            var key = NewKey();
+
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order) with { SelectedOfferItemId = SecondOfferItemId });
+
+            await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
+
+            var exception = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.OrderChange.AddServiceAsync(
+                    order.Id,
+                    Selection(selectedOfferItemId: SecondOfferItemId),
+                    key,
+                    1));
 
             Assert.Equal(2703, exception.Code);
         }
@@ -129,12 +153,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var order = await harness.CreateOrderAsync();
             var key = NewKey();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
-            await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 1);
+            await harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 1);
 
             var exception = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 2));
+                () => harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 2));
 
             Assert.Equal(2703, exception.Code);
         }
@@ -145,10 +169,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             await using var harness = NewHarness();
             var order = await harness.CreateOrderAsync();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
             var exception = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, NewKey(), 7));
+                () => harness.OrderChange.AddServiceAsync(order.Id, Selection(), NewKey(), 7));
 
             Assert.Equal(2730, exception.Code);
 
@@ -159,18 +183,17 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
         }
 
         [Fact]
-        public async Task A_rejected_command_does_not_leave_the_order_blocked()
+        public async Task A_rejected_change_does_not_leave_the_order_blocked()
         {
             await using var harness = NewHarness();
             var order = await harness.CreateOrderAsync();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
             await Assert.ThrowsAsync<BusinessException>(
-                () => harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, NewKey(), 7));
+                () => harness.OrderChange.AddServiceAsync(order.Id, Selection(), NewKey(), 7));
 
-            var outcome = await harness.AddProduct.AddProductAsync(
-                order.Id, ProductAdditionFactory.SourceReference, NewKey(), 1);
+            var outcome = await harness.OrderChange.AddServiceAsync(order.Id, Selection(), NewKey(), 1);
 
             Assert.False(outcome.IsReplay);
             Assert.Equal(2, outcome.CommercialVersion);
@@ -182,10 +205,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             await using var harness = NewHarness();
             var order = await harness.CreateOrderAsync();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
             var exception = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, NewKey(), null));
+                () => harness.OrderChange.AddServiceAsync(order.Id, Selection(), NewKey(), null));
 
             Assert.Equal(2856, exception.Code);
         }
@@ -203,41 +226,41 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
                 var order = await harness.CreateOrderAsync();
                 orderId = order.Id;
 
-                Publish(harness, order, ProductAdditionFactory.Seat(order));
+                harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
-                var first = await harness.AddProduct.AddProductAsync(orderId, ProductAdditionFactory.SourceReference, key, 1);
+                var first = await harness.OrderChange.AddServiceAsync(orderId, Selection(), key, 1);
                 operationId = first.OperationId;
                 changeId = first.OrderChangeId;
             }
 
             await using var retry = NewHarness();
 
-            var replay = await retry.AddProduct.AddProductAsync(orderId, ProductAdditionFactory.SourceReference, key, 1);
+            var replay = await retry.OrderChange.AddServiceAsync(orderId, Selection(), key, 1);
 
             Assert.True(replay.IsReplay);
             Assert.Equal(operationId, replay.OperationId);
             Assert.Equal(changeId, replay.OrderChangeId);
-            Assert.Equal(0, retry.ProductAdditions.CallCount);
+            Assert.Equal(0, retry.Quotes.CallCount);
         }
 
         [Fact]
-        public async Task A_replay_after_a_later_unrelated_mutation_still_resolves_the_original_addition()
+        public async Task A_replay_after_a_later_unrelated_change_still_resolves_the_original_one()
         {
             await using var harness = NewHarness();
             var order = await harness.CreateOrderAsync();
             var firstKey = NewKey();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
-            var first = await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, firstKey, 1);
+            var first = await harness.OrderChange.AddServiceAsync(order.Id, Selection(), firstKey, 1);
 
-            Publish(harness, order, ProductAdditionFactory.GroundTransport(order) with { SourceReference = "ADD-REF-B" }, "ADD-REF-B");
+            harness.Quotes.Quote(ProductAdditionFactory.GroundTransport(order) with { QuotedOfferId = SecondOfferId });
 
-            var second = await harness.AddProduct.AddProductAsync(order.Id, "ADD-REF-B", NewKey(), 2);
+            var second = await harness.OrderChange.AddServiceAsync(order.Id, Selection(SecondOfferId), NewKey(), 2);
 
             Assert.Equal(3, second.CommercialVersion);
 
-            var replay = await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, firstKey, 1);
+            var replay = await harness.OrderChange.AddServiceAsync(order.Id, Selection(), firstKey, 1);
 
             Assert.True(replay.IsReplay);
             Assert.Equal(first.OrderChangeId, replay.OrderChangeId);
@@ -256,11 +279,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
         {
             await using var harness = NewHarness();
             var order = await harness.CreateOrderAsync();
-            var key = NewKey();
 
-            Publish(harness, order, ProductAdditionFactory.Seat(order));
+            harness.Quotes.Quote(ProductAdditionFactory.Seat(order));
 
-            var first = await harness.AddProduct.AddProductAsync(order.Id, ProductAdditionFactory.SourceReference, key, 1);
+            var first = await harness.OrderChange.AddServiceAsync(order.Id, Selection(), NewKey(), 1);
 
             await using var context = _fixture.NewCommandContext();
 
@@ -276,16 +298,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
         }
 
         private OrderSliceHarness NewHarness()
-            => new(_fixture, TestCallerContexts.AgencyUser(11, "add-product-subject"));
+            => new(_fixture, TestCallerContexts.AgencyUser(11, "order-change-subject"));
 
         private static string NewKey() => Guid.NewGuid().ToString("N");
 
-        private static void Publish(
-            OrderSliceHarness harness,
-            Order order,
-            AcceptedProductAddition addition,
-            string? sourceReference = null)
-            => harness.ProductAdditions.Publish(sourceReference ?? ProductAdditionFactory.SourceReference, addition);
+        private static IReadOnlyList<SelectedQuotedOffer> Selection(
+            string quotedOfferId = ProductAdditionFactory.QuotedOfferId,
+            string selectedOfferItemId = ProductAdditionFactory.SelectedOfferItemId)
+            => [new SelectedQuotedOffer(quotedOfferId, [selectedOfferItemId])];
 
         private async Task<Order> ReloadAsync(long orderId)
         {

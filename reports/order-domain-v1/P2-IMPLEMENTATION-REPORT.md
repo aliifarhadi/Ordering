@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt), [`audit/p2/P2-E.1-TEST-RUN.txt`](audit/p2/P2-E.1-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -13,7 +13,8 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-C.1** fare construction scope resolution | **Complete — P2-C frozen** |
 | **P2-D** OrderService composition & ancillary domain | **Complete** |
 | **P2-D.1** price-treatment & referential-integrity closure | **Complete — P2-D frozen** |
-| **P2-E** idempotent AddProduct commercial mutation | **Complete — P2-D.1 frozen** |
+| **P2-E** idempotent add-service commercial mutation | **Complete — P2-D.1 frozen** |
+| **P2-E.1** benchmark-aligned Order Change / Add Service | **Complete — P2-E frozen** |
 | P2-F ElectronicMiscDocument | Not started |
 | P2-G projections / APIs / events | Not started |
 | P2-H verification | Not started |
@@ -477,6 +478,68 @@ scope, so a pending EMD ancillary would have made an already ticketed air order 
 now scoped to `DocumentKind == ElectronicTicket`. And `OrderItemPolicySnapshot`, which an exhaustive search
 showed has no reader anywhere and whose every field is now owned by `OrderService`, became optional rather than
 having a false `AirTransportPolicy()` stamped on hotel or baggage items.
+
+---
+
+## P2-E.1 — Benchmark-aligned Order Change / Add Service
+
+**Complete. P2-E is frozen.** Full detail in
+[`P2-E.1-BENCHMARKED-ORDER-CHANGE-REPORT.md`](P2-E.1-BENCHMARKED-ORDER-CHANGE-REPORT.md); scope audit in
+[`audit/p2/P2-E.1-BENCHMARK-AND-SCOPE-AUDIT.md`](audit/p2/P2-E.1-BENCHMARK-AND-SCOPE-AUDIT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **399 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **272 passed**, 0 failed (real SQL Server) |
+| Total | **671 passed, 0 failed** (baseline 649 -> +22, zero regressions) |
+
+P2-E's internal mutation was correct but it was exposed under an invented business vocabulary: `AddProduct`
+named the implementation shape as if it were an airline operation, and the request carried an arbitrary
+`SourceReference`. No industry standard or PSS benchmark has a post-sale "AddProduct" operation.
+
+The public operation is now **Order Change**, with **Add Service** as its only implemented use case:
+`POST /Backoffice/v1/Orders/{OrderId}/Change` and `POST /Api/v1/Bookings/{OrderId}/Change`, both invoking one
+`IOrderChangeService.AddServiceAsync`. The request represents acceptance of an already quoted offer -
+`AcceptSelectedQuotedOfferList` with `QuotedOfferId` and `SelectedOfferItemIds` - and the response is the
+updated order from Ordering's own projection plus `OperationId` and `CommercialVersion`. Price, tax,
+commission, snapshots, service detail internals and attributes JSON cannot be sent by the caller. The
+`/AddProduct` endpoints and their request DTOs were deleted, not aliased.
+
+`IAcceptedProductAdditionPort` became `IOrderChangeQuoteProvider`, resolving `AcceptedQuotedOfferSelection` into
+`AcceptedAddServiceChange` and nothing else. An expired or rejected quote fails the change (2862) with no
+mutation - Ordering never reprices locally. More than one selected offer item is rejected explicitly (2864)
+before the provider is called, documented as a current subset of the standard flow rather than a different
+business flow. **ServiceList, SeatAvailability and OrderQuote remain upstream capabilities outside Ordering.**
+
+`ServicingOperationKind` 9 was renamed `AddProduct` -> `AddService` (value preserved). `OrderChangeType.AddProduct`
+and `PriceChangeReason.AddProduct` keep their persisted values and are recorded as internal historical labels,
+not public vocabulary. Internal domain members were deliberately not renamed. Ancillary and SSR are kept
+distinct: no SSR code or status was invented, `GenericService` is explicitly not the permanent SSR model, and a
+first-class `SpecialServiceRequest` is deferred to its own benchmarked slice. Every P2-E internal correctness
+property - atomicity, one-mutation invariants, the three counters, operation recovery, price-treatment
+evidence, ETKT document-family scope - is unchanged.
+
+### Standing decision — Airline Flow Benchmark Rule
+
+```
+Ordering public business flows and vocabulary must be traceable
+to an industry standard or established PSS benchmark.
+
+Internal implementation abstractions do not justify creation
+of new airline business operations.
+
+Any intentional deviation requires:
+- benchmark compared,
+- limitation identified,
+- reason for deviation,
+- practical benefit,
+- compatibility impact.
+```
+
+Before adding any public command, endpoint or message, answer "what established airline/PSS flow does this
+correspond to?" - if there is no defensible answer, do not expose it. Internal domain terminology may differ
+where useful; public business vocabulary must not invent a parallel airline workflow.
 
 ---
 

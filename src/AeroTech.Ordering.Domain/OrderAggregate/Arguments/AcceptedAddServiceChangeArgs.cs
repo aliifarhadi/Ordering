@@ -2,8 +2,8 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.ProductAddition;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.Arguments
 {
-    public sealed record AcceptedProductAdditionArgs(
-        AcceptedProductAddition Accepted,
+    public sealed record AcceptedAddServiceChangeArgs(
+        AcceptedAddServiceChange Accepted,
         long OperationId,
         long? ActorId = null,
         string? ActorScope = null,

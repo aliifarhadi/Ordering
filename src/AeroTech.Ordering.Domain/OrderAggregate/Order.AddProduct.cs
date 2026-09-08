@@ -30,14 +30,14 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             PricingBasisType.OrderService
         ];
 
-        public AddedProduct AddProduct(AcceptedProductAdditionArgs args, IIdGenerator idGenerator, IClock clock)
+        public AddedProduct AddProduct(AcceptedAddServiceChangeArgs args, IIdGenerator idGenerator, IClock clock)
             => AddProduct(args, idGenerator, clock.GetDateTime());
 
-        public AddedProduct AddProduct(AcceptedProductAdditionArgs args, IIdGenerator idGenerator, DateTimeOffset now)
+        public AddedProduct AddProduct(AcceptedAddServiceChangeArgs args, IIdGenerator idGenerator, DateTimeOffset now)
             => AttachProductAddition(StageProductAddition(args, idGenerator, now), idGenerator, now);
 
         private StagedProductAddition StageProductAddition(
-            AcceptedProductAdditionArgs args,
+            AcceptedAddServiceChangeArgs args,
             IIdGenerator idGenerator,
             DateTimeOffset now)
         {
@@ -56,10 +56,10 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 PriceChangeReason.AddProduct,
                 accepted.PricingSource,
                 [],
-                accepted.SourceOfferId,
+                accepted.QuotedOfferId,
                 accepted.SourcePricingReference,
                 ChangeReason: null,
-                ExternalReference: args.ExternalReference ?? accepted.SourceReference,
+                ExternalReference: args.ExternalReference ?? accepted.SelectedOfferItemId,
                 ActorScope: args.ActorScope,
                 ActorId: args.ActorId,
                 OperationId: args.OperationId);

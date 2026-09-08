@@ -5,7 +5,7 @@ namespace AeroTech.Messages.Ordering.Enums
     public enum PriceChangeReason
     {
         [Display(Name = "Original Sale")] OriginalSale = 1,
-        [Display(Name = "Add Product")] AddProduct = 2,
+        [Display(Name = "Add Service")] AddProduct = 2,
         [Display(Name = "Reprice")] Reprice = 3,
         [Display(Name = "Voluntary Change")] VoluntaryChange = 4,
         [Display(Name = "Exchange")] Exchange = 5,

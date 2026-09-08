@@ -28,7 +28,7 @@ namespace AeroTech.Messages.Ordering.Enums
         [Display(Name = "EXPIRE")]
         Expire = 8,
 
-        [Display(Name = "ADD PRODUCT")]
-        AddProduct = 9
+        [Display(Name = "ADD SERVICE")]
+        AddService = 9
     }
 }

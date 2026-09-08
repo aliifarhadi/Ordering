@@ -1,10 +1,11 @@
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
-using AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition;
+using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
 using AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrderDetails;
 using AeroTech.Ordering.RestApi._Shared;
+using AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests;
 using Asp.Versioning;
 using MediatR;
 using Microsoft.AspNetCore.Http;
@@ -22,20 +23,20 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
         private readonly IReserveOrderService _reserveOrderService;
         private readonly IIssueOrderService _issueOrderService;
         private readonly IWithdrawOrderService _withdrawOrderService;
-        private readonly IAddProductService _addProductService;
+        private readonly IOrderChangeService _orderChangeService;
 
         public BackofficeOrderLifecycleController(
             IMediator mediator,
             IReserveOrderService reserveOrderService,
             IIssueOrderService issueOrderService,
             IWithdrawOrderService withdrawOrderService,
-            IAddProductService addProductService)
+            IOrderChangeService orderChangeService)
         {
             _mediator = mediator;
             _reserveOrderService = reserveOrderService;
             _issueOrderService = issueOrderService;
             _withdrawOrderService = withdrawOrderService;
-            _addProductService = addProductService;
+            _orderChangeService = orderChangeService;
         }
 
         [HttpGet("{orderId:long}/Details")]
@@ -68,17 +69,23 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
                 request.ExpectedCommercialVersion,
                 cancellationToken));
 
-        [HttpPost("{orderId:long}/AddProduct")]
-        public async Task<IActionResult> AddProduct(
+        [HttpPost("{orderId:long}/Change")]
+        public async Task<IActionResult> Change(
             [FromRoute] long orderId,
-            [FromBody] AddProductRequest request,
+            [FromBody] OrderChangeRequest request,
             CancellationToken cancellationToken)
-            => Ok(await _addProductService.AddProductAsync(
+        {
+            var outcome = await _orderChangeService.AddServiceAsync(
                 orderId,
-                request.SourceReference,
+                OrderChangeRequestMapper.ToSelections(request),
                 IdempotencyKey.Require(Request),
                 request.ExpectedCommercialVersion,
-                cancellationToken));
+                cancellationToken);
+
+            var order = await _mediator.Send(new GetOrderDetailsQuery(orderId), cancellationToken);
+
+            return Ok(new OrderChangeResponse(outcome.OperationId, outcome.CommercialVersion, order));
+        }
 
         [HttpPost("{orderId:long}/Withdraw")]
         public async Task<IActionResult> Withdraw(
@@ -100,5 +107,5 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
 
     public sealed record WithdrawOrderRequest(VoidReason Reason, int? ExpectedCommercialVersion);
 
-    public sealed record AddProductRequest(string SourceReference, int? ExpectedCommercialVersion);
+
 }
