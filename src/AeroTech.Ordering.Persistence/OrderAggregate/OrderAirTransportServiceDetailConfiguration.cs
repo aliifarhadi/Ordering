@@ -17,6 +17,11 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.HasIndex(detail => detail.OrderServiceId).IsUnique();
             builder.HasIndex(detail => detail.OrderSegmentId);
 
+            builder.HasOne<OrderSegment>()
+                .WithMany()
+                .HasForeignKey(detail => detail.OrderSegmentId)
+                .OnDelete(DeleteBehavior.NoAction);
+
             builder.OwnsOne(detail => detail.TransitionalCheckedBaggage, baggage =>
             {
                 baggage.Property(value => value.Weight).HasColumnName("TransitionalCheckedBaggageWeight");

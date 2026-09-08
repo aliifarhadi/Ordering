@@ -1,0 +1,36 @@
+﻿P2-D.1 - Service price-treatment & referential-integrity closure
+Repository: E:\Projects\DotAir\Ordering   Branch: k8s-stg   Date: 2026-09-08
+Baseline entering P2-D.1: 516 passed / 0 failed (322 domain + 194 persistence), commit 42ebb59
+
+=== dotnet ef database update (DotAirOrderNew) ===
+20260908134158_P2D1ServiceTreatmentAndIntegrity applied; no orphan check raised; no multiple-cascade-path error.
+
+=== dotnet build AeroTech.Ordering.sln ===
+
+    5 Warning(s)
+    0 Error(s)
+
+
+
+=== dotnet test AeroTech.Ordering.Domain.Tests ===
+
+Passed!  - Failed:     0, Passed:   324, Skipped:     0, Total:   324, Duration: 440 ms - 
+AeroTech.Ordering.Domain.Tests.dll (net10.0)
+
+
+
+=== dotnet test AeroTech.Ordering.Persistence.Tests (real SQL Server) ===
+
+Passed!  - Failed:     0, Passed:   225, Skipped:     0, Total:   225, Duration: 47 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+
+
+TOTAL: 549 passed / 0 failed  (baseline 516 -> +33, zero regressions)
+
+=== new P2-D.1 test classes ===
+
+Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31, Duration: 19 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+

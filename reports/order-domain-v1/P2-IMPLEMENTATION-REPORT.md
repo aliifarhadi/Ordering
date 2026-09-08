@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -12,6 +12,7 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-C** AirFareConstruction | **Complete** |
 | **P2-C.1** fare construction scope resolution | **Complete — P2-C frozen** |
 | **P2-D** OrderService composition & ancillary domain | **Complete** |
+| **P2-D.1** price-treatment & referential-integrity closure | **Complete — P2-D frozen** |
 | P2-E initial sale + AddProduct | Not started |
 | P2-F ElectronicMiscDocument | Not started |
 | P2-G projections / APIs / events | Not started |
@@ -382,6 +383,48 @@ and item-service links from the legacy subclass table before dropping it - the s
 first and was hand-corrected, and the scaffolded `PriceTreatment` default of `0` (not a valid member) was
 corrected to `1`. No previously applied migration was edited. Every detail table has a real FK; there are no
 polymorphic or nullable fake FKs.
+
+---
+
+## P2-D.1 — Service price-treatment & referential-integrity closure
+
+**Complete. P2-D is frozen.** Full detail in
+[`P2-D.1-CLOSURE-REPORT.md`](P2-D.1-CLOSURE-REPORT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **324 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **225 passed**, 0 failed (real SQL Server) |
+| Total | **549 passed, 0 failed** (baseline 516 -> +33, zero regressions) |
+
+Two correctness areas were closed.
+
+**PriceTreatment was hardcoded.** The AirPrice ACL stamped `SeparatelyPriced` on every air service at creation
+time, before any pricing evidence existed - existence alone was treated as proof of an independent product
+price. `PriceTreatment` now describes the commercial relationship between a service and accepted price
+evidence, and is decided after normalization: an **Original**, **CustomerBalance**, **primary** component
+(`Fare` or `ProductCharge`) at `BasisType = OrderService` for that service makes it `SeparatelyPriced`; the
+same kind of line at `BasisType = OrderItem` on the parent product makes it `Included`; neither makes it
+`SupplierOpaque`; `Complimentary` is never inferred. A service-scoped `Tax`, `CarrierSurcharge` or `Fee` is not
+primary value evidence, so an item-priced round trip with per-segment taxes leaves both air services
+`Included` and counts the item price exactly once. The rule lives in `ServicePriceTreatmentResolver` in the
+ACL; `AcceptedProductBuilder` now accumulates pending descriptors and materializes `AcceptedService` once the
+traveller's pricing facts are known. The Domain still never sees an AirPrice DTO, and the change creates,
+deletes or splits no `PricingLine` and moves no `CustomerTotal`, `FinancialSequence` or `ObligationVersion`.
+
+**Target references had no foreign keys.** Ten references - service to current item, beneficiary to traveller,
+covered segment, covered service, all three `OrderItemServiceLink` targets including `LinkedByChangeId`, air
+detail segment, seat detail associated service and lounge related-air service - are now real FKs configured
+without adding navigation properties, all `DeleteBehavior.NoAction` so the aggregate root keeps the single
+cascade path and SQL Server raises no multiple-cascade-path error. The database proves the target exists; the
+Domain still proves it belongs to the same Order and has the required semantic type.
+
+Migration `20260908134158_P2D1ServiceTreatmentAndIntegrity` re-derives persisted `PriceTreatment` from the P2-A
+ledger using the real columns and enum values (never overwriting an explicit `Complimentary`), then runs ten
+named orphan pre-checks that `THROW` on corrupt historical data before adding the FKs - nothing is deleted,
+repointed or invented. `P2DServiceComposition` was not edited. The corrective statement lives in
+`P2D1ServicePriceTreatmentBackfill.Sql` so the migration and its tests execute identical text.
 
 ---
 

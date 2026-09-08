@@ -20,6 +20,11 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
 
             builder.HasIndex(service => service.OrderItemId);
 
+            builder.HasOne<OrderItem>()
+                .WithMany()
+                .HasForeignKey(service => service.OrderItemId)
+                .OnDelete(DeleteBehavior.NoAction);
+
             builder.HasMany(service => service.Beneficiaries)
                 .WithOne()
                 .HasForeignKey(beneficiary => beneficiary.OrderServiceId)

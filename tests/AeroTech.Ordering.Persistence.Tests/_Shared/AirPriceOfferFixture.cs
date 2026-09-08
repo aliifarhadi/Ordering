@@ -79,8 +79,38 @@ namespace AeroTech.Ordering.Persistence.Tests._Shared
                 Rates: rates ?? []);
         }
 
+        public const long SecondFlightId = 5002;
+
+        public static OfferDetail TwoFlightOffer(
+            DateTimeOffset now,
+            IReadOnlyList<OfferPriceLine> priceLines,
+            IReadOnlyList<OfferCharge>? charges = null)
+        {
+            var offer = Offer(now, priceLines, charges);
+            var bound = offer.Bounds.Single();
+            var first = bound.Flights.Single();
+
+            var second = first with
+            {
+                FlightId = SecondFlightId,
+                Number = "W5 5678",
+                OriginAirportId = 200,
+                DestinationAirportId = 300,
+                DepartureDateTime = first.ArrivalDateTime.AddHours(2),
+                ArrivalDateTime = first.ArrivalDateTime.AddHours(4)
+            };
+
+            return offer with { Bounds = [bound with { Flights = [first, second] }] };
+        }
+
         public static OfferPriceLine FareLine(decimal amount)
             => new("T1", true, AirFareId, null, "FARE", "B1", FlightId, amount, CurrencyId, amount, CurrencyId, null);
+
+        public static OfferPriceLine ItemFareLine(decimal amount)
+            => new("T1", true, AirFareId, null, "FARE", "B1", null, amount, CurrencyId, amount, CurrencyId, null);
+
+        public static OfferPriceLine ChargeLineOn(string airChargeId, string code, decimal amount, long flightId)
+            => new("T1", false, AirFareId, airChargeId, code, "B1", flightId, amount, CurrencyId, amount, CurrencyId, null);
 
         public static OfferPriceLine ChargeLine(string airChargeId, string code, decimal amount)
             => new("T1", false, AirFareId, airChargeId, code, "B1", FlightId, amount, CurrencyId, amount, CurrencyId, null);

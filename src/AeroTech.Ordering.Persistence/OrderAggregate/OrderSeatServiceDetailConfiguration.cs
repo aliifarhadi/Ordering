@@ -14,6 +14,12 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.Property(detail => detail.SoldSeatNumber).HasMaxLength(16);
 
             builder.HasIndex(detail => detail.OrderServiceId).IsUnique();
+            builder.HasIndex(detail => detail.AssociatedAirOrderServiceId);
+
+            builder.HasOne<OrderService>()
+                .WithMany()
+                .HasForeignKey(detail => detail.AssociatedAirOrderServiceId)
+                .OnDelete(DeleteBehavior.NoAction);
         }
     }
 }

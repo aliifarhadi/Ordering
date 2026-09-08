@@ -14,6 +14,11 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
 
             builder.HasIndex(covered => new { covered.OrderServiceId, covered.CoveredOrderServiceId }).IsUnique();
             builder.HasIndex(covered => covered.CoveredOrderServiceId);
+
+            builder.HasOne<OrderService>()
+                .WithMany()
+                .HasForeignKey(covered => covered.CoveredOrderServiceId)
+                .OnDelete(DeleteBehavior.NoAction);
         }
     }
 }

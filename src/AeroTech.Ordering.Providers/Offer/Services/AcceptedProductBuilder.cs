@@ -9,7 +9,7 @@ namespace AeroTech.Ordering.Providers.Offer.Services
         private const string AirServiceCode = "AIR";
         private const string AirServiceName = "Air transportation";
 
-        private readonly List<AcceptedService> _services = new();
+        private readonly List<PendingAirService> _services = new();
         private readonly HashSet<int> _marketingAirlineIds = new();
         private readonly HashSet<int> _operatingAirlineIds = new();
         private readonly long _airFareId;
@@ -47,27 +47,10 @@ namespace AeroTech.Ordering.Providers.Offer.Services
             _marketingAirlineIds.Add(marketingAirlineId);
             _operatingAirlineIds.Add(operatingAirlineId);
 
-            _services.Add(new AcceptedService(
-                ServiceRef: serviceRef,
-                ServiceType: OrderServiceType.AirTransportation,
-                ServiceCode: AirServiceCode,
-                Name: AirServiceName,
-                DeliveryModel: DeliveryModel.PerPassengerSegment,
-                PriceTreatment: ServicePriceTreatment.SeparatelyPriced,
-                RequiresReservation: true,
-                RequiresSupplierConfirmation: false,
-                RequiresDocument: true,
-                ProviderType: OrderProviderType.Airline,
-                BeneficiaryTravellerRefs: [travellerRef],
-                Detail: new AcceptedAirTransportDetail(
-                    segmentRef,
-                    _fareComponent?.FareBasis,
-                    TransitionalCheckedBaggage: CheckedBaggage(),
-                    TransitionalCabinBaggage: CabinBaggage()),
-                DocumentKind: ServiceDocumentKind.ElectronicTicket));
+            _services.Add(new PendingAirService(serviceRef, travellerRef, segmentRef));
         }
 
-        public AcceptedProduct Build()
+        public AcceptedProduct Build(IReadOnlyList<AcceptedSourcePricingLine> acceptedLines)
             => new(
                 ProductRef,
                 TravellerRef,
@@ -93,7 +76,29 @@ namespace AeroTech.Ordering.Providers.Offer.Services
                     AirPriceOfferNormalizer.TermStateOf(_fareComponent?.IsUpgradable),
                     AirPriceOfferNormalizer.SourceSystem,
                     SourcePolicyReference: null),
-                _services);
+                _services.Select(pending => Materialize(pending, acceptedLines)).ToList());
+
+        private AcceptedService Materialize(
+            PendingAirService pending,
+            IReadOnlyList<AcceptedSourcePricingLine> acceptedLines)
+            => new(
+                ServiceRef: pending.ServiceRef,
+                ServiceType: OrderServiceType.AirTransportation,
+                ServiceCode: AirServiceCode,
+                Name: AirServiceName,
+                DeliveryModel: DeliveryModel.PerPassengerSegment,
+                PriceTreatment: ServicePriceTreatmentResolver.Resolve(pending.ServiceRef, ProductRef, acceptedLines),
+                RequiresReservation: true,
+                RequiresSupplierConfirmation: false,
+                RequiresDocument: true,
+                ProviderType: OrderProviderType.Airline,
+                BeneficiaryTravellerRefs: [pending.TravellerRef],
+                Detail: new AcceptedAirTransportDetail(
+                    pending.SegmentRef,
+                    _fareComponent?.FareBasis,
+                    TransitionalCheckedBaggage: CheckedBaggage(),
+                    TransitionalCabinBaggage: CabinBaggage()),
+                DocumentKind: ServiceDocumentKind.ElectronicTicket);
 
         private AcceptedBaggageAllowance? CheckedBaggage()
             => _fareComponent is null

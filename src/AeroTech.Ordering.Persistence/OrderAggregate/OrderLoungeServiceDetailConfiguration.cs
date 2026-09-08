@@ -14,6 +14,13 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.Property(detail => detail.LoungeCode).HasMaxLength(32);
 
             builder.HasIndex(detail => detail.OrderServiceId).IsUnique();
+            builder.HasIndex(detail => detail.RelatedAirOrderServiceId);
+
+            builder.HasOne<OrderService>()
+                .WithMany()
+                .HasForeignKey(detail => detail.RelatedAirOrderServiceId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.NoAction);
         }
     }
 }

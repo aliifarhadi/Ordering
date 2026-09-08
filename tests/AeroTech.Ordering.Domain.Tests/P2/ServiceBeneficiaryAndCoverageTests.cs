@@ -231,6 +231,35 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             Assert.Contains(order.AirTransportServices, air => air.Id == covered.CoveredOrderServiceId);
         }
 
+        [Fact]
+        public void A_reference_that_only_resolves_in_another_order_is_rejected()
+        {
+            var other = AncillaryFactory.OrderWith(_ids, _clock, AncillaryFactory.Seat("SEAT-OTHER"));
+            var otherServiceIds = other.OrderServices.Select(service => service.Id).ToHashSet();
+
+            var borrowed = AncillaryFactory.Baggage("BAG-BORROWED") with { CoveredAirServiceRefs = ["SEAT-OTHER"] };
+
+            var exception = Assert.Throws<BusinessException>(
+                () => AncillaryFactory.OrderWith(_ids, _clock, borrowed));
+
+            Assert.Equal(2784, exception.Code);
+            Assert.NotEmpty(otherServiceIds);
+        }
+
+        [Fact]
+        public void Coverage_and_detail_targets_are_resolved_only_inside_the_owning_order()
+        {
+            var first = AncillaryFactory.OrderWith(_ids, _clock, AncillaryFactory.Baggage());
+            var second = AncillaryFactory.OrderWith(_ids, _clock, AncillaryFactory.Baggage());
+
+            var firstServiceIds = first.OrderServices.Select(service => service.Id).ToHashSet();
+            var secondCovered = Single(second, OrderServiceType.BaggageAllowance).CoveredServices;
+
+            Assert.All(secondCovered, covered => Assert.DoesNotContain(covered.CoveredOrderServiceId, firstServiceIds));
+            Assert.All(secondCovered, covered =>
+                Assert.Contains(second.OrderServices, service => service.Id == covered.CoveredOrderServiceId));
+        }
+
         private static OrderService Single(Order order, OrderServiceType serviceType)
             => order.OrderServices.Single(service => service.ServiceType == serviceType);
     }

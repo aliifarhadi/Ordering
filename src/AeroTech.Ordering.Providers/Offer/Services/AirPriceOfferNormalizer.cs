@@ -177,7 +177,7 @@ namespace AeroTech.Ordering.Providers.Offer.Services
                     occurrences));
             }
 
-            products.AddRange(productsByKey.Values.Select(builder => builder.Build()));
+            products.AddRange(productsByKey.Values.Select(builder => builder.Build(pricingLines)));
         }
 
         private static void NormalizeOrderCharges(
