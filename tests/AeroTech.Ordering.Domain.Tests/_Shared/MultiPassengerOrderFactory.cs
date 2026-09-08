@@ -27,6 +27,9 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public static Order Create(SequentialIdGenerator ids, TestClock clock)
             => Order.Create(Args(), AcceptedSource(clock), OwnerAirlineId, ids, clock);
 
+        public static Order CreateForCustomer(long customerId, SequentialIdGenerator ids, TestClock clock)
+            => Order.Create(Args() with { CustomerId = customerId }, AcceptedSource(clock), OwnerAirlineId, ids, clock);
+
         public static Order CreateWithThroughFare(SequentialIdGenerator ids, TestClock clock)
             => Order.Create(Args(), AcceptedSource(clock, throughFare: true), OwnerAirlineId, ids, clock);
 

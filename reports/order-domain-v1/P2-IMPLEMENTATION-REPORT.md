@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt), [`audit/p2/P2-E.1-TEST-RUN.txt`](audit/p2/P2-E.1-TEST-RUN.txt), [`audit/p2/P2-F-TEST-RUN.txt`](audit/p2/P2-F-TEST-RUN.txt), [`audit/p2/P2-G-TEST-RUN.txt`](audit/p2/P2-G-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt), [`audit/p2/P2-E.1-TEST-RUN.txt`](audit/p2/P2-E.1-TEST-RUN.txt), [`audit/p2/P2-F-TEST-RUN.txt`](audit/p2/P2-F-TEST-RUN.txt), [`audit/p2/P2-G-TEST-RUN.txt`](audit/p2/P2-G-TEST-RUN.txt), [`audit/p2/P2-G.1-TEST-RUN.txt`](audit/p2/P2-G.1-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -17,6 +17,7 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-E.1** benchmark-aligned Order Change / Add Service | **Complete — P2-E frozen** |
 | **P2-F** ElectronicMiscDocument | **Complete — P2-E.1 frozen** |
 | **P2-G** OrderView, projection & pricing-change events | **Complete — P2-F frozen** |
+| **P2-G.1** OTA order ownership / resource authorization closure | **Complete — P2-G frozen** |
 | P2-H verification | Not started |
 
 ---
@@ -640,6 +641,54 @@ rejection and a failed quote write no outbox row. The event is written through t
 inside the same UnitOfWork as the mutation and the projection - no second outbox, no dedup table, no broker code
 in Domain/Application, and **no Ledger call**. `OrderCreated` and the legacy `OrderIssued` polarity adapter are
 untouched, and no historical events were back-filled.
+
+---
+
+## P2-G.1 — OTA order ownership / resource authorization closure
+
+**Complete. P2-G is frozen.** Full detail in
+[`P2-G.1-OTA-OWNERSHIP-CLOSURE-REPORT.md`](P2-G.1-OTA-OWNERSHIP-CLOSURE-REPORT.md); endpoint audit in
+[`audit/p2/P2-G.1-OTA-OWNERSHIP-AUDIT.md`](audit/p2/P2-G.1-OTA-OWNERSHIP-AUDIT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **451 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **354 passed**, 0 failed (real SQL Server) |
+| Total | **805 passed, 0 failed** (baseline 788 -> +17, zero regressions) |
+
+**The defect.** `GET /Api/v1/Bookings/{orderId}` and `POST /Api/v1/Bookings/{orderId}/Change` retrieved by
+`OrderId` alone, so any authenticated OTA caller could read any Order and commit a commercial mutation
+against it. Both are closed; P2-G could not be frozen until they were.
+
+**One small seam, not a framework.** `IOrderCustomerAccessGuard` in `Application/OrderAggregate/Access/`:
+`RequireCustomerId()` resolves trusted identity from `ICallerContext` or fails closed (2890 / 403), and
+`EnsureOwnedAsync(orderId, ct)` compares it against **Ordering-local truth** via a new
+`IOrderRepository.FindCustomerIdAsync` — one `AsNoTracking` projection of `Order.CustomerId`, no aggregate
+materialisation, no call to Core, Identity, Aegis, Offer, Pricing, JetPay or Ledger. The suggested
+`(orderId, customerId)` signature was narrowed so that no call site *can* pass a customer id. No new
+authorization framework, policy DSL, permission engine or resource ACL subsystem was built, and
+`IIdentityService` / `ICallerContext` were not redesigned.
+
+**Fail closed, disclose nothing.** Unauthenticated or missing `customer_id` -> 2890 / 403 with no order read.
+A foreign order and an unknown order take the identical branch and return the identical
+`Order '{id}' was not found.` (2500 / 404) — no foreign customer id, traveller name, total or offer id in
+the message (asserted). The `CurrentCustomerId ?? 0` defaulting on the two customer-facing **creation**
+endpoints was corrected to the same fail-closed rule, since a fabricated owner would have made the check
+meaningless.
+
+**Ownership precedes every effect.** The guard is the first statement of both endpoints, ahead of the
+idempotency key, `BeginAsync`, CommandReceipt / ServicingOperation / OperationOrderClaim, quote acceptance,
+the provider operation key, `Order.AddProduct`, PriceChangeSet, projection and outbox. The exit-gate test
+asserts a full before/after record of the target order is byte-identical — counters, receipt/operation/claim
+counts, change/item/service/price-set/line counts, pricing outbox count, `ProjectionRevision` and the
+projection snapshot — with quote provider `CallCount == 0` and no domain event dispatched. Replay is not
+authorization: a non-owner replaying an owner's `Idempotency-Key` gets the same 404 and mutates nothing.
+
+**Backoffice untouched.** Neither Backoffice controller takes the guard (asserted), a Backoffice change still
+succeeds for an airline caller with no `CustomerId`, and both channels still call the single
+`OrderChangeService` — no OTA-specific commercial mutation exists. The typed `OrderView` and
+`OrderPricingChanged` are unchanged.
 
 ---
 

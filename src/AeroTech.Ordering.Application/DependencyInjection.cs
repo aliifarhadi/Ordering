@@ -4,6 +4,7 @@ using AeroTech.Ordering.Application._Shared.Events;
 using AeroTech.Ordering.Application.FulfillmentTaskAggregate;
 using AeroTech.Ordering.Application.FulfillmentTaskAggregate.Adapters;
 using AeroTech.Ordering.Application.FulfillmentTaskAggregate.Execution;
+using AeroTech.Ordering.Application.OrderAggregate.Access;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer.Ota;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
@@ -83,6 +84,7 @@ namespace AeroTech.Ordering.Application
             services.AddScoped<IIssueOrderService, IssueOrderService>();
             services.AddScoped<IWithdrawOrderService, WithdrawOrderService>();
             services.AddScoped<IOrderChangeService, OrderChangeService>();
+            services.AddScoped<IOrderCustomerAccessGuard, OrderCustomerAccessGuard>();
 
             return services;
         }

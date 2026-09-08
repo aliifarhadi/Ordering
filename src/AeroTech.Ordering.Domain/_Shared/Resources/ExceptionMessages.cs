@@ -225,5 +225,6 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string TicketCouponAssociationNotResolvable = "Air order service {0} has {1} eligible current ticket coupons; an associated document requires exactly one.";
         public const string MiscellaneousDocumentSourceNotConfigured = "No electronic miscellaneous document issuance provider is configured for this deployment.";
         public const string EmdCouponValueMustBeNonNegative = "An electronic miscellaneous document coupon value cannot be negative.";
+        public const string CustomerContextRequired = "This operation requires an authenticated customer context.";
     }
 }

@@ -577,6 +577,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException EmdCouponValueMustBeNonNegative() =>
             new(2885, ExceptionMessages.EmdCouponValueMustBeNonNegative) { HttpStatus = 422 };
 
+        public static BusinessException CustomerContextRequired() =>
+            new(2890, ExceptionMessages.CustomerContextRequired) { HttpStatus = 403 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

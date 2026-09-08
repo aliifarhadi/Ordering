@@ -24,6 +24,13 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
         public Task<Order?> GetAsync(long id, CancellationToken cancellationToken = default)
             => AggregateQuery().FirstOrDefaultAsync(order => order.Id == id, cancellationToken);
 
+        public async Task<long?> FindCustomerIdAsync(long id, CancellationToken cancellationToken = default)
+            => await _dbContext.Set<Order>()
+                .AsNoTracking()
+                .Where(order => order.Id == id)
+                .Select(order => (long?)order.CustomerId)
+                .FirstOrDefaultAsync(cancellationToken);
+
         private IQueryable<Order> AggregateQuery()
             => _dbContext.Set<Order>()
                 .Include(order => order.Items).ThenInclude(item => item.PolicySnapshot)

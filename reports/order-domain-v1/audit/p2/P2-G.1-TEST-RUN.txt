@@ -1,0 +1,39 @@
+P2-G.1 — OTA Order Ownership / Resource Authorization Closure
+Repository: E:\Projects\DotAir\Ordering   Branch: k8s-stg   Date: 2026-09-09
+Baseline before P2-G.1: 788 passed / 0 failed (P2-G).
+
+$ dotnet build AeroTech.Ordering.sln
+  0 Error(s)
+
+$ dotnet test tests/AeroTech.Ordering.Domain.Tests/AeroTech.Ordering.Domain.Tests.csproj
+Passed!  - Failed: 0, Passed: 451, Skipped: 0, Total: 451, Duration: 777 ms
+
+$ dotnet test tests/AeroTech.Ordering.Persistence.Tests/AeroTech.Ordering.Persistence.Tests.csproj
+Passed!  - Failed: 0, Passed: 354, Skipped: 0, Total: 354, Duration: 1 m 25 s
+
+TOTAL: 805 passed, 0 failed  (788 -> 805, +17, zero regressions)
+
+New suite: AeroTech.Ordering.Persistence.Tests.P2.OtaOrderOwnershipTests (17 tests)
+
+$ dotnet test ... --filter FullyQualifiedName~OtaOrderOwnershipTests
+Passed!  - Failed: 0, Passed: 17, Skipped: 0, Total: 17, Duration: 11 s
+
+  The_owning_customer_reads_the_typed_order_view
+  An_ota_read_touches_no_upstream_provider
+  Reading_another_customers_order_is_not_found
+  A_cross_customer_read_error_discloses_nothing_about_the_other_order
+  An_unknown_order_and_another_customers_order_are_indistinguishable
+  A_read_without_customer_identity_fails_closed
+  An_unauthenticated_caller_fails_closed_even_with_a_customer_value
+  A_cross_customer_change_never_enters_the_commercial_workflow      <- exit gate
+  The_owning_customer_can_still_change_the_order
+  A_non_owner_cannot_replay_the_owners_idempotency_key
+  A_non_owner_cannot_read_the_order_it_tried_to_change
+  The_backoffice_change_is_not_customer_restricted
+  Every_customer_facing_controller_takes_the_access_guard_and_backoffice_does_not
+  No_customer_facing_controller_reads_a_defaulted_customer_identity
+  The_public_ota_contract_carries_no_caller_supplied_customer_identity
+  The_guard_resolves_ownership_from_ordering_local_truth
+  The_ota_read_contract_is_still_the_typed_order_view
+
+Migration: none. No schema change; the ownership fact (Order.CustomerId) already existed.
