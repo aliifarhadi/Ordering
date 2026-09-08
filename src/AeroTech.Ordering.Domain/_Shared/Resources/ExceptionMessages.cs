@@ -172,5 +172,6 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string FarePricingUnitRequiresFareComponent = "A fare pricing unit requires at least one fare component.";
         public const string FareComponentRequiresService = "A fare component must cover at least one sold air service.";
         public const string FareConstructionReferenceOutsideOrder = "Fare construction references {0} {1}, which does not belong to this order.";
+        public const string AmbiguousActiveFareComponent = "Order service {0} is covered by {1} active fare components; the authoritative fare context is ambiguous.";
     }
 }

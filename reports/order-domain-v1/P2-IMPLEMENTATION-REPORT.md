@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -10,6 +10,7 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-B** accepted source normalization | **Complete** |
 | **P2-B.1** domain semantic decoupling | **Complete — P2-B frozen** |
 | **P2-C** AirFareConstruction | **Complete** |
+| **P2-C.1** fare construction scope resolution | **Complete — P2-C frozen** |
 | P2-D service / item model | Not started |
 | P2-E initial sale + AddProduct | Not started |
 | P2-F ElectronicMiscDocument | Not started |
@@ -299,6 +300,37 @@ fallback; both paths are tested.
 Migration `P2CAirFareConstruction` adds eight relational tables; a follow-up `P2CIgnoreComputedFareComponents`
 removes a spurious shadow FK EF generated from a computed convenience property. No previously applied migration
 was edited.
+
+---
+
+## P2-C.1 — Fare construction scope resolution
+
+**Complete. P2-C is frozen.** Full detail in
+[`P2-C.1-SCOPE-RESOLUTION-REPORT.md`](P2-C.1-SCOPE-RESOLUTION-REPORT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **202 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **178 passed**, 0 failed (real SQL Server) |
+| Total | **380 passed, 0 failed** (baseline 369 → +11, zero regressions) |
+
+P2-C resolved fare context through a global-singular `CurrentFareConstruction()` chosen by `CreatedAt`, then
+searched only inside it. An Order may legitimately hold several simultaneously active, independent
+constructions covering different commercial scopes, so any service outside the newest construction silently
+fell through to the transitional legacy `FareBasis` — a wrong answer disguised as a valid absence.
+
+`CurrentFareConstructions()` now returns **all** non-superseded constructions (supersession was already
+branch-specific, so `A1→A2` alongside an untouched `B1` yields `{A2, B1}`), and `ActiveFareComponentFor`
+searches every current construction by actual service membership: zero matches → `null` and the transitional
+fallback; exactly one → authoritative; more than one → **fails closed** with reason code 2807. Nothing is
+picked by newest/first/highest-id/latest-`CreatedAt`, and no construction is auto-superseded to break a tie.
+`ResolveIssueFareBasis` inherits this, so the legacy fallback is reserved for absence and is never reached
+through conflict.
+
+`AcceptedFareConstruction` gained one optional `SupersedesConstructionRef` so lineage can be expressed at
+acceptance and tested; the P3 reissue workflow is still not implemented. No other fare-construction semantics
+changed, and there is no schema change or migration.
 
 ---
 

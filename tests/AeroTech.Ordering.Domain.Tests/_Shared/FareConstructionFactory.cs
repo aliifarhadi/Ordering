@@ -193,5 +193,41 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             => $"{travellerRef}:{journeyRef}:{flightId}";
 
         public static string SegmentRef(string journeyRef, long flightId) => $"{journeyRef}:{flightId}";
+
+        public static AcceptedFareConstruction SingleService(
+            string constructionRef,
+            string travellerRef,
+            string journeyRef,
+            long flightId,
+            string fareBasis,
+            string? supersedesConstructionRef = null) => new(
+            ConstructionRef: constructionRef,
+            SourceSystem: SourceSystem,
+            ProductRefs: [],
+            PricingGroups:
+            [
+                new AcceptedFarePricingGroup(
+                    PricingGroupRef: $"PG-{constructionRef}",
+                    TravellerRefs: [travellerRef],
+                    PricingUnits:
+                    [
+                        new AcceptedFarePricingUnit(
+                            PricingUnitRef: $"PU-{constructionRef}",
+                            Sequence: 1,
+                            FareComponents:
+                            [
+                                new AcceptedFareComponent(
+                                    FareComponentRef: $"FC-{constructionRef}",
+                                    Sequence: 1,
+                                    ServiceRefs: [ServiceRef(travellerRef, journeyRef, flightId)],
+                                    SegmentRefs: [SegmentRef(journeyRef, flightId)],
+                                    FareBasis: fareBasis)
+                            ],
+                            PricingUnitType: FarePricingUnitType.OneWay)
+                    ],
+                    PassengerTypeCode: PassengerTypeCode.ADT)
+            ],
+            ConstructionType: AirFareConstructionType.OneWay,
+            SupersedesConstructionRef: supersedesConstructionRef);
     }
 }

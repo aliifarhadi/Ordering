@@ -8,7 +8,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 {
     public sealed partial class Order
     {
-        public OrderAirFareConstruction? CurrentFareConstruction()
+        public IReadOnlyCollection<OrderAirFareConstruction> CurrentFareConstructions()
         {
             var superseded = _fareConstructions
                 .Where(construction => construction.SupersedesConstructionId.HasValue)
@@ -17,12 +17,23 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             return _fareConstructions
                 .Where(construction => !superseded.Contains(construction.Id))
-                .OrderByDescending(construction => construction.CreatedAt)
-                .FirstOrDefault();
+                .ToList();
         }
 
         public OrderFareComponent? ActiveFareComponentFor(long orderServiceId)
-            => CurrentFareConstruction()?.FareComponents.FirstOrDefault(component => component.Covers(orderServiceId));
+        {
+            var covering = CurrentFareConstructions()
+                .SelectMany(construction => construction.FareComponents)
+                .Where(component => component.Covers(orderServiceId))
+                .ToList();
+
+            return covering.Count switch
+            {
+                0 => null,
+                1 => covering[0],
+                _ => throw ExceptionFactory.AmbiguousActiveFareComponent(orderServiceId, covering.Count)
+            };
+        }
 
         public string? ResolveIssueFareBasis(long orderServiceId)
         {
@@ -53,6 +64,16 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             IIdGenerator idGenerator,
             DateTimeOffset now)
         {
+            long? supersedesConstructionId = null;
+
+            if (accepted.SupersedesConstructionRef is { } supersededRef)
+            {
+                if (!refs.FareConstructionIds.TryGetValue(supersededRef, out var supersededId))
+                    throw ExceptionFactory.AcceptedSourceReferenceNotResolved("superseded fare construction", supersededRef);
+
+                supersedesConstructionId = supersededId;
+            }
+
             var construction = new OrderAirFareConstruction(new CreateOrderAirFareConstructionArgs(
                 idGenerator.NewId(),
                 Id,
@@ -60,7 +81,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 accepted.SourceSystem,
                 now,
                 accepted.ConstructionType,
-                accepted.SourcePricingReference));
+                accepted.SourcePricingReference,
+                supersedesConstructionId));
 
             foreach (var productRef in accepted.ProductRefs)
             {
@@ -76,6 +98,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             EnsureFareConstructionIsCoherent(construction);
 
             _fareConstructions.Add(construction);
+            refs.FareConstructionIds[accepted.ConstructionRef] = construction.Id;
         }
 
         private void AcceptPricingGroup(

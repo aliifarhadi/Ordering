@@ -13,5 +13,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource
         public Dictionary<string, long> ProductItemIds { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public Dictionary<string, long> ServiceIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Dictionary<string, long> FareConstructionIds { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 }

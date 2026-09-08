@@ -8,5 +8,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource
         IReadOnlyList<string> ProductRefs,
         IReadOnlyList<AcceptedFarePricingGroup> PricingGroups,
         AirFareConstructionType? ConstructionType = null,
-        string? SourcePricingReference = null);
+        string? SourcePricingReference = null,
+        string? SupersedesConstructionRef = null);
 }

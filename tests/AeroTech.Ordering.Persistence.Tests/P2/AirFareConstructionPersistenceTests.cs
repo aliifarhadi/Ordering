@@ -153,6 +153,54 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             Assert.All(links, link => Assert.DoesNotContain(link.PricingLineId, fareComponentIds));
         }
 
+
+        [Fact]
+        public async Task Each_service_is_ticketed_with_the_fare_basis_of_its_own_construction()
+        {
+            await using var harness = NewHarness();
+            await harness.SeedPlatformAsync();
+
+            var source = MultiPassengerOrderFactory.AcceptedSource(harness.Clock) with
+            {
+                FareConstructions =
+                [
+                    FareConstructionFactory.SingleService("A", "T1", "B1", MultiPassengerOrderFactory.OutboundFlightId, "YOUT"),
+                    FareConstructionFactory.SingleService("B", "T1", "B2", MultiPassengerOrderFactory.InboundFlightId, "YIN")
+                ]
+            };
+
+            var order = Order.Create(
+                MultiPassengerOrderFactory.Args(),
+                source,
+                MultiPassengerOrderFactory.OwnerAirlineId,
+                harness.Ids,
+                harness.Clock);
+
+            var created = await harness.CreateOrderAsync(order);
+
+            await harness.Reserve.ReserveAsync(created.Id, NewKey(), null);
+            await harness.Issue.IssueAsync(created.Id, NewKey(), null);
+
+            await using var verification = _fixture.NewCommandContext();
+
+            var coupons = await verification.ElectronicTickets
+                .Include(ticket => ticket.Coupons)
+                .AsNoTracking()
+                .Where(ticket => ticket.CurrentServicingOrderId == created.Id)
+                .SelectMany(ticket => ticket.Coupons)
+                .ToListAsync();
+
+            foreach (var coupon in coupons)
+            {
+                var expected = created.ResolveIssueFareBasis(coupon.OrderServiceId);
+
+                Assert.Equal(expected, coupon.FareBasisSnapshot);
+            }
+
+            Assert.Contains(coupons, coupon => coupon.FareBasisSnapshot == "YOUT");
+            Assert.Contains(coupons, coupon => coupon.FareBasisSnapshot == "YIN");
+        }
+
         private static Order BuildOrder(OrderSliceHarness harness, Domain.OrderAggregate.AcceptedSource.AcceptedFareConstruction construction)
         {
             var source = MultiPassengerOrderFactory.AcceptedSource(harness.Clock) with

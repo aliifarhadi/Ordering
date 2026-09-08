@@ -22,7 +22,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var order = MultiPassengerOrderFactory.Create(_ids, _clock);
 
             Assert.Empty(order.FareConstructions);
-            Assert.Null(order.CurrentFareConstruction());
+            Assert.Empty(order.CurrentFareConstructions());
             Assert.True(order.CustomerTotal > 0m);
             Assert.Single(order.PriceChangeSets);
         }

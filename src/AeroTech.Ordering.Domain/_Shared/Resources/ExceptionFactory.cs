@@ -419,6 +419,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException FareConstructionReferenceOutsideOrder(params object?[] args) =>
             new(2806, ExceptionMessages.FareConstructionReferenceOutsideOrder, args) { HttpStatus = 422 };
 
+        public static BusinessException AmbiguousActiveFareComponent(params object?[] args) =>
+            new(2807, ExceptionMessages.AmbiguousActiveFareComponent, args) { HttpStatus = 409 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }
