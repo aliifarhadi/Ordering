@@ -41,9 +41,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 return fareBasis;
 
             return _orderServices
-                .OfType<OrderAirTransportService>()
                 .FirstOrDefault(service => service.Id == orderServiceId)
-                ?.FareBasis;
+                ?.AirTransportDetail?.TransitionalFareBasis;
         }
 
         internal void AcceptFareConstructions(

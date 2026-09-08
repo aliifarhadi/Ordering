@@ -44,9 +44,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Assert.Equal(context.TravelerA, ticket.TravelerId);
 
             var order = await LoadOrderAsync(verification, context.OrderId);
-            var services = order.OrderServices.OfType<OrderAirTransportService>().ToList();
+            var services = order.OrderServices.Where(service => service.IsAirTransport).ToList();
 
-            foreach (var service in services.Where(service => service.TravellerId == context.TravelerA))
+            foreach (var service in services.Where(service => service.SoleBeneficiaryId == context.TravelerA))
             {
                 Assert.Equal(OrderServiceDocumentStatus.Issued, service.DocumentStatus);
                 Assert.Equal(ticket.Id, service.ElectronicTicketId);
@@ -54,7 +54,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                                                           && coupon.OrderServiceId == service.Id);
             }
 
-            foreach (var service in services.Where(service => service.TravellerId == context.TravelerB))
+            foreach (var service in services.Where(service => service.SoleBeneficiaryId == context.TravelerB))
             {
                 Assert.NotEqual(OrderServiceDocumentStatus.Issued, service.DocumentStatus);
                 Assert.Null(service.ElectronicTicketId);
@@ -182,8 +182,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 .SingleAsync(candidate => candidate.CurrentServicingOrderId == context.OrderId);
 
             foreach (var service in repaired.OrderServices
-                         .OfType<OrderAirTransportService>()
-                         .Where(service => service.TravellerId == context.TravelerA))
+                         .Where(service => service.IsAirTransport)
+                         .Where(service => service.SoleBeneficiaryId == context.TravelerA))
             {
                 Assert.Equal(OrderServiceDocumentStatus.Issued, service.DocumentStatus);
                 Assert.Equal(ticket.Id, service.ElectronicTicketId);
@@ -233,7 +233,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
         private static Task<Domain.OrderAggregate.Order> LoadOrderAsync(OrderingDbContext command, long orderId)
             => command.Orders
-                .Include(order => order.OrderServices)
+                .Include(order => order.OrderServices).ThenInclude(service => service.Beneficiaries)
+                .Include(order => order.OrderServices).ThenInclude(service => service.AirTransportDetail)
                 .Include(order => order.TimeLimits)
                 .AsNoTracking()
                 .SingleAsync(order => order.Id == orderId);
@@ -270,8 +271,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             await harness.Reserve.ReserveAsync(order.Id, NewKey(), null);
 
             var travelers = order.OrderServices
-                .OfType<OrderAirTransportService>()
-                .Select(service => service.TravellerId)
+                .Where(service => service.IsAirTransport)
+                .Select(service => service.SoleBeneficiaryId)
                 .Distinct()
                 .OrderBy(id => id)
                 .ToList();

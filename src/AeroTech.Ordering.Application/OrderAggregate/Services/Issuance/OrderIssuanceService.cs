@@ -121,7 +121,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
 
         private static IReadOnlyList<string> ResolveHoldBatchIds(Order order)
             => order.OrderServices
-                .Where(service => service.RequiresFulfillment && service.ServiceType == OrderServiceType.AirTransportation)
+                .Where(service => service.RequiresReservation && service.ServiceType == OrderServiceType.AirTransportation)
                 .Select(service => service.HoldBatchId)
                 .Where(batchId => !string.IsNullOrWhiteSpace(batchId))
                 .Select(batchId => batchId!)

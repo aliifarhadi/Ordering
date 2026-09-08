@@ -434,13 +434,13 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         public void Issue_time_fare_context_uses_the_fare_component_when_a_construction_exists()
         {
             var order = WithConstruction(FareConstructionFactory.ThroughFare());
-            var services = order.OrderServices.OfType<OrderAirTransportService>()
+            var services = order.OrderServices.Where(service => service.IsAirTransport)
                 .Where(service => order.ActiveFareComponentFor(service.Id) is not null)
                 .ToList();
 
             Assert.NotEmpty(services);
             Assert.All(services, service => Assert.Equal("YTHRU", order.ResolveIssueFareBasis(service.Id)));
-            Assert.All(services, service => Assert.NotEqual(service.FareBasis, order.ResolveIssueFareBasis(service.Id)));
+            Assert.All(services, service => Assert.NotEqual(service.AirTransportDetail?.TransitionalFareBasis, order.ResolveIssueFareBasis(service.Id)));
         }
 
         [Fact]
@@ -448,10 +448,10 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         {
             var order = MultiPassengerOrderFactory.Create(_ids, _clock);
 
-            Assert.All(order.OrderServices.OfType<OrderAirTransportService>(), service =>
+            Assert.All(order.OrderServices.Where(service => service.IsAirTransport), service =>
             {
                 Assert.Null(order.ActiveFareComponentFor(service.Id));
-                Assert.Equal(service.FareBasis, order.ResolveIssueFareBasis(service.Id));
+                Assert.Equal(service.AirTransportDetail?.TransitionalFareBasis, order.ResolveIssueFareBasis(service.Id));
             });
         }
 

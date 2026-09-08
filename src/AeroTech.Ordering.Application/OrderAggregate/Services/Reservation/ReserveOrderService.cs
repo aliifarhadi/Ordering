@@ -166,15 +166,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Reservation
             Domain.OrderAggregate.Order order,
             IReadOnlyList<long> scope)
             => order.OrderServices
-                .OfType<OrderAirTransportService>()
-                .Where(service => scope.Contains(service.Id))
+                .Where(service => service.IsAirTransport && scope.Contains(service.Id))
                 .Select(service =>
                 {
-                    var segment = order.Segments.Single(candidate => candidate.Id == service.OrderSegmentId);
+                    var segment = order.Segments.Single(candidate => candidate.Id == service.SoldSegmentId!.Value);
 
                     return new ReserveServiceRequest(
                         service.Id,
-                        service.TravellerId,
+                        service.SoleBeneficiaryId,
                         segment.Id,
                         segment.FlightCapacityId,
                         segment.BookingClass);

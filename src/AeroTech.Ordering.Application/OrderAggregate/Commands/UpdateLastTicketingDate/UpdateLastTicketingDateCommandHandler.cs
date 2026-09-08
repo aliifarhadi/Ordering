@@ -50,8 +50,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.UpdateLastTicket
 
         private async Task ExtendProviderHoldsAsync(Order order, DateTimeOffset expiresAt, CancellationToken cancellationToken)
         {
-            var holdBatchIds = order.OrderServices.OfType<OrderAirTransportService>()
-                .Where(service => !string.IsNullOrWhiteSpace(service.HoldBatchId))
+            var holdBatchIds = order.OrderServices
+                .Where(service => service.IsAirTransport && !string.IsNullOrWhiteSpace(service.HoldBatchId))
                 .Select(service => service.HoldBatchId!)
                 .Distinct();
 

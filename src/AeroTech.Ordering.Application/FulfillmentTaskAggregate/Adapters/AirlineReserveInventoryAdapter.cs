@@ -99,15 +99,15 @@ namespace AeroTech.Ordering.Application.FulfillmentTaskAggregate.Adapters
                 if (target.OrderServiceId is not { } orderServiceId)
                     continue;
 
-                var service = order.OrderServices.OfType<OrderAirTransportService>()
-                    .FirstOrDefault(candidate => candidate.Id == orderServiceId);
+                var service = order.OrderServices
+                    .FirstOrDefault(candidate => candidate.Id == orderServiceId && candidate.IsAirTransport);
                 if (service is null)
                     continue;
 
-                var segment = order.Segments.FirstOrDefault(candidate => candidate.Id == service.OrderSegmentId);
+                var segment = order.Segments.FirstOrDefault(candidate => candidate.Id == service.SoldSegmentId);
                 var seat = hold.Seats.FirstOrDefault(candidate =>
                     candidate.FlightId == segment?.FlightId.ToString()
-                    && candidate.PaxReference == service.TravellerId.ToString());
+                    && candidate.PaxReference == service.SoleBeneficiaryId.ToString());
 
                 results.Add(new FulfillmentTargetResult(orderServiceId, seat?.SeatHoldReference));
             }

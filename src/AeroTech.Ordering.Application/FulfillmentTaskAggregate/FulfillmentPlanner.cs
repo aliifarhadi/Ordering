@@ -26,7 +26,7 @@ namespace AeroTech.Ordering.Application.FulfillmentTaskAggregate
         public IReadOnlyList<FulfillmentTask> PlanReservation(Order order, string idempotencyKey)
         {
             var airServices = order.OrderServices
-                .Where(service => service.RequiresFulfillment && service.ServiceType == OrderServiceType.AirTransportation)
+                .Where(service => service.RequiresReservation && service.ServiceType == OrderServiceType.AirTransportation)
                 .ToList();
 
             if (airServices.Count == 0)
@@ -65,7 +65,7 @@ namespace AeroTech.Ordering.Application.FulfillmentTaskAggregate
                 purpose: OrderFulfillmentPurpose.InitialTicketing);
 
             var services = order.OrderServices
-                .Where(service => service.RequiresFulfillment
+                .Where(service => service.RequiresReservation
                     && service.ServiceType == OrderServiceType.AirTransportation
                     && service.HoldBatchId == holdBatchId)
                 .ToList();
@@ -114,7 +114,7 @@ namespace AeroTech.Ordering.Application.FulfillmentTaskAggregate
         public FulfillmentTask PlanCancel(Order order, string holdId, string idempotencyKey)
         {
             var airServices = order.OrderServices
-                .Where(service => service.RequiresFulfillment
+                .Where(service => service.RequiresReservation
                     && service.ServiceType == OrderServiceType.AirTransportation
                     && service.HoldBatchId == holdId)
                 .ToList();

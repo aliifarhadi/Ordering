@@ -269,8 +269,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             await harness.Reserve.ReserveAsync(order.Id, NewKey(), null);
 
             var travelers = order.OrderServices
-                .OfType<OrderAirTransportService>()
-                .Select(service => service.TravellerId)
+                .Where(service => service.IsAirTransport)
+                .Select(service => service.SoleBeneficiaryId)
                 .Distinct()
                 .OrderBy(id => id)
                 .ToList();

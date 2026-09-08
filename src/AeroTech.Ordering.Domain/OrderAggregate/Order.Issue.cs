@@ -85,13 +85,12 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
         public OrderIssuancePlan BuildIssuancePlan()
         {
             var travellerPlans = _orderServices
-                .OfType<OrderAirTransportService>()
-                .Where(service => service.RequiresFulfillment)
-                .GroupBy(service => service.TravellerId)
+                .Where(service => service.IsAirTransport && service.RequiresReservation)
+                .GroupBy(service => service.SoleBeneficiaryId)
                 .Select(group =>
                 {
                     var coupons = group
-                        .Select(service => new ServiceCouponPlan(service.Id, service.OrderSegmentId, ComputeServiceAmounts(service.Id)))
+                        .Select(service => new ServiceCouponPlan(service.Id, service.SoldSegmentId!.Value, ComputeServiceAmounts(service.Id)))
                         .ToList();
 
                     return new TravellerTicketPlan(group.Key, SumAmounts(coupons.Select(coupon => coupon.Amounts)), coupons);

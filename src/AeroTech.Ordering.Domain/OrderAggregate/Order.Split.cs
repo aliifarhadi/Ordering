@@ -47,12 +47,12 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             var itemMap = new Dictionary<long, long>();
             var serviceMap = new Dictionary<long, long>();
 
-            var movedServices = _orderServices.OfType<OrderAirTransportService>()
-                .Where(service => movingIds.Contains(service.TravellerId))
+            var movedServices = _orderServices
+                .Where(service => service.IsAirTransport && movingIds.Contains(service.SoleBeneficiaryId))
                 .ToList();
 
             var movedSegments = _segments
-                .Where(segment => movedServices.Any(service => service.OrderSegmentId == segment.Id))
+                .Where(segment => movedServices.Any(service => service.SoldSegmentId == segment.Id))
                 .ToList();
 
             var movedItineraryIds = movedSegments.Select(segment => segment.OrderItineraryId).ToHashSet();
@@ -108,9 +108,10 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     newServiceId,
                     newOrder.Id,
                     itemMap[service.OrderItemId],
-                    segmentMap[service.OrderSegmentId],
-                    travellerMap[service.TravellerId],
-                    newHoldBatchId));
+                    segmentMap,
+                    travellerMap,
+                    newHoldBatchId,
+                    idGenerator.NewId));
             }
 
             var movedPricingLines = _pricingLines

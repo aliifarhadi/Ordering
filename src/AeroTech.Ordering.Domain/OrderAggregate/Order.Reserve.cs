@@ -97,14 +97,18 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     traveller.Gender))
                 .ToList();
 
-            var flights = _orderServices.OfType<OrderAirTransportService>()
-                .Where(service => service.RequiresFulfillment && holdableTravellerIds.Contains(service.TravellerId))
-                .GroupBy(service => service.OrderSegmentId)
+            var flights = _orderServices
+                .Where(service => service.IsAirTransport && service.RequiresReservation
+                                  && holdableTravellerIds.Contains(service.SoleBeneficiaryId))
+                .GroupBy(service => service.SoldSegmentId!.Value)
                 .Select(group =>
                 {
                     var segment = _segments.Single(candidate => candidate.Id == group.Key);
                     var seats = group
-                        .Select(service => new SeatForHoldSeatRequest(service.TravellerId.ToString(), 0m, service.Seat))
+                        .Select(service => new SeatForHoldSeatRequest(
+                            service.SoleBeneficiaryId.ToString(),
+                            0m,
+                            service.AirTransportDetail?.RequestedSeat))
                         .ToList();
                     return new FlightForHoldSeatRequest(segment.FlightCapacityId.ToString(), seats);
                 })

@@ -4,16 +4,21 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource
 {
     public sealed record AcceptedService(
         string ServiceRef,
-        string TravellerRef,
-        string SegmentRef,
         OrderServiceType ServiceType,
         string ServiceCode,
         string Name,
         DeliveryModel DeliveryModel,
-        bool RequiresFulfillment,
+        ServicePriceTreatment PriceTreatment,
+        bool RequiresReservation,
         bool RequiresSupplierConfirmation,
         bool RequiresDocument,
         OrderProviderType ProviderType,
-        string? SupplierCode,
-        AcceptedAirServiceDetail? AirTransport);
+        IReadOnlyList<string> BeneficiaryTravellerRefs,
+        AcceptedServiceDetail Detail,
+        ServiceDocumentKind? DocumentKind = null,
+        bool RequiresPaymentCoverage = false,
+        string? SupplierCode = null,
+        string? DeliveryProviderReference = null,
+        IReadOnlyList<string>? CoveredAirServiceRefs = null,
+        IReadOnlyList<string>? CoveredSegmentRefs = null);
 }

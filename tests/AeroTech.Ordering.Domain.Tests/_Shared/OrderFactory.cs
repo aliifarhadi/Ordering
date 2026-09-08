@@ -81,9 +81,6 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 FareReference: AirFareId,
                 Legs: Array.Empty<AcceptedSegmentLeg>());
 
-            var checkedBaggage = new AcceptedBaggageAllowance(1, 20m, BaggageWeightUnit.Kg);
-            var cabinBaggage = new AcceptedBaggageAllowance(1, 7m, BaggageWeightUnit.Kg);
-
             var product = new AcceptedProduct(
                 ProductRef: ProductRef,
                 TravellerRef: TravellerRef,
@@ -113,23 +110,18 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 {
                     new AcceptedService(
                         ServiceRef: ServiceRef,
-                        TravellerRef: TravellerRef,
-                        SegmentRef: SegmentRef,
                         ServiceType: OrderServiceType.AirTransportation,
                         ServiceCode: "AIR",
                         Name: "Air transportation",
                         DeliveryModel: DeliveryModel.PerPassengerSegment,
-                        RequiresFulfillment: true,
+                        PriceTreatment: ServicePriceTreatment.SeparatelyPriced,
+                        RequiresReservation: true,
                         RequiresSupplierConfirmation: false,
                         RequiresDocument: true,
                         ProviderType: OrderProviderType.Airline,
-                        SupplierCode: null,
-                        AirTransport: new AcceptedAirServiceDetail(
-                            AirFareId,
-                            "YOW",
-                            "ECO",
-                            checkedBaggage,
-                            cabinBaggage))
+                        BeneficiaryTravellerRefs: [TravellerRef],
+                        Detail: new AcceptedAirTransportDetail(SegmentRef, "YOW"),
+                        DocumentKind: ServiceDocumentKind.ElectronicTicket)
                 });
 
             return new AcceptedOrderSource(

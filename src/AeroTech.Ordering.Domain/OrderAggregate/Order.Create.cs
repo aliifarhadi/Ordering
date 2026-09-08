@@ -57,6 +57,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 idGenerator,
                 clock);
 
+            order.LinkAcceptedServicesToItems(source, changeSet.ChangeId, refs, idGenerator, clock.GetDateTime());
             order.AcceptFareConstructions(source, changeSet.ChangeId, refs, idGenerator, clock.GetDateTime());
             order.AcceptCommercially();
             order.RaiseCreated(idGenerator, clock);
@@ -188,59 +189,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 refs.ProductItemIds[product.ProductRef] = item.Id;
 
                 foreach (var accepted in product.Services)
-                    BuildService(args, accepted, item.Id, product.CommercialTerms, refs, idGenerator, now);
+                    BuildService(accepted, item.Id, refs, idGenerator, now);
             }
-        }
-
-        private void BuildService(
-            CreateOrderArgs args,
-            AcceptedService accepted,
-            long orderItemId,
-            AcceptedCommercialTerms terms,
-            AcceptedSourceRefMap refs,
-            IIdGenerator idGenerator,
-            DateTimeOffset now)
-        {
-            if (!refs.SegmentIds.TryGetValue(accepted.SegmentRef, out var segmentId))
-                throw ExceptionFactory.AcceptedSourceReferenceNotResolved("segment", accepted.SegmentRef);
-
-            if (!refs.TravellerIds.TryGetValue(accepted.TravellerRef, out var travellerId))
-                throw ExceptionFactory.AcceptedSourceReferenceNotResolved("traveller", accepted.TravellerRef);
-
-            if (accepted.AirTransport is not { } air)
-                throw ExceptionFactory.AcceptedSourceReferenceNotResolved("air service detail", accepted.ServiceRef);
-
-            var service = new OrderAirTransportService(
-                new CreateOrderServiceArgs(
-                    idGenerator.NewId(),
-                    Id,
-                    orderItemId,
-                    accepted.ServiceType,
-                    accepted.ServiceCode,
-                    accepted.Name,
-                    accepted.DeliveryModel,
-                    accepted.RequiresFulfillment,
-                    accepted.RequiresSupplierConfirmation,
-                    accepted.RequiresDocument,
-                    accepted.ProviderType,
-                    accepted.SupplierCode,
-                    now),
-                new CreateOrderAirTransportServiceArgs(
-                    segmentId,
-                    travellerId,
-                    SeatFor(args, accepted, refs),
-                    air.FareReference,
-                    air.FareBasis,
-                    air.FareFamily,
-                    null,
-                    Permits(terms.ChangeabilitySummary),
-                    Permits(terms.RefundabilitySummary),
-                    Permits(terms.UpgradeEligibilitySummary),
-                    BaggageOf(air.CheckedBaggage),
-                    BaggageOf(air.CabinBaggage)));
-
-            AddOrderService(service);
-            refs.ServiceIds[accepted.ServiceRef] = service.Id;
         }
 
         private IReadOnlyList<AcceptedPricingLineArgs> AcceptPricingLines(
@@ -332,11 +282,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 terms.SourcePolicyReference,
                 terms.SourcePolicyVersion));
 
-        private static bool Permits(CommercialTermState state) => state == CommercialTermState.Permitted;
-
-        private static Baggage? BaggageOf(AcceptedBaggageAllowance? allowance)
-            => allowance is null ? null : new Baggage(allowance.Weight, allowance.Unit, allowance.Pieces);
-
         private void RaiseCreated(IIdGenerator idGenerator, IClock clock)
             => Causes(new OrderCreated(
                 idGenerator.NewId().ToString(),
@@ -425,19 +370,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             }
         }
 
-        private static string? SeatFor(CreateOrderArgs args, AcceptedService accepted, AcceptedSourceRefMap refs)
-        {
-            if (!refs.SegmentJourneyRefs.TryGetValue(accepted.SegmentRef, out var journeyRef))
-                return null;
-
-            if (!refs.TravellerIndexes.TryGetValue(accepted.TravellerRef, out var travellerIndex))
-                return null;
-
-            return args.SeatSelections
-                .FirstOrDefault(selection => string.Equals(selection.BoundId, journeyRef, StringComparison.OrdinalIgnoreCase)
-                                             && selection.TravellerIndex == travellerIndex)
-                ?.SeatNumber;
-        }
 
         private static OrderItemPolicySnapshot AirTransportPolicy(IIdGenerator idGenerator, IClock clock)
             => new(idGenerator.NewId(), 0, new CreateOrderItemPolicySnapshotArgs(

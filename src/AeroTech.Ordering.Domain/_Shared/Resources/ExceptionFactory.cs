@@ -422,6 +422,64 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException AmbiguousActiveFareComponent(params object?[] args) =>
             new(2807, ExceptionMessages.AmbiguousActiveFareComponent, args) { HttpStatus = 409 };
 
+        // P2-D service composition: 2820-2849
+        public static BusinessException ServiceTypeNotSellable(params object?[] args) =>
+            new(2820, ExceptionMessages.ServiceTypeNotSellable, args) { HttpStatus = 422 };
+
+        public static BusinessException ServiceRequiresBeneficiary(params object?[] args) =>
+            new(2821, ExceptionMessages.ServiceRequiresBeneficiary, args) { HttpStatus = 422 };
+
+        public static BusinessException ServiceRequiresExactlyOneBeneficiary(params object?[] args) =>
+            new(2822, ExceptionMessages.ServiceRequiresExactlyOneBeneficiary, args) { HttpStatus = 422 };
+
+        public static BusinessException ServiceAlreadyHasTypedDetail(params object?[] args) =>
+            new(2823, ExceptionMessages.ServiceAlreadyHasTypedDetail, args) { HttpStatus = 422 };
+
+        public static BusinessException ServiceDetailDoesNotMatchType(params object?[] args) =>
+            new(2824, ExceptionMessages.ServiceDetailDoesNotMatchType, args) { HttpStatus = 422 };
+
+        public static BusinessException ServiceDetailNotSupported(params object?[] args) =>
+            new(2825, ExceptionMessages.ServiceDetailNotSupported, args) { HttpStatus = 422 };
+
+        public static BusinessException GenericServiceSchemaNotRegistered(params object?[] args) =>
+            new(2826, ExceptionMessages.GenericServiceSchemaNotRegistered, args) { HttpStatus = 422 };
+
+        public static BusinessException GenericServiceSchemaVersionNotSupported(params object?[] args) =>
+            new(2827, ExceptionMessages.GenericServiceSchemaVersionNotSupported, args) { HttpStatus = 422 };
+
+        public static BusinessException GenericServiceAttributesInvalid(params object?[] args) =>
+            new(2828, ExceptionMessages.GenericServiceAttributesInvalid, args) { HttpStatus = 422 };
+
+        public static BusinessException BaggageQuantityMustBeNonNegative() =>
+            new(2829, ExceptionMessages.BaggageQuantityMustBeNonNegative) { HttpStatus = 422 };
+
+        public static BusinessException BaggageWeightRequiresUnit() =>
+            new(2830, ExceptionMessages.BaggageWeightRequiresUnit) { HttpStatus = 422 };
+
+        public static BusinessException MealQuantityMustBePositive() =>
+            new(2831, ExceptionMessages.MealQuantityMustBePositive) { HttpStatus = 422 };
+
+        public static BusinessException LoungeRequiresAirport() =>
+            new(2832, ExceptionMessages.LoungeRequiresAirport) { HttpStatus = 422 };
+
+        public static BusinessException LoungeGuestCountMustBeNonNegative() =>
+            new(2833, ExceptionMessages.LoungeGuestCountMustBeNonNegative) { HttpStatus = 422 };
+
+        public static BusinessException LoungeAccessWindowInvalid() =>
+            new(2834, ExceptionMessages.LoungeAccessWindowInvalid) { HttpStatus = 422 };
+
+        public static BusinessException HotelStayWindowInvalid() =>
+            new(2835, ExceptionMessages.HotelStayWindowInvalid) { HttpStatus = 422 };
+
+        public static BusinessException HotelRoomCountMustBePositive() =>
+            new(2836, ExceptionMessages.HotelRoomCountMustBePositive) { HttpStatus = 422 };
+
+        public static BusinessException HotelGuestCountMustBePositive() =>
+            new(2837, ExceptionMessages.HotelGuestCountMustBePositive) { HttpStatus = 422 };
+
+        public static BusinessException GroundTransportPassengerCountMustBePositive() =>
+            new(2838, ExceptionMessages.GroundTransportPassengerCountMustBePositive) { HttpStatus = 422 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

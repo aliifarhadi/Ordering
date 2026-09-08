@@ -122,11 +122,9 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             };
 
             var order = Order.Create(OrderFactory.Args(), conditional, OrderFactory.OwnerAirlineId, _ids, _clock);
-            var service = order.OrderServices.OfType<OrderAirTransportService>().Single();
 
-            Assert.False(service.IsRefundable);
-            Assert.False(service.IsChangeable);
             Assert.Equal(CommercialTermState.Conditional, order.Items.Single().CommercialTermsSnapshot.RefundabilitySummary);
+            Assert.Equal(CommercialTermState.Conditional, order.Items.Single().CommercialTermsSnapshot.ChangeabilitySummary);
         }
 
         [Fact]
@@ -188,7 +186,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         [Fact]
         public void The_accepted_air_service_carries_no_commercial_policy()
         {
-            var names = typeof(AcceptedAirServiceDetail)
+            var names = typeof(AcceptedAirTransportDetail)
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Select(property => property.Name)
                 .ToList();
@@ -199,17 +197,18 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         }
 
         [Fact]
-        public void The_legacy_air_service_permission_flags_are_derived_from_the_item_terms()
+        public void The_air_service_and_its_detail_own_no_commercial_policy()
         {
-            var order = MultiPassengerOrderFactory.Create(_ids, _clock);
-
-            foreach (var service in order.OrderServices.OfType<OrderAirTransportService>())
+            foreach (var type in new[] { typeof(OrderService), typeof(OrderAirTransportServiceDetail) })
             {
-                var terms = order.Items.Single(item => item.Id == service.OrderItemId).CommercialTermsSnapshot;
+                var names = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Select(property => property.Name)
+                    .ToList();
 
-                Assert.Equal(terms.RefundabilitySummary == CommercialTermState.Permitted, service.IsRefundable);
-                Assert.Equal(terms.ChangeabilitySummary == CommercialTermState.Permitted, service.IsChangeable);
-                Assert.Equal(terms.UpgradeEligibilitySummary == CommercialTermState.Permitted, service.IsUpgradable);
+                Assert.DoesNotContain("IsRefundable", names);
+                Assert.DoesNotContain("IsChangeable", names);
+                Assert.DoesNotContain("IsUpgradable", names);
+                Assert.DoesNotContain(names, name => name.Contains("FareFamily", StringComparison.Ordinal));
             }
         }
     }

@@ -175,12 +175,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
         public void Baggage_evidence_is_preserved_with_its_unit_on_the_air_service_only()
         {
             var source = _normalizer.Normalize(AirPriceOfferFixture.Offer(Now));
-            var air = source.Products.Single().Services.Single().AirTransport!;
+            var air = (AcceptedAirTransportDetail)source.Products.Single().Services.Single().Detail;
 
-            Assert.Equal(1, air.CheckedBaggage!.Pieces);
-            Assert.Equal(20m, air.CheckedBaggage.Weight);
-            Assert.Equal(BaggageWeightUnit.Kg, air.CheckedBaggage.Unit);
-            Assert.Equal(7m, air.CabinBaggage!.Weight);
+            Assert.Equal(1, air.TransitionalCheckedBaggage!.Pieces);
+            Assert.Equal(20m, air.TransitionalCheckedBaggage.Weight);
+            Assert.Equal(BaggageWeightUnit.Kg, air.TransitionalCheckedBaggage.Unit);
+            Assert.Equal(7m, air.TransitionalCabinBaggage!.Weight);
         }
 
         [Theory]
@@ -229,7 +229,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             Assert.Equal("B1:5001", segment.SegmentRef);
             Assert.Equal("T1", product.TravellerRef);
             Assert.Equal("T1:B1:5001", service.ServiceRef);
-            Assert.Equal(segment.SegmentRef, service.SegmentRef);
+            Assert.Equal(segment.SegmentRef, ((AcceptedAirTransportDetail)service.Detail).SegmentRef);
             Assert.All(source.PricingLines, line => Assert.Equal(product.ProductRef, line.ProductRef));
             Assert.All(source.PricingLines, line => Assert.Equal(service.ServiceRef, line.ServiceRef));
             Assert.Contains(source.Travellers, traveller => traveller.TravellerRef == "T1" && traveller.TravellerIndex == 1);
@@ -301,9 +301,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
         public void A_source_weight_unit_is_translated_into_ordering_vocabulary_at_the_acl()
         {
             var source = _normalizer.Normalize(AirPriceOfferFixture.Offer(Now, baggageUnit: "Lbs"));
-            var air = source.Products.Single().Services.Single().AirTransport!;
+            var air = (AcceptedAirTransportDetail)source.Products.Single().Services.Single().Detail;
 
-            Assert.Equal(BaggageWeightUnit.Lbs, air.CheckedBaggage!.Unit);
+            Assert.Equal(BaggageWeightUnit.Lbs, air.TransitionalCheckedBaggage!.Unit);
         }
 
         [Fact]

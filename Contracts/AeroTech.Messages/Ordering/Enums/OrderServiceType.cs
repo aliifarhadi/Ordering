@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace AeroTech.Messages.Ordering.Enums
 {
@@ -21,7 +21,11 @@ namespace AeroTech.Messages.Ordering.Enums
         [Display(Name = "Tax Adjustment")] TaxAdjustment,
         [Display(Name = "Manual Adjustment")] ManualAdjustment,
         [Display(Name = "Notification")] Notification,
-        [Display(Name = "Other")] Other
+        [Display(Name = "Other")] Other,
+        [Display(Name = "Ground Transport")] GroundTransport,
+        [Display(Name = "Priority")] Priority,
+        [Display(Name = "Wi-Fi")] WiFi,
+        [Display(Name = "Extra Seat")] ExtraSeat
 
     }
 

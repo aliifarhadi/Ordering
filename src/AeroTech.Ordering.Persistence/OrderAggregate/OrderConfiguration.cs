@@ -69,6 +69,7 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.HasMany(order => order.OrderServices).WithOne().HasForeignKey(service => service.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.Itineraries).WithOne().HasForeignKey(itinerary => itinerary.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.FareConstructions).WithOne().HasForeignKey(construction => construction.OrderId).OnDelete(DeleteBehavior.Cascade);
+            builder.HasMany(order => order.ItemServiceLinks).WithOne().HasForeignKey(link => link.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.Remarks).WithOne().HasForeignKey(remark => remark.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.TimeLimits).WithOne().HasForeignKey(limit => limit.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.ExternalReferences).WithOne().HasForeignKey(reference => reference.OrderId).OnDelete(DeleteBehavior.Cascade);
@@ -82,6 +83,8 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.Navigation(order => order.OrderServices).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.Itineraries).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.FareConstructions).UsePropertyAccessMode(PropertyAccessMode.Field);
+            builder.Navigation(order => order.ItemServiceLinks).UsePropertyAccessMode(PropertyAccessMode.Field);
+            builder.Ignore(order => order.AirTransportServices);
             builder.Navigation(order => order.Remarks).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.TimeLimits).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.ExternalReferences).UsePropertyAccessMode(PropertyAccessMode.Field);

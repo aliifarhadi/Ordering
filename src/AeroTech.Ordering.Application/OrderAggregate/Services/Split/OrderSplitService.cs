@@ -130,8 +130,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Split
             DateTimeOffset now,
             CancellationToken cancellationToken)
         {
-            var movedBatches = order.OrderServices.OfType<OrderAirTransportService>()
-                .Where(service => travellerIds.Contains(service.TravellerId)
+            var movedBatches = order.OrderServices
+                .Where(service => service.IsAirTransport
+                    && travellerIds.Contains(service.SoleBeneficiaryId)
                     && !string.IsNullOrWhiteSpace(service.HoldBatchId)
                     && !string.IsNullOrWhiteSpace(service.SeatHoldReference))
                 .GroupBy(service => service.HoldBatchId!)

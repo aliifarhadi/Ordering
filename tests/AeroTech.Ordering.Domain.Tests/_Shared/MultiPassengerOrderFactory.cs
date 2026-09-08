@@ -181,24 +181,19 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
 
         private static AcceptedService Service(string serviceRef, string travellerRef, string segmentRef, long fareId)
             => new(
-                serviceRef,
-                travellerRef,
-                segmentRef,
-                OrderServiceType.AirTransportation,
-                "AIR",
-                "Air transportation",
-                DeliveryModel.PerPassengerSegment,
-                RequiresFulfillment: true,
+                ServiceRef: serviceRef,
+                ServiceType: OrderServiceType.AirTransportation,
+                ServiceCode: "AIR",
+                Name: "Air transportation",
+                DeliveryModel: DeliveryModel.PerPassengerSegment,
+                PriceTreatment: ServicePriceTreatment.SeparatelyPriced,
+                RequiresReservation: true,
                 RequiresSupplierConfirmation: false,
                 RequiresDocument: true,
-                OrderProviderType.Airline,
-                SupplierCode: null,
-                new AcceptedAirServiceDetail(
-                    fareId,
-                    FareBasis,
-                    "ECO",
-                    CheckedBaggage(),
-                    CabinBaggage()));
+                ProviderType: OrderProviderType.Airline,
+                BeneficiaryTravellerRefs: [travellerRef],
+                Detail: new AcceptedAirTransportDetail(segmentRef, FareBasis),
+                DocumentKind: ServiceDocumentKind.ElectronicTicket);
 
         private static AcceptedProduct Product(
             string productRef,
@@ -262,10 +257,6 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 code,
                 description,
                 null);
-
-        private static AcceptedBaggageAllowance CheckedBaggage() => new(1, 20m, BaggageWeightUnit.Kg);
-
-        private static AcceptedBaggageAllowance CabinBaggage() => new(1, 7m, BaggageWeightUnit.Kg);
 
         private static string SegmentRef(string journeyRef, long flightId) => $"{journeyRef}:{flightId}";
 

@@ -18,7 +18,7 @@ namespace AeroTech.Ordering.Domain.Tests.P1
             Assert.Equal(2, order.Travellers.Count);
             Assert.Equal(2, order.Itineraries.Count);
             Assert.Equal(2, order.Segments.Count);
-            Assert.Equal(4, order.OrderServices.OfType<OrderAirTransportService>().Count());
+            Assert.Equal(4, order.OrderServices.Where(service => service.IsAirTransport).Count());
         }
 
         [Fact]
@@ -48,10 +48,10 @@ namespace AeroTech.Ordering.Domain.Tests.P1
         {
             var order = MultiPassengerOrderFactory.Create(_ids, _clock);
 
-            foreach (var service in order.OrderServices.OfType<OrderAirTransportService>())
+            foreach (var service in order.OrderServices.Where(service => service.IsAirTransport))
             {
-                Assert.Single(order.Travellers.Where(traveller => traveller.Id == service.TravellerId));
-                Assert.Single(order.Segments.Where(segment => segment.Id == service.OrderSegmentId));
+                Assert.Single(order.Travellers.Where(traveller => traveller.Id == service.SoleBeneficiaryId));
+                Assert.Single(order.Segments.Where(segment => segment.Id == service.SoldSegmentId!.Value));
             }
         }
 

@@ -474,21 +474,20 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
 
         private static IReadOnlyList<TicketPlan> BuildPlans(Order order, IReadOnlyList<long> scope)
             => order.OrderServices
-                .OfType<OrderAirTransportService>()
-                .Where(service => scope.Contains(service.Id))
-                .GroupBy(service => service.TravellerId)
+                .Where(service => service.IsAirTransport && scope.Contains(service.Id))
+                .GroupBy(service => service.SoleBeneficiaryId)
                 .OrderBy(group => group.Key)
                 .Select(group => new TicketPlan(
                     group.Key,
                     group
-                        .OrderBy(service => order.Segments.Single(segment => segment.Id == service.OrderSegmentId).Sequence)
+                        .OrderBy(service => order.Segments.Single(segment => segment.Id == service.SoldSegmentId!.Value).Sequence)
                         .Select(service => BuildCoupon(order, service))
                         .ToList()))
                 .ToList();
 
-        private static TicketCouponIssuance BuildCoupon(Order order, OrderAirTransportService service)
+        private static TicketCouponIssuance BuildCoupon(Order order, OrderService service)
         {
-            var segment = order.Segments.Single(candidate => candidate.Id == service.OrderSegmentId);
+            var segment = order.Segments.Single(candidate => candidate.Id == service.SoldSegmentId!.Value);
 
             var allocations = order.ServiceValueAttributions(service.Id)
                 .Select(attribution => new

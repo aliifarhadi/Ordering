@@ -12,7 +12,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
                 return EligibilityDecision.Denied(EligibilityReasonCodes.OrderNotCommerciallyActive);
 
             var scope = order.OrderServices
-                .Where(service => service.RequiresFulfillment
+                .Where(service => service.RequiresReservation
                                   && service.Status != OrderServiceStatus.Cancelled
                                   && !alreadyReservedServiceIds.Contains(service.Id))
                 .Select(service => service.Id)
@@ -20,7 +20,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
 
             if (scope.Count == 0)
             {
-                return order.OrderServices.Any(service => service.RequiresFulfillment)
+                return order.OrderServices.Any(service => service.RequiresReservation)
                     ? EligibilityDecision.Denied(EligibilityReasonCodes.AlreadyReserved)
                     : EligibilityDecision.Denied(EligibilityReasonCodes.NoEligibleServices);
             }

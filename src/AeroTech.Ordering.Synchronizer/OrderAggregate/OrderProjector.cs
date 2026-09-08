@@ -267,11 +267,37 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                             service.Id,
                             service.ServiceType,
                             service.ServiceCode,
+                            service.Name,
                             service.Status,
+                            service.CommercialStatus,
                             service.FulfillmentStatus,
+                            service.DeliveryStatus,
                             service.DocumentStatus,
-                            TravelerId = (service as OrderAirTransportService)?.TravellerId,
-                            SegmentId = (service as OrderAirTransportService)?.OrderSegmentId,
+                            service.PriceTreatment,
+                            CurrentItemId = service.OrderItemId,
+                            OriginalItemIds = order.ItemServiceLinks
+                                .Where(link => link.OrderServiceId == service.Id)
+                                .Select(link => link.OrderItemId)
+                                .ToList(),
+                            Beneficiaries = service.Beneficiaries.Select(beneficiary => beneficiary.OrderTravellerId).ToList(),
+                            Fulfillment = new
+                            {
+                                service.RequiresReservation,
+                                service.RequiresSupplierConfirmation,
+                                service.RequiresDocument,
+                                service.DocumentKind,
+                                service.RequiresPaymentCoverage,
+                                service.ProviderType,
+                                service.SupplierCode
+                            },
+                            Coverage = new
+                            {
+                                Services = service.CoveredServices.Select(covered => covered.CoveredOrderServiceId).ToList(),
+                                Segments = service.CoveredSegments.Select(covered => covered.OrderSegmentId).ToList()
+                            },
+                            Detail = DescribeServiceDetail(service),
+                            TravelerId = service.Beneficiaries.Count == 1 ? service.Beneficiaries.First().OrderTravellerId : (long?)null,
+                            SegmentId = service.SoldSegmentId,
                             service.ElectronicTicketId,
                             service.TicketCouponId
                         })
@@ -342,5 +368,35 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                 ? OrderServiceDocumentStatus.Issued
                 : OrderServiceDocumentStatus.Pending;
         }
+
+        private static object DescribeServiceDetail(Domain.OrderAggregate.Entities.OrderService service)
+        {
+            if (service.AirTransportDetail is { } air)
+                return new { Kind = "AirTransport", air.OrderSegmentId, air.TransitionalFareBasis };
+
+            if (service.SeatDetail is { } seat)
+                return new { Kind = "Seat", seat.AssociatedAirOrderServiceId, seat.SoldSeatNumber };
+
+            if (service.BaggageDetail is { } baggage)
+                return new { Kind = "Baggage", BaggageKind = baggage.Kind, baggage.Pieces, baggage.Weight, baggage.WeightUnit, baggage.PerPieceWeightLimit };
+
+            if (service.MealDetail is { } meal)
+                return new { Kind = "Meal", meal.MealCode, meal.Quantity, meal.SpecialMealCode };
+
+            if (service.LoungeDetail is { } lounge)
+                return new { Kind = "Lounge", lounge.AirportId, lounge.LoungeCode, lounge.AccessStart, lounge.AccessEnd, lounge.GuestCount };
+
+            if (service.HotelDetail is { } hotel)
+                return new { Kind = "Hotel", hotel.PropertyReference, hotel.CheckIn, hotel.CheckOut, hotel.RoomCount, hotel.GuestCount, hotel.RoomTypeCode };
+
+            if (service.GroundTransportDetail is { } ground)
+                return new { Kind = "GroundTransport", ground.PickupLocationReference, ground.DropoffLocationReference, ground.PickupAt, ground.PassengerCount, ground.VehicleTypeCode };
+
+            if (service.GenericDetail is { } generic)
+                return new { Kind = "Generic", generic.SchemaName, generic.SchemaVersion };
+
+            return new { Kind = "None" };
+        }
+
     }
 }

@@ -68,7 +68,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 .ToListAsync();
 
             var services = order.OrderServices
-                .OfType<Domain.OrderAggregate.Entities.OrderAirTransportService>()
+                .OfType<Domain.OrderAggregate.Entities.OrderService>()
                 .ToDictionary(service => service.Id);
 
             foreach (var ticket in tickets)
@@ -77,13 +77,13 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 {
                     var service = services[coupon.OrderServiceId];
 
-                    Assert.Equal(ticket.TravelerId, service.TravellerId);
-                    Assert.Equal(service.OrderSegmentId, coupon.JourneySegmentId);
+                    Assert.Equal(ticket.TravelerId, service.SoleBeneficiaryId);
+                    Assert.Equal(service.SoldSegmentId!.Value, coupon.JourneySegmentId);
                 }
             }
 
             Assert.Equal(
-                services.Values.Select(service => service.TravellerId).Distinct().Count(),
+                services.Values.Select(service => service.SoleBeneficiaryId).Distinct().Count(),
                 tickets.Count);
         }
 

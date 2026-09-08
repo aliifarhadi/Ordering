@@ -10,10 +10,14 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Arguments
         string ServiceCode,
         string Name,
         DeliveryModel DeliveryModel,
-        bool RequiresFulfillment,
+        ServicePriceTreatment PriceTreatment,
+        bool RequiresReservation,
         bool RequiresSupplierConfirmation,
         bool RequiresDocument,
         OrderProviderType ProviderType,
-        string? SupplierCode,
-        DateTimeOffset CreatedAt);
+        DateTimeOffset CreatedAt,
+        ServiceDocumentKind? DocumentKind = null,
+        bool RequiresPaymentCoverage = false,
+        string? SupplierCode = null,
+        string? DeliveryProviderReference = null);
 }

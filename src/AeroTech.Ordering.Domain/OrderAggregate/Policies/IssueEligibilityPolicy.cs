@@ -50,12 +50,14 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
                 else if (!evidence.ConfirmedReservationServiceIds.Contains(service.Id))
                     reasons.Add(EligibilityReasonCodes.ReservationNotConfirmed);
 
-                if (service is OrderAirTransportService air)
+                if (service.IsAirTransport)
                 {
-                    if (order.Travellers.All(traveller => traveller.Id != air.TravellerId))
+                    if (service.Beneficiaries.Count != 1
+                        || order.Travellers.All(traveller => traveller.Id != service.Beneficiaries.First().OrderTravellerId))
                         reasons.Add(EligibilityReasonCodes.TravelerMissing);
 
-                    if (order.Segments.All(segment => segment.Id != air.OrderSegmentId))
+                    if (service.SoldSegmentId is not { } segmentId
+                        || order.Segments.All(segment => segment.Id != segmentId))
                         reasons.Add(EligibilityReasonCodes.SegmentMissing);
                 }
             }

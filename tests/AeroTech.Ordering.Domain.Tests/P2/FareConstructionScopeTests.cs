@@ -86,10 +86,10 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var order = WithConstructions(OutboundOnly("A", "YOUT"));
 
             var inbound = ServiceId(order, InboundJourney);
-            var service = order.OrderServices.OfType<OrderAirTransportService>().Single(candidate => candidate.Id == inbound);
+            var service = order.OrderServices.Where(service => service.IsAirTransport).Single(candidate => candidate.Id == inbound);
 
             Assert.Null(order.ActiveFareComponentFor(inbound));
-            Assert.Equal(service.FareBasis, order.ResolveIssueFareBasis(inbound));
+            Assert.Equal(service.AirTransportDetail?.TransitionalFareBasis, order.ResolveIssueFareBasis(inbound));
         }
 
         [Fact]
@@ -120,12 +120,12 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         {
             var order = WithConstructions(OutboundOnly("A", "YOUT-A"), OutboundOnly("B", "YOUT-B"));
             var outbound = ServiceId(order, OutboundJourney);
-            var service = order.OrderServices.OfType<OrderAirTransportService>().Single(candidate => candidate.Id == outbound);
+            var service = order.OrderServices.Where(service => service.IsAirTransport).Single(candidate => candidate.Id == outbound);
 
             var exception = Assert.Throws<BusinessException>(() => order.ResolveIssueFareBasis(outbound));
 
             Assert.Equal(2807, exception.Code);
-            Assert.NotNull(service.FareBasis);
+            Assert.NotNull(service.AirTransportDetail?.TransitionalFareBasis);
         }
 
         [Fact]
@@ -169,8 +169,8 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var segmentIds = order.Segments.Where(segment => segment.FlightId == flightId).Select(segment => segment.Id).ToHashSet();
 
             return order.OrderServices
-                .OfType<OrderAirTransportService>()
-                .Single(service => service.TravellerId == traveller.Id && segmentIds.Contains(service.OrderSegmentId))
+                .Where(service => service.IsAirTransport)
+                .Single(service => service.SoleBeneficiaryId == traveller.Id && segmentIds.Contains(service.SoldSegmentId!.Value))
                 .Id;
         }
 

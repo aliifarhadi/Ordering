@@ -48,24 +48,23 @@ namespace AeroTech.Ordering.Providers.Offer.Services
             _operatingAirlineIds.Add(operatingAirlineId);
 
             _services.Add(new AcceptedService(
-                serviceRef,
-                travellerRef,
-                segmentRef,
-                OrderServiceType.AirTransportation,
-                AirServiceCode,
-                AirServiceName,
-                DeliveryModel.PerPassengerSegment,
-                RequiresFulfillment: true,
+                ServiceRef: serviceRef,
+                ServiceType: OrderServiceType.AirTransportation,
+                ServiceCode: AirServiceCode,
+                Name: AirServiceName,
+                DeliveryModel: DeliveryModel.PerPassengerSegment,
+                PriceTreatment: ServicePriceTreatment.SeparatelyPriced,
+                RequiresReservation: true,
                 RequiresSupplierConfirmation: false,
                 RequiresDocument: true,
-                OrderProviderType.Airline,
-                SupplierCode: null,
-                new AcceptedAirServiceDetail(
-                    _airFareId,
+                ProviderType: OrderProviderType.Airline,
+                BeneficiaryTravellerRefs: [travellerRef],
+                Detail: new AcceptedAirTransportDetail(
+                    segmentRef,
                     _fareComponent?.FareBasis,
-                    _fareComponent?.FareFamily,
-                    CheckedBaggage(),
-                    CabinBaggage())));
+                    TransitionalCheckedBaggage: CheckedBaggage(),
+                    TransitionalCabinBaggage: CabinBaggage()),
+                DocumentKind: ServiceDocumentKind.ElectronicTicket));
         }
 
         public AcceptedProduct Build()

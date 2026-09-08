@@ -173,5 +173,26 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string FareComponentRequiresService = "A fare component must cover at least one sold air service.";
         public const string FareConstructionReferenceOutsideOrder = "Fare construction references {0} {1}, which does not belong to this order.";
         public const string AmbiguousActiveFareComponent = "Order service {0} is covered by {1} active fare components; the authoritative fare context is ambiguous.";
+
+        // P2-D service composition
+        public const string ServiceTypeNotSellable = "Service type {0} is not a sellable order service; it is represented as a pricing line.";
+        public const string ServiceRequiresBeneficiary = "Accepted service '{0}' has no beneficiary traveller.";
+        public const string ServiceRequiresExactlyOneBeneficiary = "Order service {0} requires exactly one beneficiary but has {1}.";
+        public const string ServiceAlreadyHasTypedDetail = "Order service {0} of type {1} already has a typed detail; a service carries exactly one.";
+        public const string ServiceDetailDoesNotMatchType = "A {1} detail cannot be attached to a service of type {0}.";
+        public const string ServiceDetailNotSupported = "No typed detail is supported for service type {0}.";
+        public const string GenericServiceSchemaNotRegistered = "Generic service schema '{0}' version '{1}' is not registered.";
+        public const string GenericServiceSchemaVersionNotSupported = "Generic service schema '{0}' does not support version '{1}'.";
+        public const string GenericServiceAttributesInvalid = "Generic service schema '{0}' attributes are invalid: {1}.";
+        public const string BaggageQuantityMustBeNonNegative = "A baggage quantity cannot be negative.";
+        public const string BaggageWeightRequiresUnit = "A baggage weight requires its unit.";
+        public const string MealQuantityMustBePositive = "A meal quantity must be positive.";
+        public const string LoungeRequiresAirport = "A lounge service requires the airport it is accessed at.";
+        public const string LoungeGuestCountMustBeNonNegative = "A lounge guest count cannot be negative.";
+        public const string LoungeAccessWindowInvalid = "A lounge access window must end after it starts.";
+        public const string HotelStayWindowInvalid = "A hotel check-out must be later than its check-in.";
+        public const string HotelRoomCountMustBePositive = "A hotel stay must sell at least one room.";
+        public const string HotelGuestCountMustBePositive = "A hotel stay must have at least one guest.";
+        public const string GroundTransportPassengerCountMustBePositive = "A ground transport service must carry at least one passenger.";
     }
 }

@@ -1,0 +1,38 @@
+﻿P2-D — Service composition & practical ancillary domain
+Repository: E:\Projects\DotAir\Ordering   Branch: k8s-stg   Date: 2026-09-08
+Baseline entering P2-D: 380 passed / 0 failed (202 domain + 178 persistence)
+
+=== dotnet build AeroTech.Ordering.sln ===
+
+    6 Warning(s)
+    0 Error(s)
+
+
+
+=== dotnet test AeroTech.Ordering.Domain.Tests ===
+
+Passed!  - Failed:     0, Passed:   322, Skipped:     0, Total:   322, Duration: 500 ms - 
+AeroTech.Ordering.Domain.Tests.dll (net10.0)
+
+
+
+=== dotnet test AeroTech.Ordering.Persistence.Tests (real SQL Server) ===
+
+Passed!  - Failed:     0, Passed:   194, Skipped:     0, Total:   194, Duration: 51 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+
+
+TOTAL: 516 passed / 0 failed  (baseline 380 -> +136, zero regressions)
+
+=== new P2-D test classes ===
+
+Passed!  - Failed:     0, Passed:   120, Skipped:     0, Total:   120, Duration: 233 ms - 
+AeroTech.Ordering.Domain.Tests.dll (net10.0)
+
+
+
+Passed!  - Failed:     0, Passed:    16, Skipped:     0, Total:    16, Duration: 20 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+

@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -11,7 +11,7 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-B.1** domain semantic decoupling | **Complete — P2-B frozen** |
 | **P2-C** AirFareConstruction | **Complete** |
 | **P2-C.1** fare construction scope resolution | **Complete — P2-C frozen** |
-| P2-D service / item model | Not started |
+| **P2-D** OrderService composition & ancillary domain | **Complete** |
 | P2-E initial sale + AddProduct | Not started |
 | P2-F ElectronicMiscDocument | Not started |
 | P2-G projections / APIs / events | Not started |
@@ -334,9 +334,60 @@ changed, and there is no schema change or migration.
 
 ---
 
+## P2-D — OrderService composition & practical ancillary domain
+
+**Complete. P2-C.1 is frozen.** Full detail in
+[`P2-D-SERVICE-MODEL-REPORT.md`](P2-D-SERVICE-MODEL-REPORT.md); binding field-by-field justification in
+[`audit/p2/P2-D-SERVICE-SEMANTIC-AUDIT.md`](audit/p2/P2-D-SERVICE-SEMANTIC-AUDIT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **322 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **194 passed**, 0 failed (real SQL Server) |
+| Total | **516 passed, 0 failed** (baseline 380 -> +136, zero regressions) |
+
+`OrderService` was an abstract base with one EF-TPT subclass, `OrderAirTransportService`, so every air-specific
+fact - traveller, segment, fare basis, seat, baggage - lived on the only subclass that existed and every new
+ancillary would have meant another subclass and another table. P2-D replaces inheritance with **composition**:
+a concrete `OrderService` plus **exactly one** typed detail (air, seat, baggage, meal, lounge, hotel, ground
+transport, generic), plus beneficiaries and stated coverage. No type derives from `OrderService` anywhere in
+the Domain assembly, and `UseTptMappingStrategy()` is gone.
+
+`OrderServiceBeneficiary` replaces the single `TravellerId` - air and seat services must have exactly one
+beneficiary (2822), a hotel room or a car may have several, and `SoleBeneficiaryId` fails closed rather than
+returning the first. Coverage is **stated, never inferred**: `OrderServiceCoveredService` /
+`OrderServiceCoveredSegment` stay empty when the source says nothing, and a covered-air reference resolving to
+a non-air service is rejected. `OrderItemServiceLink` preserves the item a service belonged to when it was
+created together with the `OrderChange` that created the link, so a later item move cannot erase commercial
+history.
+
+`ServicePriceTreatment` (SeparatelyPriced / Included / Complimentary / SupplierOpaque) records commercial
+treatment and is **not** a financial status - an included bag is a real service with a real detail, real
+beneficiaries and real coverage that simply owns no pricing line, and no zero-amount line is invented to make
+it look sold. Generic services (Priority, WiFi, Cip, SimCard, ExtraSeat, SpecialAssistance) are governed by
+`GenericServiceSchemaRegistry`, which fails closed on unregistered schema (2826), unsupported version (2827),
+missing or malformed attributes (2828) and schema/service-type mismatch (2824), and whose **schema supplies the
+fulfilment profile** so a source cannot claim a Wi-Fi voucher needs an electronic ticket. Financial
+pseudo-services (Penalty, ServiceFee, Credit, Voucher, TaxAdjustment, ManualAdjustment, Notification,
+TransferRide) cannot be sold (2820) - money lives on `OrderPricingLine`, a voucher is a tender, and
+`TransferRide` is superseded by first-class `GroundTransport`.
+
+Legacy air baggage evidence was neither fabricated into baggage services nor dropped: it is preserved on the
+air detail as `TransitionalCheckedBaggage` / `TransitionalCabinBaggage`, named for what it is, and a test
+proves it never materialises a `BaggageAllowance` service.
+
+Migration `P2DServiceComposition` adds the new columns and tables and **backfills** air details, beneficiaries
+and item-service links from the legacy subclass table before dropping it - the scaffolded migration dropped it
+first and was hand-corrected, and the scaffolded `PriceTreatment` default of `0` (not a valid member) was
+corrected to `1`. No previously applied migration was edited. Every detail table has a real FK; there are no
+polymorphic or nullable fake FKs.
+
+---
+
 ## Scope
 
-P2-D was not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
+P2-E, P2-F, P2-G, P2-H were not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
 `Money`, `CurrencyCode`, ExchangeRate framework, currency service, ROE engine or rounding library was
 created — the existing `ExchangeRate` value object at `decimal(28,12)` is reused unchanged. No parallel
 `PricingV2` / `OrderV2` model exists. Refund, exchange, void, split, DCS, disruption, group booking, tax
