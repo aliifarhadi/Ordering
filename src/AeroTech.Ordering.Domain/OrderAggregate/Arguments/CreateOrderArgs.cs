@@ -1,5 +1,4 @@
 using AeroTech.Messages.Ordering.Enums;
-using AeroTech.Messages.AirPrice.Enums;
 using AeroTech.Messages.Shared.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.Arguments

@@ -6,11 +6,11 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource
         string ProductRef,
         string TravellerRef,
         ProductType ProductType,
-        string ProductCode,
-        string ProductName,
         decimal Quantity,
         OrderItemUnitOfMeasure UnitOfMeasure,
         AcceptedProductSnapshot Snapshot,
         AcceptedCommercialTerms CommercialTerms,
-        IReadOnlyList<AcceptedService> Services);
+        IReadOnlyList<AcceptedService> Services,
+        string? ProductCode = null,
+        string? ProductName = null);
 }

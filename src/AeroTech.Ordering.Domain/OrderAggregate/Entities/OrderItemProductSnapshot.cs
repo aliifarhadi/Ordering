@@ -16,14 +16,15 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             OrderItemId = orderItemId;
             ProductType = args.ProductType;
             SourceProductReference = args.SourceProductReference;
+            SourceSystem = args.SourceSystem;
+            SourceOfferId = args.SourceOfferId;
             ProductCode = args.ProductCode;
             ProductName = args.ProductName;
-            Brand = args.Brand;
+            BrandCode = args.BrandCode;
+            BrandName = args.BrandName;
             MarketingAirlineId = args.MarketingAirlineId;
             OperatingAirlineId = args.OperatingAirlineId;
             SupplierCode = args.SupplierCode;
-            SourceSystem = args.SourceSystem;
-            SourceOfferId = args.SourceOfferId;
             SourcePricingReference = args.SourcePricingReference;
             AcceptedAt = args.AcceptedAt;
         }
@@ -34,21 +35,23 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 
         public string SourceProductReference { get; private set; } = default!;
 
+        public string SourceSystem { get; private set; } = default!;
+
+        public string SourceOfferId { get; private set; } = default!;
+
         public string? ProductCode { get; private set; }
 
         public string? ProductName { get; private set; }
 
-        public string? Brand { get; private set; }
+        public string? BrandCode { get; private set; }
+
+        public string? BrandName { get; private set; }
 
         public int? MarketingAirlineId { get; private set; }
 
         public int? OperatingAirlineId { get; private set; }
 
         public string? SupplierCode { get; private set; }
-
-        public string SourceSystem { get; private set; } = default!;
-
-        public string SourceOfferId { get; private set; } = default!;
 
         public string? SourcePricingReference { get; private set; }
 
@@ -63,7 +66,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
                 AcceptedAt,
                 ProductCode,
                 ProductName,
-                Brand,
+                BrandCode,
+                BrandName,
                 MarketingAirlineId,
                 OperatingAirlineId,
                 SupplierCode,

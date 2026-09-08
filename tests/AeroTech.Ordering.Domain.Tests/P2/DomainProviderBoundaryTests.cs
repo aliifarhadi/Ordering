@@ -37,19 +37,49 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         }
 
         [Fact]
-        public void The_only_shared_airprice_enums_the_order_aggregate_still_uses_are_platform_value_vocabulary()
+        public void No_domain_type_exposes_airprice_vocabulary()
         {
             var referenced = Domain.GetTypes()
-                .Where(type => type.Namespace?.StartsWith("AeroTech.Ordering.Domain.OrderAggregate", StringComparison.Ordinal) == true)
-                .SelectMany(type => type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
-                .Select(property => Unwrap(property.PropertyType))
-                .Where(type => type.Namespace == "AeroTech.Messages.AirPrice.Enums")
-                .Select(type => type.Name)
+                .SelectMany(type => type
+                    .GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                    .Select(property => property.PropertyType)
+                    .Concat(type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                        .Select(field => field.FieldType)))
+                .Select(Unwrap)
+                .Where(type => type.Namespace?.StartsWith("AeroTech.Messages.AirPrice", StringComparison.Ordinal) == true)
+                .Select(type => type.FullName!)
                 .Distinct()
                 .Order()
                 .ToList();
 
-            Assert.Equal(["PassengerTypeCode", "WeightUnit"], referenced);
+            Assert.Empty(referenced);
+        }
+
+        [Fact]
+        public void No_domain_member_signature_exposes_airprice_vocabulary()
+        {
+            var referenced = Domain.GetTypes()
+                .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+                .SelectMany(method => method.GetParameters().Select(parameter => parameter.ParameterType).Append(method.ReturnType))
+                .Select(Unwrap)
+                .Where(type => type.Namespace?.StartsWith("AeroTech.Messages.AirPrice", StringComparison.Ordinal) == true)
+                .Select(type => type.FullName!)
+                .Distinct()
+                .Order()
+                .ToList();
+
+            Assert.Empty(referenced);
+        }
+
+        [Fact]
+        public void No_domain_source_file_references_the_airprice_namespace()
+        {
+            var offending = DomainSourceFiles()
+                .Where(file => File.ReadAllText(file.FullName).Contains("AeroTech.Messages.AirPrice", StringComparison.Ordinal))
+                .Select(file => file.Name)
+                .ToList();
+
+            Assert.Empty(offending);
         }
 
         [Fact]
@@ -85,6 +115,15 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             => Nullable.GetUnderlyingType(type) ?? type;
 
         private static string SourceOf(string fileName)
+            => File.ReadAllText(SourceRoot().GetFiles(fileName, SearchOption.AllDirectories).Single().FullName);
+
+        private static IEnumerable<FileInfo> DomainSourceFiles()
+            => SourceRoot()
+                .GetDirectories("AeroTech.Ordering.Domain").Single()
+                .GetFiles("*.cs", SearchOption.AllDirectories)
+                .Where(file => !file.FullName.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
+
+        private static DirectoryInfo SourceRoot()
         {
             var directory = new DirectoryInfo(AppContext.BaseDirectory);
 
@@ -93,12 +132,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             Assert.NotNull(directory);
 
-            var file = directory!
-                .GetDirectories("src").Single()
-                .GetFiles(fileName, SearchOption.AllDirectories)
-                .Single();
-
-            return File.ReadAllText(file.FullName);
+            return directory!.GetDirectories("src").Single();
         }
     }
 }

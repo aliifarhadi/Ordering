@@ -394,6 +394,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException SourceBaggageUnitUnsupported(params object?[] args) =>
             new(2786, ExceptionMessages.SourceBaggageUnitUnsupported, args) { HttpStatus = 422 };
 
+        public static BusinessException SourcePassengerTypeUnsupported(params object?[] args) =>
+            new(2787, ExceptionMessages.SourcePassengerTypeUnsupported, args) { HttpStatus = 422 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

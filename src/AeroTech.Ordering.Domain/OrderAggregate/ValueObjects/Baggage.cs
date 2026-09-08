@@ -1,5 +1,5 @@
 using AeroTech.Framework.Core.Domain.ValueObjects;
-using AeroTech.Messages.AirPrice.Enums;
+using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.ValueObjects
 {
@@ -9,7 +9,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.ValueObjects
         {
         }
 
-        public Baggage(decimal weight, WeightUnit unit, int pieces)
+        public Baggage(decimal weight, BaggageWeightUnit unit, int pieces)
         {
             Weight = weight;
             Unit = unit;
@@ -18,7 +18,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.ValueObjects
 
         public decimal Weight { get; private set; }
 
-        public WeightUnit Unit { get; private set; }
+        public BaggageWeightUnit Unit { get; private set; }
 
         public int Pieces { get; private set; }
 

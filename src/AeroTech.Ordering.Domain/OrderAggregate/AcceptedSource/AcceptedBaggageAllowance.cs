@@ -1,6 +1,6 @@
-using AeroTech.Messages.AirPrice.Enums;
+using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource
 {
-    public sealed record AcceptedBaggageAllowance(int Pieces, decimal Weight, WeightUnit Unit);
+    public sealed record AcceptedBaggageAllowance(int Pieces, decimal Weight, BaggageWeightUnit Unit);
 }

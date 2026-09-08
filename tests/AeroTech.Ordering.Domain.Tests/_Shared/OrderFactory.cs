@@ -1,4 +1,3 @@
-using AeroTech.Messages.AirPrice.Enums;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Messages.Shared.Enums;
 using BoundDirection = AeroTech.Messages.Ordering.Enums.BoundDirection;
@@ -82,37 +81,34 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 FareReference: AirFareId,
                 Legs: Array.Empty<AcceptedSegmentLeg>());
 
-            var checkedBaggage = new AcceptedBaggageAllowance(1, 20m, WeightUnit.Kg);
-            var cabinBaggage = new AcceptedBaggageAllowance(1, 7m, WeightUnit.Kg);
+            var checkedBaggage = new AcceptedBaggageAllowance(1, 20m, BaggageWeightUnit.Kg);
+            var cabinBaggage = new AcceptedBaggageAllowance(1, 7m, BaggageWeightUnit.Kg);
 
             var product = new AcceptedProduct(
                 ProductRef: ProductRef,
                 TravellerRef: TravellerRef,
                 ProductType: ProductType.AirFare,
-                ProductCode: AirFareId.ToString(),
-                ProductName: "YOW",
                 Quantity: 1m,
                 UnitOfMeasure: OrderItemUnitOfMeasure.PassengerFare,
                 Snapshot: new AcceptedProductSnapshot(
                     ProductType.AirFare,
                     AirFareId.ToString(),
-                    AirFareId.ToString(),
-                    "YOW",
-                    "ECO",
-                    10,
-                    10,
-                    null,
                     SourceSystem,
                     SourceOfferId,
-                    AirFareId.ToString()),
+                    ProductCode: null,
+                    ProductName: null,
+                    BrandCode: null,
+                    BrandName: "ECO",
+                    MarketingAirlineId: 10,
+                    OperatingAirlineId: 10,
+                    SupplierCode: null,
+                    SourcePricingReference: AirFareId.ToString()),
                 CommercialTerms: new AcceptedCommercialTerms(
-                    IsRefundable: true,
-                    IsChangeable: true,
-                    IsUpgradable: false,
-                    CheckedBaggage: checkedBaggage,
-                    CabinBaggage: cabinBaggage,
-                    PolicySource: SourceSystem,
-                    SourceRuleReference: AirFareId.ToString()),
+                    RefundabilitySummary: CommercialTermState.Permitted,
+                    ChangeabilitySummary: CommercialTermState.Permitted,
+                    UpgradeEligibilitySummary: CommercialTermState.Prohibited,
+                    SourceSystem: SourceSystem,
+                    SourcePolicyReference: AirFareId.ToString()),
                 Services: new[]
                 {
                     new AcceptedService(
@@ -132,10 +128,6 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                             AirFareId,
                             "YOW",
                             "ECO",
-                            null,
-                            IsChangeable: true,
-                            IsRefundable: true,
-                            IsUpgradable: false,
                             checkedBaggage,
                             cabinBaggage))
                 });

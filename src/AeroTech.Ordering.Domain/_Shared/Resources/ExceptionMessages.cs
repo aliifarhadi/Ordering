@@ -162,5 +162,6 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string AcceptedSourceReferenceNotResolved = "The accepted source {0} reference '{1}' could not be resolved.";
         public const string SourceChargeClassificationUnsupported = "Source charge classification '{0}' is not supported; it cannot be accepted as an Ordering pricing component.";
         public const string SourceBaggageUnitUnsupported = "Source baggage unit '{0}' is not a recognised weight unit; a supplied allowance cannot be accepted without its unit.";
+        public const string SourcePassengerTypeUnsupported = "Source passenger type '{0}' has no accepted Ordering equivalent.";
     }
 }

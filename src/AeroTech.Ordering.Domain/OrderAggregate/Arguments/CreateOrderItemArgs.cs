@@ -6,8 +6,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Arguments
         long Id,
         long OrderId,
         ProductType ProductType,
-        string ProductCode,
-        string ProductName,
+        string? ProductCode,
+        string? ProductName,
         decimal Quantity,
         OrderItemUnitOfMeasure UnitOfMeasure,
         DateTimeOffset CreationDate);

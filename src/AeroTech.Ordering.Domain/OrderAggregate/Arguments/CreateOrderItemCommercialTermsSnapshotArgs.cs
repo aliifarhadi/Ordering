@@ -1,14 +1,13 @@
-using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
+using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.Arguments
 {
     public sealed record CreateOrderItemCommercialTermsSnapshotArgs(
-        bool IsRefundable,
-        bool IsChangeable,
-        bool IsUpgradable,
-        string PolicySource,
+        CommercialTermState RefundabilitySummary,
+        CommercialTermState ChangeabilitySummary,
+        CommercialTermState UpgradeEligibilitySummary,
+        string SourceSystem,
         DateTimeOffset TermsCapturedAt,
-        Baggage? CheckedBaggage = null,
-        Baggage? CabinBaggage = null,
-        string? SourceRuleReference = null);
+        string? SourcePolicyReference = null,
+        string? SourcePolicyVersion = null);
 }

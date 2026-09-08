@@ -1,4 +1,3 @@
-using AeroTech.Messages.AirPrice.Enums;
 using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.Providers.FlightFlow

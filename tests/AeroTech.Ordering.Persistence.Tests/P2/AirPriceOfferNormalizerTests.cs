@@ -7,6 +7,8 @@ using AeroTech.Ordering.Providers.Offer.Model;
 using AeroTech.Ordering.Providers.Offer.Services;
 using Xunit;
 using BoundDirection = AeroTech.Messages.Ordering.Enums.BoundDirection;
+using PassengerTypeCode = AeroTech.Messages.Ordering.Enums.PassengerTypeCode;
+using SourcePassengerTypeCode = AeroTech.Messages.AirPrice.Enums.PassengerTypeCode;
 
 namespace AeroTech.Ordering.Persistence.Tests.P2
 {
@@ -161,23 +163,23 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var source = _normalizer.Normalize(AirPriceOfferFixture.Offer(Now));
             var terms = source.Products.Single().CommercialTerms;
 
-            Assert.True(terms.IsRefundable);
-            Assert.True(terms.IsChangeable);
-            Assert.False(terms.IsUpgradable);
-            Assert.Equal("AirPrice", terms.PolicySource);
-            Assert.Equal(AirPriceOfferFixture.AirFareId.ToString(), terms.SourceRuleReference);
+            Assert.Equal(CommercialTermState.Permitted, terms.RefundabilitySummary);
+            Assert.Equal(CommercialTermState.Permitted, terms.ChangeabilitySummary);
+            Assert.Equal(CommercialTermState.Prohibited, terms.UpgradeEligibilitySummary);
+            Assert.Equal("AirPrice", terms.SourceSystem);
+            Assert.Equal(AirPriceOfferFixture.AirFareId.ToString(), terms.SourcePolicyReference);
         }
 
         [Fact]
-        public void Baggage_evidence_is_preserved_with_its_unit()
+        public void Baggage_evidence_is_preserved_with_its_unit_on_the_air_service_only()
         {
             var source = _normalizer.Normalize(AirPriceOfferFixture.Offer(Now));
-            var terms = source.Products.Single().CommercialTerms;
+            var air = source.Products.Single().Services.Single().AirTransport!;
 
-            Assert.Equal(1, terms.CheckedBaggage!.Pieces);
-            Assert.Equal(20m, terms.CheckedBaggage.Weight);
-            Assert.Equal(WeightUnit.Kg, terms.CheckedBaggage.Unit);
-            Assert.Equal(7m, terms.CabinBaggage!.Weight);
+            Assert.Equal(1, air.CheckedBaggage!.Pieces);
+            Assert.Equal(20m, air.CheckedBaggage.Weight);
+            Assert.Equal(BaggageWeightUnit.Kg, air.CheckedBaggage.Unit);
+            Assert.Equal(7m, air.CabinBaggage!.Weight);
         }
 
         [Theory]
@@ -240,8 +242,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
 
             Assert.Equal(ProductType.AirFare, snapshot.ProductType);
             Assert.Equal(AirPriceOfferFixture.AirFareId.ToString(), snapshot.SourceProductReference);
-            Assert.Equal("YOW", snapshot.ProductName);
-            Assert.Equal("ECO", snapshot.Brand);
+            Assert.Null(snapshot.ProductName);
+            Assert.Null(snapshot.ProductCode);
+            Assert.Equal("ECO", snapshot.BrandName);
             Assert.Equal("AirPrice", snapshot.SourceSystem);
             Assert.Equal(AirPriceOfferFixture.OfferId, snapshot.SourceOfferId);
             Assert.Equal(10, snapshot.MarketingAirlineId);
@@ -265,6 +268,61 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             Assert.Equal(PricingComponentType.Fee, orderFee.ComponentType);
             Assert.Equal(PricingApplicationLevel.PerOrder, orderFee.ApplicationLevel);
             Assert.Null(orderFee.ServiceRef);
+        }
+
+        [Theory]
+        [InlineData(true, CommercialTermState.Permitted)]
+        [InlineData(false, CommercialTermState.Prohibited)]
+        public void Source_changeability_evidence_is_translated_into_an_ordering_summary(
+            bool sourceEvidence,
+            CommercialTermState expected)
+        {
+            Assert.Equal(expected, AirPriceOfferNormalizer.TermStateOf(sourceEvidence));
+        }
+
+        [Fact]
+        public void Absent_source_evidence_becomes_unknown_rather_than_a_permission()
+        {
+            Assert.Equal(CommercialTermState.Unknown, AirPriceOfferNormalizer.TermStateOf(null));
+        }
+
+        [Fact]
+        public void A_source_passenger_type_is_translated_into_ordering_vocabulary_at_the_acl()
+        {
+            var translated = AirPriceOfferNormalizer.TranslatePassengerType(
+                SourcePassengerTypeCode.CHD);
+
+            Assert.Equal(PassengerTypeCode.CHD, translated);
+            Assert.IsType<PassengerTypeCode>(translated);
+        }
+
+        [Fact]
+        public void A_source_weight_unit_is_translated_into_ordering_vocabulary_at_the_acl()
+        {
+            var source = _normalizer.Normalize(AirPriceOfferFixture.Offer(Now, baggageUnit: "Lbs"));
+            var air = source.Products.Single().Services.Single().AirTransport!;
+
+            Assert.Equal(BaggageWeightUnit.Lbs, air.CheckedBaggage!.Unit);
+        }
+
+        [Fact]
+        public void The_fare_identifier_is_carried_as_provenance_and_never_as_a_product_code()
+        {
+            var source = _normalizer.Normalize(AirPriceOfferFixture.Offer(Now));
+            var product = source.Products.Single();
+
+            Assert.Equal(AirPriceOfferFixture.AirFareId.ToString(), product.Snapshot.SourceProductReference);
+            Assert.Null(product.ProductCode);
+            Assert.Null(product.ProductName);
+            Assert.Null(product.Snapshot.ProductCode);
+        }
+
+        [Fact]
+        public void A_fare_family_label_becomes_a_brand_name_only_when_the_source_supplies_one()
+        {
+            Assert.Equal("ECO", AirPriceOfferNormalizer.BrandNameOf("ECO"));
+            Assert.Null(AirPriceOfferNormalizer.BrandNameOf(null));
+            Assert.Null(AirPriceOfferNormalizer.BrandNameOf("   "));
         }
     }
 }

@@ -58,11 +58,10 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             Assert.All(order.Items, item =>
             {
                 Assert.NotNull(item.CommercialTermsSnapshot);
-                Assert.True(item.CommercialTermsSnapshot.IsRefundable);
-                Assert.True(item.CommercialTermsSnapshot.IsChangeable);
-                Assert.False(item.CommercialTermsSnapshot.IsUpgradable);
-                Assert.Equal(MultiPassengerOrderFactory.SourceSystem, item.CommercialTermsSnapshot.PolicySource);
-                Assert.NotNull(item.CommercialTermsSnapshot.CheckedBaggage);
+                Assert.Equal(CommercialTermState.Permitted, item.CommercialTermsSnapshot.RefundabilitySummary);
+                Assert.Equal(CommercialTermState.Permitted, item.CommercialTermsSnapshot.ChangeabilitySummary);
+                Assert.Equal(CommercialTermState.Prohibited, item.CommercialTermsSnapshot.UpgradeEligibilitySummary);
+                Assert.Equal(MultiPassengerOrderFactory.SourceSystem, item.CommercialTermsSnapshot.SourceSystem);
             });
         }
 
@@ -82,20 +81,23 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var snapshot = order.Items.Single().ProductSnapshot;
             var terms = order.Items.Single().CommercialTermsSnapshot;
 
-            var brandBefore = snapshot.Brand;
-            var refundableBefore = terms.IsRefundable;
+            var brandBefore = snapshot.BrandName;
+            var refundabilityBefore = terms.RefundabilitySummary;
 
             var refreshed = source.Products.Single() with
             {
-                Snapshot = source.Products.Single().Snapshot with { Brand = "CHANGED" },
-                CommercialTerms = source.Products.Single().CommercialTerms with { IsRefundable = false }
+                Snapshot = source.Products.Single().Snapshot with { BrandName = "CHANGED" },
+                CommercialTerms = source.Products.Single().CommercialTerms with
+                {
+                    RefundabilitySummary = CommercialTermState.Prohibited
+                }
             };
 
-            Assert.Equal("CHANGED", refreshed.Snapshot.Brand);
-            Assert.False(refreshed.CommercialTerms.IsRefundable);
+            Assert.Equal("CHANGED", refreshed.Snapshot.BrandName);
+            Assert.Equal(CommercialTermState.Prohibited, refreshed.CommercialTerms.RefundabilitySummary);
 
-            Assert.Equal(brandBefore, order.Items.Single().ProductSnapshot.Brand);
-            Assert.Equal(refundableBefore, order.Items.Single().CommercialTermsSnapshot.IsRefundable);
+            Assert.Equal(brandBefore, order.Items.Single().ProductSnapshot.BrandName);
+            Assert.Equal(refundabilityBefore, order.Items.Single().CommercialTermsSnapshot.RefundabilitySummary);
         }
 
         [Fact]

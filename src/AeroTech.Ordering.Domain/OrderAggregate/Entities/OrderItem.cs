@@ -40,9 +40,9 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 
         public ProductType ProductType { get; private set; }
 
-        public string ProductCode { get; private set; } = default!;
+        public string? ProductCode { get; private set; }
 
-        public string ProductName { get; private set; } = default!;
+        public string? ProductName { get; private set; }
 
         public decimal Quantity { get; private set; }
 

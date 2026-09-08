@@ -1,4 +1,3 @@
-using AeroTech.Messages.AirPrice.Enums;
 using AeroTech.Messages.Core.Enums;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Messages.Shared.Enums;

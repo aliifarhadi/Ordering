@@ -2,7 +2,6 @@ using AeroTech.Framework.Core.Domain.Entities;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
 using AeroTech.Messages.Ordering.Enums;
-using AeroTech.Messages.AirPrice.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 {

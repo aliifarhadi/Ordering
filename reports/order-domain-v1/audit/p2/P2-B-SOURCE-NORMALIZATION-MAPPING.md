@@ -33,7 +33,7 @@ Classification legend: `NORMALIZED` (carried into the Ordering-owned accepted so
 |---|---|---|
 | `TravellerRef` | NORMALIZED | Source-local correlation key only (`TravelerRef`); never an Ordering identity (§6). |
 | `TravellerIndex` | NORMALIZED | Correlates the accepted source to the caller-supplied traveller list. |
-| `PassengerTypeCode` | NOT_APPLICABLE (for creation) | The authoritative passenger type for the Order comes from `CreateOrderArgs.Travellers[].PassengerType` (caller context), which is what `OrderTraveller` already stores. The offer copy is redundant; carried as correlation evidence only, not used to overwrite the caller value. |
+| `PassengerTypeCode` | NOT_APPLICABLE (for creation) | The authoritative passenger type for the Order comes from `CreateOrderArgs.Travellers[].PassengerType` (caller context), which is what `OrderTraveller` already stores. The offer copy is redundant; carried as correlation evidence only, not used to overwrite the caller value. **P2-B.1:** that Domain field is now the Ordering-owned `PassengerTypeCode`; any AirPrice-sourced value is translated at the ACL and fails closed on an unmapped code. |
 
 ## 3. `OfferBound` → `AcceptedJourney`
 
@@ -76,15 +76,15 @@ All of these are sold-schedule snapshot evidence (§20), carried by the existing
 
 | Source field | Classification | Target / reason |
 |---|---|---|
-| `AirFareId` | PRODUCT_SNAPSHOT + SERVICE_DETAIL_EXISTING | Source product reference on `ProductSnapshot`; also `OrderAirTransportService.AirFareId` and `OrderSegment.AirFareId` as today. |
-| `FareBasis` | PRODUCT_SNAPSHOT + SERVICE_DETAIL_EXISTING | Snapshot product code evidence and `OrderAirTransportService.FareBasis`. Authoritative fare-construction ownership of fare basis is **DEFER_P2_C** (`01` §6.4). |
-| `FareFamily` | PRODUCT_SNAPSHOT + SERVICE_DETAIL_EXISTING | `ProductSnapshot.Brand`, `OrderAirTransportService.FareFamilyTitle`. |
+| `AirFareId` | PRODUCT_SNAPSHOT (provenance only) + SERVICE_DETAIL_EXISTING | **Corrected in P2-B.1.** It is an opaque external identifier, carried as `ProductSnapshot.SourceProductReference` / `SourcePricingReference` provenance. It is **not** an Ordering `ProductCode`. It also remains on `OrderAirTransportService.AirFareId` and `OrderSegment.AirFareId` as today. |
+| `FareBasis` | SERVICE_DETAIL_EXISTING (transitional) + DEFER_P2_C | **Corrected in P2-B.1.** FareBasis is fare-construction context, **not** an Ordering `ProductName`, and is no longer written to any product name field. It survives only as a transitional compatibility field on the legacy `OrderAirTransportService` because P1 ETKT issuance still reads `service.FareBasis`. Authoritative ownership moves to `FareComponent` in **P2-C**, after which issuance must obtain issue-time fare context from the fare-construction association rather than the legacy service field. |
+| `FareFamily` | PRODUCT_SNAPSHOT (brand label) + SERVICE_DETAIL_EXISTING | **Corrected in P2-B.1.** Mapped to `ProductSnapshot.BrandName` **only because the ACL explicitly treats this source value as the customer-visible fare brand/family label**, and only when the source actually supplies one. No `BrandCode` is invented from it, and the source FareFamily *structure* is never mirrored as an Ordering structure. Fare-family benefits become real sold/included `OrderService`s in **P2-D**, not a generic feature mirror. |
 | `BookingClass` | SERVICE_DETAIL_EXISTING | `OrderSegment.BookingClassCode`. |
-| `IsRefundable` | COMMERCIAL_TERMS_SNAPSHOT | `CommercialTermsSnapshot.IsRefundable` — the *evidence the source supplied*, not a computed rule. Also continues to set the existing service flag and the pricing line's `Refundability`. |
-| `IsChangeable` | COMMERCIAL_TERMS_SNAPSHOT | Same treatment. |
-| `IsUpgradable` | COMMERCIAL_TERMS_SNAPSHOT | Same treatment. |
-| `BaggagePieces`, `BaggageWeight`, `BaggageUnit` | COMMERCIAL_TERMS_SNAPSHOT + SERVICE_DETAIL_EXISTING | Checked-baggage allowance accepted at sale. **Unit parsing moves to the ACL and now fails closed** — see §7 below. |
-| `CabinBaggagePieces`, `CabinBaggageWeight`, `CabinBaggageUnit` | COMMERCIAL_TERMS_SNAPSHOT + SERVICE_DETAIL_EXISTING | Cabin allowance, same treatment. |
+| `IsRefundable` | COMMERCIAL_TERMS_SNAPSHOT (ACL input only) | **Corrected in P2-B.1.** This provider-side coarse boolean is an **ACL input**, not the persisted schema. The ACL translates it into the Ordering-owned `RefundabilitySummary` (`Permitted` / `Prohibited`, and `Unknown` when the source supplies nothing). A richer future Pricing/FareFamily contract maps into `Conditional` without changing the Ordering schema. It also still sets the pricing line's `Refundability`. |
+| `IsChangeable` | COMMERCIAL_TERMS_SNAPSHOT (ACL input only) | Same treatment → `ChangeabilitySummary`. |
+| `IsUpgradable` | COMMERCIAL_TERMS_SNAPSHOT (ACL input only) | Same treatment → `UpgradeEligibilitySummary`. |
+| `BaggagePieces`, `BaggageWeight`, `BaggageUnit` | SERVICE_DETAIL_EXISTING (transitional) + DEFER_P2_D | **Corrected in P2-B.1.** Baggage is **not** a change/refund commercial-policy field and was removed from `CommercialTermsSnapshot`; it is no longer persisted in two places. Only the minimum P1-compatible representation on `OrderAirTransportService` remains, explicitly transitional/non-normative. The final baggage service/product semantics — included allowance versus separately priced — are **P2-D**. Unit parsing happens at the ACL and fails closed; see §7. |
+| `CabinBaggagePieces`, `CabinBaggageWeight`, `CabinBaggageUnit` | SERVICE_DETAIL_EXISTING (transitional) + DEFER_P2_D | Same treatment. |
 | `BoundId` | NORMALIZED | Correlation only. |
 
 ## 6. `OfferPriceLine` → accepted pricing line
@@ -125,6 +125,12 @@ All of these are sold-schedule snapshot evidence (§20), carried by the existing
 | *(rounding factor)* | NOT_APPLICABLE | The source supplies none; the existing code passes `0`. Unchanged, and explicitly **not** invented — this remains the P0-recorded `RoundingFactor` debt. |
 
 ---
+
+> **P2-B.1 correction notice.** This audit originally implied that some source fields dictate the persisted
+> Ordering schema. They do not. Provider fields are ACL *inputs*; the Ordering schema holds Ordering-owned
+> semantics. The rows above have been corrected for `AirFareId`, `FareBasis`, `FareFamily`, the three
+> refund/change/upgrade booleans and baggage. See
+> [`P2-B.1-DOMAIN-SEMANTIC-AUDIT.md`](P2-B.1-DOMAIN-SEMANTIC-AUDIT.md) for the field-level keep/remove decisions.
 
 ## 9. Silent defaults found and their disposition (§11)
 

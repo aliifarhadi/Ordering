@@ -5,13 +5,14 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource
     public sealed record AcceptedProductSnapshot(
         ProductType ProductType,
         string SourceProductReference,
-        string? ProductCode,
-        string? ProductName,
-        string? Brand,
-        int? MarketingAirlineId,
-        int? OperatingAirlineId,
-        string? SupplierCode,
         string SourceSystem,
         string SourceOfferId,
-        string? SourcePricingReference);
+        string? ProductCode = null,
+        string? ProductName = null,
+        string? BrandCode = null,
+        string? BrandName = null,
+        int? MarketingAirlineId = null,
+        int? OperatingAirlineId = null,
+        string? SupplierCode = null,
+        string? SourcePricingReference = null);
 }

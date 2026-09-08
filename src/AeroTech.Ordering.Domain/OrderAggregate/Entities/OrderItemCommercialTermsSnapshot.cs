@@ -1,6 +1,6 @@
 using AeroTech.Framework.Core.Domain.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
-using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
+using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 {
@@ -14,43 +14,39 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
         {
             Id = id;
             OrderItemId = orderItemId;
-            IsRefundable = args.IsRefundable;
-            IsChangeable = args.IsChangeable;
-            IsUpgradable = args.IsUpgradable;
-            CheckedBaggage = args.CheckedBaggage;
-            CabinBaggage = args.CabinBaggage;
-            PolicySource = args.PolicySource;
-            SourceRuleReference = args.SourceRuleReference;
+            RefundabilitySummary = args.RefundabilitySummary;
+            ChangeabilitySummary = args.ChangeabilitySummary;
+            UpgradeEligibilitySummary = args.UpgradeEligibilitySummary;
+            SourceSystem = args.SourceSystem;
+            SourcePolicyReference = args.SourcePolicyReference;
+            SourcePolicyVersion = args.SourcePolicyVersion;
             TermsCapturedAt = args.TermsCapturedAt;
         }
 
         public long OrderItemId { get; private set; }
 
-        public bool IsRefundable { get; private set; }
+        public CommercialTermState RefundabilitySummary { get; private set; }
 
-        public bool IsChangeable { get; private set; }
+        public CommercialTermState ChangeabilitySummary { get; private set; }
 
-        public bool IsUpgradable { get; private set; }
+        public CommercialTermState UpgradeEligibilitySummary { get; private set; }
 
-        public Baggage? CheckedBaggage { get; private set; }
+        public string SourceSystem { get; private set; } = default!;
 
-        public Baggage? CabinBaggage { get; private set; }
+        public string? SourcePolicyReference { get; private set; }
 
-        public string PolicySource { get; private set; } = default!;
-
-        public string? SourceRuleReference { get; private set; }
+        public string? SourcePolicyVersion { get; private set; }
 
         public DateTimeOffset TermsCapturedAt { get; private set; }
 
         internal OrderItemCommercialTermsSnapshot CopyTo(long newId, long newOrderItemId)
             => new(newId, newOrderItemId, new CreateOrderItemCommercialTermsSnapshotArgs(
-                IsRefundable,
-                IsChangeable,
-                IsUpgradable,
-                PolicySource,
+                RefundabilitySummary,
+                ChangeabilitySummary,
+                UpgradeEligibilitySummary,
+                SourceSystem,
                 TermsCapturedAt,
-                CheckedBaggage?.Copy(),
-                CabinBaggage?.Copy(),
-                SourceRuleReference));
+                SourcePolicyReference,
+                SourcePolicyVersion));
     }
 }

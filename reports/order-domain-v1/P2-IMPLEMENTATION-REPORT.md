@@ -1,13 +1,14 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
 | **P2-A** pricing foundation | **Complete / Frozen** |
 | **P2-A.1** pricing foundation correctness closure | **Complete — P2-A frozen** |
 | **P2-B** accepted source normalization | **Complete** |
+| **P2-B.1** domain semantic decoupling | **Complete — P2-B frozen** |
 | P2-C AirFareConstruction | Not started |
 | P2-D service / item model | Not started |
 | P2-E initial sale + AddProduct | Not started |
@@ -220,6 +221,44 @@ semantically distinct from the pre-existing `OrderItemPolicySnapshot` (how Order
 item), which was not touched. Migration `P2BAcceptedSourceSnapshots` is purely additive; the P2-A and P2-A.1
 migrations were not modified. P2-A pricing facts pass through normalization unreinterpreted, including the
 `SourceLineRef` / `OccurrenceKey` split.
+
+---
+
+## P2-B.1 — Domain semantic decoupling
+
+**Complete. P2-B is frozen.** An architecture review found that P2-B removed physical AirPrice DTO coupling
+while leaving semantic coupling to the current AirPrice Fare/FareFamily shape. Full detail in
+[`P2-B.1-SEMANTIC-DECOUPLING-REPORT.md`](P2-B.1-SEMANTIC-DECOUPLING-REPORT.md); the field-by-field
+keep/refine/remove decisions are in
+[`audit/p2/P2-B.1-DOMAIN-SEMANTIC-AUDIT.md`](audit/p2/P2-B.1-DOMAIN-SEMANTIC-AUDIT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **157 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **171 passed**, 0 failed (real SQL Server) |
+| Total | **328 passed, 0 failed** (baseline 303 → +25, zero regressions) |
+
+The Order Domain now has **zero** `AeroTech.Messages.AirPrice.*` references — the P2-B allow-list exception for
+`PassengerTypeCode` and `WeightUnit` is gone, replaced by Ordering-owned vocabulary (`PassengerTypeCode`,
+`BaggageWeightUnit`, `JourneyType`, `CommercialTermState`) that the ACL translates into, failing closed on an
+unmapped value. No sibling service was changed and provider wire payloads are byte-identical.
+
+The rejected product mapping is corrected: `AirFareId` is opaque provenance and not a `ProductCode`, `FareBasis`
+is never a `ProductName`, and `FareFamily` becomes `BrandName` only because the ACL explicitly treats it as the
+customer-visible brand label. Absent product code/name now stay null rather than being synthesized.
+
+`CommercialTermsSnapshot` replaced the provider-shaped booleans with Ordering-owned
+`Refundability`/`Changeability`/`UpgradeEligibility` summaries over `Unknown | Prohibited | Permitted |
+Conditional`, so richer future fare rules map into `Conditional` without a schema change. The summary is
+display/pre-screen evidence only and cannot authorize servicing — asserted by test. Baggage was removed from the
+terms snapshot (it was persisted twice and is not change/refund policy) and `AcceptedAirServiceDetail` lost its
+refund/change/upgrade policy and the unused `FareNumber`; the legacy service permission flags are now derived
+from the item's summary. No speculative fare-rule or fare-family model was introduced.
+
+Corrective migration `P2B1DomainSemanticDecoupling` was added rather than rewriting the applied
+`P2BAcceptedSourceSnapshots`; its scaffolded renames were verified meaning-preserving, and EF's invalid `0`
+default for the new enum columns was corrected by hand to `Unknown`.
 
 ---
 

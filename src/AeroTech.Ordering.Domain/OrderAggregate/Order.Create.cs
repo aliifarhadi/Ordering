@@ -187,7 +187,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 refs.ProductItemIds[product.ProductRef] = item.Id;
 
                 foreach (var accepted in product.Services)
-                    BuildService(args, accepted, item.Id, refs, idGenerator, now);
+                    BuildService(args, accepted, item.Id, product.CommercialTerms, refs, idGenerator, now);
             }
         }
 
@@ -195,6 +195,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             CreateOrderArgs args,
             AcceptedService accepted,
             long orderItemId,
+            AcceptedCommercialTerms terms,
             AcceptedSourceRefMap refs,
             IIdGenerator idGenerator,
             DateTimeOffset now)
@@ -230,10 +231,10 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     air.FareReference,
                     air.FareBasis,
                     air.FareFamily,
-                    air.FareNumber,
-                    air.IsChangeable,
-                    air.IsRefundable,
-                    air.IsUpgradable,
+                    null,
+                    Permits(terms.ChangeabilitySummary),
+                    Permits(terms.RefundabilitySummary),
+                    Permits(terms.UpgradeEligibilitySummary),
                     BaggageOf(air.CheckedBaggage),
                     BaggageOf(air.CabinBaggage)));
 
@@ -309,7 +310,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 acceptedAt,
                 snapshot.ProductCode,
                 snapshot.ProductName,
-                snapshot.Brand,
+                snapshot.BrandCode,
+                snapshot.BrandName,
                 snapshot.MarketingAirlineId,
                 snapshot.OperatingAirlineId,
                 snapshot.SupplierCode,
@@ -321,14 +323,15 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             IIdGenerator idGenerator,
             DateTimeOffset capturedAt)
             => new(idGenerator.NewId(), orderItemId, new CreateOrderItemCommercialTermsSnapshotArgs(
-                terms.IsRefundable,
-                terms.IsChangeable,
-                terms.IsUpgradable,
-                terms.PolicySource,
+                terms.RefundabilitySummary,
+                terms.ChangeabilitySummary,
+                terms.UpgradeEligibilitySummary,
+                terms.SourceSystem,
                 capturedAt,
-                BaggageOf(terms.CheckedBaggage),
-                BaggageOf(terms.CabinBaggage),
-                terms.SourceRuleReference));
+                terms.SourcePolicyReference,
+                terms.SourcePolicyVersion));
+
+        private static bool Permits(CommercialTermState state) => state == CommercialTermState.Permitted;
 
         private static Baggage? BaggageOf(AcceptedBaggageAllowance? allowance)
             => allowance is null ? null : new Baggage(allowance.Weight, allowance.Unit, allowance.Pieces);

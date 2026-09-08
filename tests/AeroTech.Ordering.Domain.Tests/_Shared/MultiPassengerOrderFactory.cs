@@ -1,4 +1,3 @@
-using AeroTech.Messages.AirPrice.Enums;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Messages.Shared.Enums;
 using BoundDirection = AeroTech.Messages.Ordering.Enums.BoundDirection;
@@ -198,10 +197,6 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                     fareId,
                     FareBasis,
                     "ECO",
-                    null,
-                    IsChangeable: true,
-                    IsRefundable: true,
-                    IsUpgradable: false,
                     CheckedBaggage(),
                     CabinBaggage()));
 
@@ -214,30 +209,27 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 productRef,
                 travellerRef,
                 ProductType.AirFare,
-                fareId.ToString(),
-                FareBasis,
                 1m,
                 OrderItemUnitOfMeasure.PassengerFare,
                 new AcceptedProductSnapshot(
                     ProductType.AirFare,
                     fareId.ToString(),
-                    fareId.ToString(),
-                    FareBasis,
-                    "ECO",
-                    10,
-                    10,
-                    null,
                     SourceSystem,
                     SourceOfferId,
-                    fareId.ToString()),
+                    ProductCode: null,
+                    ProductName: null,
+                    BrandCode: null,
+                    BrandName: "ECO",
+                    MarketingAirlineId: 10,
+                    OperatingAirlineId: 10,
+                    SupplierCode: null,
+                    SourcePricingReference: fareId.ToString()),
                 new AcceptedCommercialTerms(
-                    IsRefundable: true,
-                    IsChangeable: true,
-                    IsUpgradable: false,
-                    CheckedBaggage(),
-                    CabinBaggage(),
+                    CommercialTermState.Permitted,
+                    CommercialTermState.Permitted,
+                    CommercialTermState.Prohibited,
                     SourceSystem,
-                    fareId.ToString()),
+                    SourcePolicyReference: fareId.ToString()),
                 services);
 
         private static AcceptedSourcePricingLine Line(
@@ -271,9 +263,9 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 description,
                 null);
 
-        private static AcceptedBaggageAllowance CheckedBaggage() => new(1, 20m, WeightUnit.Kg);
+        private static AcceptedBaggageAllowance CheckedBaggage() => new(1, 20m, BaggageWeightUnit.Kg);
 
-        private static AcceptedBaggageAllowance CabinBaggage() => new(1, 7m, WeightUnit.Kg);
+        private static AcceptedBaggageAllowance CabinBaggage() => new(1, 7m, BaggageWeightUnit.Kg);
 
         private static string SegmentRef(string journeyRef, long flightId) => $"{journeyRef}:{flightId}";
 

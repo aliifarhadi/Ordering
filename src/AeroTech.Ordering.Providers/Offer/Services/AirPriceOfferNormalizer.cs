@@ -6,6 +6,9 @@ using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using AeroTech.Ordering.Providers.Offer.Model;
 using BoundDirection = AeroTech.Messages.Ordering.Enums.BoundDirection;
+using PassengerTypeCode = AeroTech.Messages.Ordering.Enums.PassengerTypeCode;
+using SourcePassengerTypeCode = AeroTech.Messages.AirPrice.Enums.PassengerTypeCode;
+using SourceWeightUnit = AeroTech.Messages.AirPrice.Enums.WeightUnit;
 
 namespace AeroTech.Ordering.Providers.Offer.Services
 {
@@ -260,7 +263,7 @@ namespace AeroTech.Ordering.Providers.Offer.Services
                 ExchangeRateOf(reader, line));
         }
 
-        internal static PricingComponentType ComponentTypeOf(OfferCharge? charge, string? sourceReference)
+        public static PricingComponentType ComponentTypeOf(OfferCharge? charge, string? sourceReference)
             => charge?.Kind switch
             {
                 AirChargeKind.Tax => PricingComponentType.Tax,
@@ -270,16 +273,51 @@ namespace AeroTech.Ordering.Providers.Offer.Services
                 _ => throw ExceptionFactory.SourceChargeClassificationUnsupported(charge.Kind)
             };
 
-        internal static AcceptedBaggageAllowance? BaggageOf(int pieces, decimal weight, string? unit)
+        public static CommercialTermState TermStateOf(bool? sourceEvidence)
+            => sourceEvidence switch
+            {
+                true => CommercialTermState.Permitted,
+                false => CommercialTermState.Prohibited,
+                null => CommercialTermState.Unknown
+            };
+
+        public static string? BrandNameOf(string? fareFamily)
+            => string.IsNullOrWhiteSpace(fareFamily) ? null : fareFamily.Trim();
+
+        public static AcceptedBaggageAllowance? BaggageOf(int pieces, decimal weight, string? unit)
         {
             if (pieces <= 0 && weight <= 0m)
                 return null;
 
-            if (!Enum.TryParse<WeightUnit>(unit, ignoreCase: true, out var parsed))
+            if (!TryTranslateWeightUnit(unit, out var parsed))
                 throw ExceptionFactory.SourceBaggageUnitUnsupported(unit ?? "(none)");
 
             return new AcceptedBaggageAllowance(pieces, weight, parsed);
         }
+
+        private static bool TryTranslateWeightUnit(string? unit, out BaggageWeightUnit translated)
+        {
+            if (Enum.TryParse<SourceWeightUnit>(unit, ignoreCase: true, out var sourceUnit))
+            {
+                translated = sourceUnit switch
+                {
+                    SourceWeightUnit.Kg => BaggageWeightUnit.Kg,
+                    SourceWeightUnit.Lbs => BaggageWeightUnit.Lbs,
+                    _ => default
+                };
+
+                return translated != default;
+            }
+
+            translated = default;
+
+            return false;
+        }
+
+        public static PassengerTypeCode TranslatePassengerType(SourcePassengerTypeCode sourceCode)
+            => Enum.TryParse<PassengerTypeCode>(sourceCode.ToString(), out var translated)
+                ? translated
+                : throw ExceptionFactory.SourcePassengerTypeUnsupported(sourceCode);
 
         private static RefundabilityRule Refundability(bool isRefundable)
             => isRefundable ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable;
