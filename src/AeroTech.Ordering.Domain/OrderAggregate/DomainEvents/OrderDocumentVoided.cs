@@ -16,6 +16,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.DomainEvents
         string? RecordLocator,
         Guid UniqueIdentifierId,
         int CommercialVersion,
+        int EventOrdinal,
         OrderStatus Status,
         OrderType Type,
         SalesChannel Channel,

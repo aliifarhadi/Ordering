@@ -91,6 +91,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 AirlineOfficeId,
                 CustomerId,
                 CommercialVersion,
+                NextEventOrdinal(),
                 CommercialSummary,
                 reason,
                 withdrawnBy,

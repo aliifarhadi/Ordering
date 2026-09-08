@@ -22,7 +22,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
             long travelerId,
             long operationId,
             string documentNumber,
-            int issuerCarrierId,
+            long issuerCarrierId,
             long? issuingOfficeId,
             DocumentAuthority authority,
             DateTimeOffset issuedAt,
@@ -57,7 +57,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
 
         public string DocumentNumber { get; private set; } = default!;
 
-        public int IssuerCarrierId { get; private set; }
+        public long IssuerCarrierId { get; private set; }
 
         public long? IssuingOfficeId { get; private set; }
 
@@ -85,7 +85,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
             long travelerId,
             long operationId,
             string documentNumber,
-            int issuerCarrierId,
+            long issuerCarrierId,
             long? issuingOfficeId,
             DocumentAuthority authority,
             DateTimeOffset? voidDeadline,

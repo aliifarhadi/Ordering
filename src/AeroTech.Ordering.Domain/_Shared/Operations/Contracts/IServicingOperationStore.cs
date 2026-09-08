@@ -21,5 +21,13 @@ namespace AeroTech.Ordering.Domain._Shared.Operations.Contracts
             long? commandReceiptId = null,
             int? expectedCommercialVersion = null,
             CancellationToken cancellationToken = default);
+
+        Task TransitionAsync(
+            long operationId,
+            ServicingOperationStatus status,
+            long claimGeneration,
+            CancellationToken cancellationToken = default);
+
+        Task<ServicingOperationRecord?> FindAsync(long operationId, CancellationToken cancellationToken = default);
     }
 }

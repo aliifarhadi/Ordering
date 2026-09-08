@@ -11,6 +11,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.DomainEvents
         long AirlineOfficeId,
         long CustomerId,
         int CommercialVersion,
+        int EventOrdinal,
         CommercialSummary CommercialSummary,
         VoidReason Reason,
         long WithdrawnBy,

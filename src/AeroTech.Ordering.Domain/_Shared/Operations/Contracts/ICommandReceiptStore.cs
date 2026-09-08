@@ -17,6 +17,8 @@ namespace AeroTech.Ordering.Domain._Shared.Operations.Contracts
     {
         Task AttachOrderAsync(long receiptId, long orderId, CancellationToken cancellationToken = default);
 
+        Task SetStatusAsync(long receiptId, CommandReceiptStatus status, CancellationToken cancellationToken = default);
+
         Task<CommandReceiptResult> AcquireAsync(
             string operationName,
             string idempotencyKey,

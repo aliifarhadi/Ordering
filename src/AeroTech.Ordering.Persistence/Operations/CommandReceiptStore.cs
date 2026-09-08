@@ -99,6 +99,18 @@ namespace AeroTech.Ordering.Persistence.Operations
             receipt.UpdatedAt = _clock.GetDateTime();
         }
 
+        public async Task SetStatusAsync(long receiptId, CommandReceiptStatus status, CancellationToken cancellationToken = default)
+        {
+            var receipt = await _dbContext.Set<CommandReceipt>()
+                .SingleOrDefaultAsync(candidate => candidate.Id == receiptId, cancellationToken);
+
+            if (receipt is null || receipt.Status == status)
+                return;
+
+            receipt.Status = status;
+            receipt.UpdatedAt = _clock.GetDateTime();
+        }
+
         private Task<CommandReceipt?> FindAsync(
             long ownerAirlineId,
             string callerScope,

@@ -13,6 +13,7 @@ namespace AeroTech.Messages.Ordering.IntegrationEvents.V1
         string? RecordLocator,
         Guid UniqueIdentifierId,
         int CommercialVersion,
+        int EventOrdinal,
         OrderStatus Status,
         OrderType Type,
         SalesChannel Channel,

@@ -171,6 +171,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 RecordLocator?.Value,
                 UniqueIdentifierId,
                 CommercialVersion,
+                NextEventOrdinal(),
                 Status,
                 Type,
                 Channel,

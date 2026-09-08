@@ -1,6 +1,7 @@
 using AeroTech.Framework.Core.Domain.Aggregates;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
+using AeroTech.Ordering.Domain._Shared.Versioning;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Messages.Shared.Enums;
 
@@ -97,7 +98,15 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
         private void TransitionTo(OrderStatus status) => Status = status;
 
-        private void IncrementCommercialVersion() => CommercialVersion++;
+        private readonly CommercialEventSequence _eventSequence = new();
+
+        private void IncrementCommercialVersion()
+        {
+            CommercialVersion++;
+            _eventSequence.Reset();
+        }
+
+        private int NextEventOrdinal() => _eventSequence.Next();
 
         private void AddItem(OrderItem item) => _items.Add(item);
         private void AddPricingLine(OrderPricingLine pricingLine) => _pricingLines.Add(pricingLine);

@@ -116,6 +116,8 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string NoDocumentStockConfigured = "No active {0} document stock is configured for airline {1}.";
         public const string TicketRequiresAtLeastOneCoupon = "An electronic ticket requires at least one coupon.";
 
+        public const string ServicingOperationNotFound = "Servicing operation {0} was not found.";
+
         // P1 eligibility
         public const string OrderOperationNotEligible = "Operation '{0}' is not permitted for order {1}: {2}.";
         public const string OrderCommercialVersionMismatch = "Expected commercial version {0} but order {1} is at {2}.";

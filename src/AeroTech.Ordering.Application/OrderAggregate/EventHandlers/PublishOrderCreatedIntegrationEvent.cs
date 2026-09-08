@@ -32,6 +32,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.EventHandlers
                 @event.CommissionAmount,
                 @event.CommissionRate,
                 @event.CommercialVersion,
+                @event.EventOrdinal,
                 @event.LinkedOrderId,
                 @event.LinkedPNR,
                 @event.TimeToLive,

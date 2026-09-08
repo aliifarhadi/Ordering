@@ -2,6 +2,7 @@ using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
+using AeroTech.Ordering.Domain._Shared.Resources;
 using Microsoft.EntityFrameworkCore;
 
 namespace AeroTech.Ordering.Persistence.Operations
@@ -87,6 +88,30 @@ namespace AeroTech.Ordering.Persistence.Operations
             }
 
             return Project(operation);
+        }
+
+        public async Task TransitionAsync(
+            long operationId,
+            ServicingOperationStatus status,
+            long claimGeneration,
+            CancellationToken cancellationToken = default)
+        {
+            var operation = await _dbContext.Set<ServicingOperation>()
+                .SingleOrDefaultAsync(candidate => candidate.Id == operationId, cancellationToken)
+                ?? throw ExceptionFactory.ServicingOperationNotFound(operationId);
+
+            operation.Status = status;
+            operation.ClaimGeneration = claimGeneration;
+            operation.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task<ServicingOperationRecord?> FindAsync(long operationId, CancellationToken cancellationToken = default)
+        {
+            var operation = await _dbContext.Set<ServicingOperation>()
+                .AsNoTracking()
+                .SingleOrDefaultAsync(candidate => candidate.Id == operationId, cancellationToken);
+
+            return operation is null ? null : Project(operation);
         }
 
         private static ServicingOperationRecord Project(ServicingOperation operation)

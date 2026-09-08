@@ -15,7 +15,7 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentIssuance
         long OperationId,
         long TravelerId,
         string DocumentNumber,
-        int IssuerCarrierId,
+        long IssuerCarrierId,
         int CurrencyId,
         decimal TotalAmount,
         IReadOnlyList<DocumentCouponRequest> Coupons);

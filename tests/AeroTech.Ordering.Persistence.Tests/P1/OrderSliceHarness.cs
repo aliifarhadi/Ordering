@@ -5,6 +5,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
+using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.DocumentStockAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.Tests._Shared;
@@ -30,6 +31,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
     {
         public const long HomeAirlineId = 7401;
         public const string TicketDocumentType = "ETKT";
+
+        private static int _stockSequence;
 
         private readonly OrderingDatabaseFixture _fixture;
         private readonly OrderingDbContext _command;
@@ -67,12 +70,17 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             var receipts = new CommandReceiptStore(_command, homeOperator, caller, Ids, frameworkClock);
 
+            var operationStore = new ServicingOperationStore(_command, homeOperator, frameworkClock);
+
             var coordinator = new OrderOperationCoordinator(
                 receipts,
                 new OperationClaimStore(_command, Ids, frameworkClock),
-                new ServicingOperationStore(_command, homeOperator, frameworkClock),
+                operationStore,
                 frameworkClock,
                 options);
+
+            Receipts = receipts;
+            OperationStore = operationStore;
 
             UnitOfWork = unitOfWork;
             Projector = projector;
@@ -81,7 +89,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Stocks = stocks;
 
             Reserve = new ReserveOrderService(Orders, reservations, Reservation, coordinator, unitOfWork, Ids, frameworkClock, projector);
-            Issue = new IssueOrderService(Orders, reservations, tickets, stocks, Funding, Documents, coordinator, homeOperator, unitOfWork, Ids, frameworkClock, projector, options);
+            Issue = new IssueOrderService(Orders, reservations, tickets, stocks, Funding, Documents, coordinator, operationStore, receipts, homeOperator, unitOfWork, Ids, frameworkClock, projector, options);
             Create = new CreateOrderService(Orders, receipts, coordinator, unitOfWork, Ids, frameworkClock, projector);
             Withdraw = new WithdrawOrderService(Orders, reservations, tickets, Reservation, Funding, coordinator, new StubIdentity(), unitOfWork, Ids, frameworkClock, projector);
         }
@@ -116,12 +124,17 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
         public ICreateOrderService Create { get; }
 
+        public CommandReceiptStore Receipts { get; } = default!;
+
+        public ServicingOperationStore OperationStore { get; } = default!;
+
         public OrderingDbContext Command => _command;
 
         public OrderQueryDbContext Query => _query;
 
-        public async Task SeedPlatformAsync(long rangeFrom = 1, long rangeTo = 999_999)
+        public async Task SeedPlatformAsync(long rangeFrom = 1, long rangeTo = 999_999, long? homeAirlineId = null)
         {
+            var airlineId = homeAirlineId ?? HomeAirlineId;
             await using var reference = _fixture.NewReferenceContext();
 
             var operatorSettings = await reference.OperatorSettings
@@ -133,31 +146,41 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 {
                     Id = 1,
                     ScopeKey = OperatorScopeKey.HomeOperator,
-                    HomeAirlineId = HomeAirlineId,
+                    HomeAirlineId = airlineId,
                     LastUpdateTime = DateTimeOffset.UtcNow
                 });
             }
             else
             {
-                operatorSettings.HomeAirlineId = HomeAirlineId;
+                operatorSettings.HomeAirlineId = airlineId;
             }
 
             await reference.SaveChangesAsync();
 
             await using var command = _fixture.NewCommandContext();
 
-            var stock = DocumentStock.Define(
-                Ids.NewId(),
-                HomeAirlineId,
+            var alreadyStocked = await command.Set<DocumentStock>()
+                .AsNoTracking()
+                .AnyAsync(stock => stock.OwnerAirlineId == airlineId
+                                   && stock.DocumentType == TicketDocumentType
+                                   && stock.Status == DocumentStockStatus.Active);
+
+            if (alreadyStocked)
+                return;
+
+            var stockId = Ids.NewId();
+
+            command.Set<DocumentStock>().Add(DocumentStock.Define(
+                stockId,
+                airlineId,
                 null,
                 TicketDocumentType,
-                Random.Shared.Next(100, 999).ToString(),
+                $"T{Interlocked.Increment(ref _stockSequence):D4}",
                 10,
                 DocumentStock.NoCheckDigitProfile,
                 rangeFrom,
-                rangeTo);
+                rangeTo));
 
-            command.Set<DocumentStock>().Add(stock);
             await command.SaveChangesAsync();
         }
 

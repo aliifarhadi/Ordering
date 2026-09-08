@@ -11,8 +11,13 @@ namespace AeroTech.Ordering.Persistence.DocumentStockAggregate
 
         public DocumentStockRepository(OrderingDbContext dbContext) => _dbContext = dbContext;
 
-        public Task<DocumentStock?> GetActiveAsync(long ownerAirlineId, string documentType, CancellationToken cancellationToken = default)
-            => Query()
+        public Task<DocumentStock?> GetActiveForOperationAsync(
+            long ownerAirlineId,
+            string documentType,
+            long operationId,
+            CancellationToken cancellationToken = default)
+            => _dbContext.Set<DocumentStock>()
+                .Include(stock => stock.Allocations.Where(allocation => allocation.OperationId == operationId))
                 .Where(stock => stock.OwnerAirlineId == ownerAirlineId
                                 && stock.DocumentType == documentType
                                 && stock.Status == DocumentStockStatus.Active)

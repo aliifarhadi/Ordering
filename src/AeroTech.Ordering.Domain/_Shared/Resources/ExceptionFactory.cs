@@ -276,6 +276,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException TicketRequiresAtLeastOneCoupon() =>
             new(2728, ExceptionMessages.TicketRequiresAtLeastOneCoupon) { HttpStatus = 422 };
 
+        public static BusinessException ServicingOperationNotFound(params object?[] args) =>
+            new(2731, ExceptionMessages.ServicingOperationNotFound, args) { HttpStatus = 404 };
+
         public static BusinessException OrderOperationNotEligible(params object?[] args) =>
             new(2729, ExceptionMessages.OrderOperationNotEligible, args) { HttpStatus = 409 };
 

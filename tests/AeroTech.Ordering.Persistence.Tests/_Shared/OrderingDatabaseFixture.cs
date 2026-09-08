@@ -24,6 +24,20 @@ namespace AeroTech.Ordering.Persistence.Tests._Shared
 
             using var query = NewQueryContext();
             query.Database.Migrate();
+
+            ResetIssuedDocumentState(command);
+        }
+
+        private static void ResetIssuedDocumentState(OrderingDbContext command)
+        {
+            command.Database.ExecuteSqlRaw(
+                """
+                DELETE FROM [Order].[DocumentPriceLinks];
+                DELETE FROM [Order].[TicketCoupons];
+                DELETE FROM [Order].[ElectronicTickets];
+                DELETE FROM [Order].[DocumentStockAllocations];
+                DELETE FROM [Order].[DocumentStocks];
+                """);
         }
 
         public OrderingDbContext NewCommandContext()

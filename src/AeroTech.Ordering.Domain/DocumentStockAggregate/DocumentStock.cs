@@ -131,6 +131,12 @@ namespace AeroTech.Ordering.Domain.DocumentStockAggregate
             return allocation;
         }
 
+        public DocumentStockAllocation? FindAllocation(long operationId, string documentRole)
+            => _allocations.SingleOrDefault(allocation =>
+                allocation.OperationId == operationId
+                && allocation.DocumentRole == documentRole
+                && allocation.State != StockNumberState.Retired);
+
         public void MarkIssued(long operationId, string documentRole, IClock clock)
             => RequireAllocation(operationId, documentRole).MarkIssued(clock.GetDateTime());
 

@@ -66,6 +66,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 Commission.CommissionAmount,
                 Commission.CommissionRate,
                 CommercialVersion,
+                NextEventOrdinal(),
                 LinkedOrderId,
                 LinkedPNR,
                 TimeToLive,
