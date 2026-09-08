@@ -127,6 +127,17 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
                 Assert.DoesNotContain("RS", route);
             });
 
+        [Fact]
+        public void The_caller_cannot_send_document_issuance_semantics()
+            => Assert.DoesNotContain(
+                PublicRequestPropertyNames(),
+                name => name.Contains("Rfic", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("Rfisc", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("Emd", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("ReasonForIssuance", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("TicketCoupon", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("DocumentNumber", StringComparison.OrdinalIgnoreCase));
+
         private static IReadOnlyList<string> PublicRoutes()
         {
             var routes = new List<string>();

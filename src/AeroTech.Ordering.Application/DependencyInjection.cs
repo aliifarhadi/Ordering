@@ -78,6 +78,8 @@ namespace AeroTech.Ordering.Application
             services.AddScoped<IOrderOperationCoordinator, OrderOperationCoordinator>();
             services.AddScoped<ICreateOrderService, CreateOrderService>();
             services.AddScoped<IReserveOrderService, ReserveOrderService>();
+            services.AddScoped<IElectronicTicketIssuer, ElectronicTicketIssuer>();
+            services.AddScoped<IElectronicMiscDocumentIssuer, ElectronicMiscDocumentIssuer>();
             services.AddScoped<IIssueOrderService, IssueOrderService>();
             services.AddScoped<IWithdrawOrderService, WithdrawOrderService>();
             services.AddScoped<IOrderChangeService, OrderChangeService>();

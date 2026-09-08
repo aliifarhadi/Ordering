@@ -7,6 +7,7 @@ using AeroTech.Ordering.Providers.Offer.Services;
 using AeroTech.Ordering.Providers.Payment.Services;
 using AeroTech.Ordering.Providers.Payment.Options;
 using AeroTech.Ordering.Domain.Ports.DocumentIssuance;
+using AeroTech.Ordering.Providers.DocumentIssuance.Services;
 using AeroTech.Ordering.Domain.Ports.Funding;
 using AeroTech.Ordering.Domain.Ports.OrderChange;
 using AeroTech.Ordering.Domain.Ports.Reservation;
@@ -58,12 +59,15 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<IReservationPort>(provider => provider.GetRequiredService<DeterministicReservationAdapter>());
                 services.AddScoped<IFundingCoveragePort>(provider => provider.GetRequiredService<DeterministicFundingCoverageAdapter>());
                 services.AddScoped<IDocumentIssuancePort>(provider => provider.GetRequiredService<DeterministicDocumentIssuanceAdapter>());
+                services.AddSingleton<DeterministicEmdIssuanceAdapter>();
+                services.AddScoped<IEmdIssuancePort>(provider => provider.GetRequiredService<DeterministicEmdIssuanceAdapter>());
                 services.AddSingleton<DeterministicOrderChangeQuoteAdapter>();
                 services.AddScoped<IOrderChangeQuoteProvider>(provider => provider.GetRequiredService<DeterministicOrderChangeQuoteAdapter>());
             }
             else
             {
                 services.AddScoped<IOrderChangeQuoteProvider, UnconfiguredOrderChangeQuoteProvider>();
+                services.AddScoped<IEmdIssuancePort, UnconfiguredEmdIssuanceProvider>();
             }
 
             return services;

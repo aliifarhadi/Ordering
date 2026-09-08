@@ -1,0 +1,41 @@
+﻿P2-F - Benchmark-aligned Electronic Miscellaneous Document (EMD)
+Repository: E:\Projects\DotAir\Ordering   Branch: k8s-stg   Date: 2026-09-08
+Baseline entering P2-F: 671 passed / 0 failed (399 domain + 272 persistence), commit d24f895
+
+=== dotnet ef database update (DotAirOrderNew) ===
+20260908_P2FElectronicMiscDocument applied; no multiple-cascade-path error.
+
+=== dotnet build AeroTech.Ordering.sln ===
+
+    34 Warning(s)
+    0 Error(s)
+
+
+
+=== dotnet test AeroTech.Ordering.Domain.Tests ===
+
+Passed!  - Failed:     0, Passed:   436, Skipped:     0, Total:   436, Duration: 589 ms - 
+AeroTech.Ordering.Domain.Tests.dll (net10.0)
+
+
+
+=== dotnet test AeroTech.Ordering.Persistence.Tests (real SQL Server) ===
+
+Passed!  - Failed:     0, Passed:   309, Skipped:     0, Total:   309, Duration: 1 m 1 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+
+
+TOTAL: 745 passed / 0 failed  (baseline 671 -> +74, zero regressions)
+
+=== P2-F suites ===
+
+Passed!  - Failed:     0, Passed:    37, Skipped:     0, Total:    37, Duration: 229 ms - 
+AeroTech.Ordering.Domain.Tests.dll (net10.0)
+
+
+
+Passed!  - Failed:     0, Passed:    36, Skipped:     0, Total:    36, Duration: 31 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+

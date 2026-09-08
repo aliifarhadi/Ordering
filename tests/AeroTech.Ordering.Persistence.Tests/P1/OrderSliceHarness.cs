@@ -12,6 +12,7 @@ using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence;
 using AeroTech.Ordering.Persistence.DocumentStockAggregate;
+using AeroTech.Ordering.Persistence.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Persistence.ElectronicTicketAggregate;
 using AeroTech.Ordering.Persistence.FulfillmentReservationAggregate;
 using AeroTech.Ordering.Persistence.OrderAggregate;
@@ -32,6 +33,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
     {
         public const long HomeAirlineId = 7401;
         public const string TicketDocumentType = "ETKT";
+        public const string EmdDocumentType = "EMD";
 
         private static int _stockSequence;
 
@@ -52,6 +54,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Reservation = new DeterministicReservationAdapter();
             Funding = new DeterministicFundingCoverageAdapter();
             Documents = new DeterministicDocumentIssuanceAdapter();
+            MiscDocuments = new DeterministicEmdIssuanceAdapter();
             Quotes = new DeterministicOrderChangeQuoteAdapter();
 
             var homeOperator = new ReferenceDataHomeOperatorProvider(_reference);
@@ -62,12 +65,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Orders = new OrderRepository(_command);
             var reservations = new FulfillmentReservationRepository(_command);
             var tickets = new ElectronicTicketRepository(_command);
+            var miscDocuments = new ElectronicMiscDocumentRepository(_command);
             var stocks = new DocumentStockRepository(_command);
 
             var options = Options.Create(new OrderOperationOptions
             {
                 RecoveryLeaseSeconds = 900,
-                TicketDocumentType = TicketDocumentType
+                TicketDocumentType = TicketDocumentType,
+                EmdDocumentType = EmdDocumentType
             });
 
             var receipts = new CommandReceiptStore(_command, homeOperator, caller, Ids, frameworkClock);
@@ -91,7 +96,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Stocks = stocks;
 
             Reserve = new ReserveOrderService(Orders, reservations, Reservation, coordinator, unitOfWork, Ids, frameworkClock, projector);
-            Issue = new IssueOrderService(Orders, reservations, tickets, stocks, Funding, Documents, coordinator, operationStore, receipts, homeOperator, unitOfWork, Ids, frameworkClock, projector, options);
+            var ticketIssuer = new ElectronicTicketIssuer(tickets, Documents, coordinator, unitOfWork, Ids, frameworkClock);
+            var miscDocumentIssuer = new ElectronicMiscDocumentIssuer(miscDocuments, MiscDocuments, coordinator, unitOfWork, Ids, frameworkClock);
+
+            MiscDocumentRepository = miscDocuments;
+
+            Issue = new IssueOrderService(Orders, reservations, tickets, miscDocuments, stocks, Funding, ticketIssuer, miscDocumentIssuer, coordinator, operationStore, receipts, homeOperator, unitOfWork, frameworkClock, projector, options);
             Create = new CreateOrderService(Orders, receipts, coordinator, unitOfWork, Ids, frameworkClock, projector, homeOperator);
             Withdraw = new WithdrawOrderService(Orders, reservations, tickets, Reservation, Funding, coordinator, new StubIdentity(), unitOfWork, Ids, frameworkClock, projector);
             OrderChange = new OrderChangeService(Orders, Quotes, coordinator, caller, unitOfWork, Ids, frameworkClock, projector);
@@ -106,6 +116,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicFundingCoverageAdapter Funding { get; }
 
         public DeterministicDocumentIssuanceAdapter Documents { get; }
+
+        public DeterministicEmdIssuanceAdapter MiscDocuments { get; }
+
+        public ElectronicMiscDocumentRepository MiscDocumentRepository { get; } = default!;
 
         public DeterministicOrderChangeQuoteAdapter Quotes { get; }
 
@@ -166,29 +180,39 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             await using var command = _fixture.NewCommandContext();
 
+            await SeedStockAsync(command, airlineId, TicketDocumentType, "T", rangeFrom, rangeTo);
+            await SeedStockAsync(command, airlineId, EmdDocumentType, "M", rangeFrom, rangeTo);
+
+            await command.SaveChangesAsync();
+        }
+
+        private async Task SeedStockAsync(
+            OrderingDbContext command,
+            long airlineId,
+            string documentType,
+            string prefix,
+            long rangeFrom,
+            long rangeTo)
+        {
             var alreadyStocked = await command.Set<DocumentStock>()
                 .AsNoTracking()
                 .AnyAsync(stock => stock.OwnerAirlineId == airlineId
-                                   && stock.DocumentType == TicketDocumentType
+                                   && stock.DocumentType == documentType
                                    && stock.Status == DocumentStockStatus.Active);
 
             if (alreadyStocked)
                 return;
 
-            var stockId = Ids.NewId();
-
             command.Set<DocumentStock>().Add(DocumentStock.Define(
-                stockId,
+                Ids.NewId(),
                 airlineId,
                 null,
-                TicketDocumentType,
-                $"T{Interlocked.Increment(ref _stockSequence):D4}",
+                documentType,
+                $"{prefix}{Interlocked.Increment(ref _stockSequence):D4}",
                 10,
                 DocumentStock.NoCheckDigitProfile,
                 rangeFrom,
                 rangeTo));
-
-            await command.SaveChangesAsync();
         }
 
         public Task<Order> CreateOrderAsync() => CreateOrderAsync(MultiPassengerOrderFactory.Create(Ids, Clock));

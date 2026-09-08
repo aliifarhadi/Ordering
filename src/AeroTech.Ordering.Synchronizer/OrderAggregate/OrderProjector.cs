@@ -66,10 +66,15 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                 .Where(ticket => ticket.CurrentServicingOrderId == orderId)
                 .ToListAsync(cancellationToken);
 
+            var miscDocuments = await _commandDbContext.ElectronicMiscDocuments
+                .Include(document => document.Coupons)
+                .Where(document => document.CurrentServicingOrderId == orderId)
+                .ToListAsync(cancellationToken);
+
             var reservationSummary = RollUpReservation(reservations.Select(reservation => reservation.Status).ToList());
             var documentSummary = RollUpDocuments(order);
 
-            var snapshot = BuildSnapshot(order, reservations, tickets, reservationSummary, documentSummary);
+            var snapshot = BuildSnapshot(order, reservations, tickets, miscDocuments, reservationSummary, documentSummary);
 
             await UpsertSearchAsync(order, reservationSummary, documentSummary, cancellationToken);
             await UpsertDetailsAsync(order, snapshot, cancellationToken);
@@ -198,6 +203,7 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
             Domain.OrderAggregate.Order order,
             IReadOnlyList<Domain.FulfillmentReservationAggregate.FulfillmentReservation> reservations,
             IReadOnlyList<Domain.ElectronicTicketAggregate.ElectronicTicket> tickets,
+            IReadOnlyList<Domain.ElectronicMiscDocumentAggregate.ElectronicMiscDocument> miscDocuments,
             FulfillmentReservationStatus? reservationSummary,
             OrderServiceDocumentStatus? documentSummary)
             => new
@@ -408,6 +414,32 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                         coupon.FinancialStatus,
                         coupon.ControlStatus,
                         coupon.IssuanceValue
+                    })
+                }),
+                MiscellaneousDocuments = miscDocuments.Select(document => new
+                {
+                    document.Id,
+                    document.DocumentNumber,
+                    document.Type,
+                    document.ReasonForIssuanceCode,
+                    Status = document.StatusSummary,
+                    document.IssuedAt,
+                    document.IssuedTotal,
+                    document.CurrencyId,
+                    document.TravelerId,
+                    document.ProviderReference,
+                    Coupons = document.Coupons.OrderBy(coupon => coupon.CouponNumber).Select(coupon => new
+                    {
+                        coupon.Id,
+                        coupon.CouponNumber,
+                        coupon.Purpose,
+                        coupon.ReasonForIssuanceSubCode,
+                        coupon.OrderServiceId,
+                        coupon.PricingLineId,
+                        coupon.AssociatedTicketCouponId,
+                        coupon.ExternalValueReference,
+                        coupon.IssuanceValue,
+                        coupon.Status
                     })
                 }),
                 TimeLimits = order.TimeLimits.Select(limit => new { limit.Type, limit.DueAt, limit.Status }),

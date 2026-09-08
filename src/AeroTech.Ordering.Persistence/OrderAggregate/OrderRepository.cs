@@ -45,6 +45,7 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
                 .Include(order => order.OrderServices).ThenInclude(service => service.HotelDetail)
                 .Include(order => order.OrderServices).ThenInclude(service => service.GroundTransportDetail)
                 .Include(order => order.OrderServices).ThenInclude(service => service.GenericDetail)
+                .Include(order => order.OrderServices).ThenInclude(service => service.EmdIssuanceSnapshot)
                 .Include(order => order.ItemServiceLinks)
                 .Include(order => order.Itineraries)
                 .Include(order => order.FareConstructions).ThenInclude(construction => construction.Items)

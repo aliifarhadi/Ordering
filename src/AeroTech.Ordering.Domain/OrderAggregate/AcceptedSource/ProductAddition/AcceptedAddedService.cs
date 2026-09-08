@@ -20,5 +20,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.ProductAddition
         string? SupplierCode = null,
         string? DeliveryProviderReference = null,
         IReadOnlyList<long>? CoveredOrderServiceIds = null,
-        IReadOnlyList<long>? CoveredOrderSegmentIds = null);
+        IReadOnlyList<long>? CoveredOrderSegmentIds = null,
+        AcceptedEmdIssuanceProfile? EmdIssuance = null);
 }

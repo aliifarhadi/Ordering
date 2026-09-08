@@ -56,6 +56,8 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
                 .HasForeignKey<OrderGroundTransportServiceDetail>(detail => detail.OrderServiceId).OnDelete(DeleteBehavior.Cascade);
             builder.HasOne(service => service.GenericDetail).WithOne()
                 .HasForeignKey<OrderGenericServiceDetail>(detail => detail.OrderServiceId).OnDelete(DeleteBehavior.Cascade);
+            builder.HasOne(service => service.EmdIssuanceSnapshot).WithOne()
+                .HasForeignKey<OrderServiceEmdIssuanceSnapshot>(snapshot => snapshot.OrderServiceId).OnDelete(DeleteBehavior.Cascade);
 
             builder.Navigation(service => service.Beneficiaries).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(service => service.CoveredServices).UsePropertyAccessMode(PropertyAccessMode.Field);

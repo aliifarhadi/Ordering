@@ -209,5 +209,21 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string AcceptedQuotedOfferNotUsable = "The selected quoted offer '{0}' is not available or is no longer valid; a new quote is required.";
         public const string OrderChangeQuoteSourceNotConfigured = "No authoritative order-change quote source is configured for this deployment.";
         public const string OrderChangeAcceptsOneOfferItem = "This order change accepts exactly one selected quoted offer item; {0} were supplied.";
+        public const string MiscellaneousDocumentRequiresCoupon = "An electronic miscellaneous document must have at least one coupon.";
+        public const string ReasonForIssuanceCodeRequired = "An electronic miscellaneous document requires a reason for issuance code.";
+        public const string ReasonForIssuanceSubCodeRequired = "Coupon {0} requires a reason for issuance sub code.";
+        public const string AssociatedDocumentRequiresTicketCoupon = "An associated electronic miscellaneous document requires a ticket coupon association on coupon {0}.";
+        public const string StandaloneDocumentCannotAssociateTicketCoupon = "A standalone electronic miscellaneous document cannot associate coupon {0} with a ticket coupon.";
+        public const string ServiceCouponRequiresOrderService = "A service coupon requires the order service it documents.";
+        public const string FeeCouponRequiresPricingLine = "A fee coupon requires the pricing line it documents and must not reference an order service.";
+        public const string ValueCouponRequiresExternalReference = "A {0} coupon requires an authoritative external value reference.";
+        public const string EmdCouponValueNotAttributable = "No defensible accepted value attribution exists for order service {0}; an accountable document cannot be issued with a fabricated value.";
+        public const string ServiceDoesNotRequireMiscellaneousDocument = "Order service {0} does not require an electronic miscellaneous document.";
+        public const string MiscellaneousDocumentIssuanceProfileMissing = "Order service {0} has no accepted electronic miscellaneous document issuance profile.";
+        public const string MiscellaneousDocumentRequiresSingleReasonForIssuance = "One electronic miscellaneous document carries exactly one reason for issuance code; '{0}' and '{1}' were supplied.";
+        public const string AssociatedServiceReferenceMissing = "The accepted issuance profile for order service {0} declares an associated document without an associated air service.";
+        public const string TicketCouponAssociationNotResolvable = "Air order service {0} has {1} eligible current ticket coupons; an associated document requires exactly one.";
+        public const string MiscellaneousDocumentSourceNotConfigured = "No electronic miscellaneous document issuance provider is configured for this deployment.";
+        public const string EmdCouponValueMustBeNonNegative = "An electronic miscellaneous document coupon value cannot be negative.";
     }
 }

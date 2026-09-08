@@ -47,6 +47,7 @@ namespace AeroTech.Ordering.Persistence
             services.AddScoped<IFulfillmentReservationRepository, FulfillmentReservationRepository>();
             services.AddScoped<IDocumentStockRepository, DocumentStockRepository>();
             services.AddScoped<IElectronicTicketRepository, ElectronicTicketRepository>();
+            services.AddScoped<AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts.IElectronicMiscDocumentRepository, ElectronicMiscDocumentAggregate.ElectronicMiscDocumentRepository>();
             services.Configure<IntegrationEventOptions>(configuration.GetSection("IntegrationEvents"));
             services.AddScoped<IOutboxWriter, OutboxWriter>();
             services.AddScoped<IInboxStore, InboxStore>();

@@ -311,24 +311,157 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderService, "EXST-1")]);
         }
 
-        public static AcceptedAddServiceChange EmdBaggage(Order order, decimal amount = 400_000m)
+        public const string BaggageReasonForIssuanceCode = "C";
+        public const string BaggageReasonForIssuanceSubCode = "0DF";
+        public const string LoungeReasonForIssuanceCode = "E";
+        public const string LoungeReasonForIssuanceSubCode = "0B2";
+
+        public static AcceptedAddServiceChange EmdBaggage(
+            Order order,
+            decimal amount = 400_000m,
+            ElectronicMiscDocumentType emdType = ElectronicMiscDocumentType.Associated,
+            string reasonForIssuanceCode = BaggageReasonForIssuanceCode,
+            string reasonForIssuanceSubCode = BaggageReasonForIssuanceSubCode,
+            string? documentGroupReference = null,
+            bool withIssuanceProfile = true,
+            string serviceRef = "BAG-EMD",
+            string quotedOfferId = QuotedOfferId,
+            string selectedOfferItemId = SelectedOfferItemId,
+            string productRef = ProductRef)
         {
             var air = OutboundAirService(order);
 
             var service = Service(
-                "BAG-EMD",
+                serviceRef,
                 OrderServiceType.BaggageAllowance,
                 "BAG",
                 new AcceptedBaggageDetail(BaggageServiceKind.PrepaidPiece, Pieces: 1),
                 [air.SoleBeneficiaryId],
                 requiresDocument: true,
                 documentKind: ServiceDocumentKind.ElectronicMiscDocument,
-                coveredOrderServiceIds: [air.Id]);
+                coveredOrderServiceIds: [air.Id]) with
+            {
+                EmdIssuance = withIssuanceProfile
+                    ? IssuanceProfile(
+                        emdType,
+                        reasonForIssuanceCode,
+                        reasonForIssuanceSubCode,
+                        emdType == ElectronicMiscDocumentType.Associated ? air.Id : null,
+                        documentGroupReference)
+                    : null
+            };
 
             return Addition(
-                Product(ProductType.Baggage, [service]),
-                [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderService, "BAG-EMD")]);
+                Product(ProductType.Baggage, [service], productRef: productRef),
+                [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderService, serviceRef, productRef)],
+                quotedOfferId,
+                selectedOfferItemId);
         }
+
+        public static AcceptedAddServiceChange EmdLounge(
+            Order order,
+            decimal amount = 150_000m,
+            string reasonForIssuanceCode = LoungeReasonForIssuanceCode,
+            string reasonForIssuanceSubCode = LoungeReasonForIssuanceSubCode,
+            string? documentGroupReference = null,
+            string serviceRef = "LNG-EMD",
+            string quotedOfferId = QuotedOfferId,
+            string selectedOfferItemId = SelectedOfferItemId,
+            string productRef = ProductRef)
+        {
+            var air = OutboundAirService(order);
+
+            var service = Service(
+                serviceRef,
+                OrderServiceType.LoungeAccess,
+                "LNG",
+                new AcceptedAddedLoungeDetail(100, 0, "LNG-A"),
+                [air.SoleBeneficiaryId],
+                requiresDocument: true,
+                documentKind: ServiceDocumentKind.ElectronicMiscDocument) with
+            {
+                EmdIssuance = IssuanceProfile(
+                    ElectronicMiscDocumentType.Standalone,
+                    reasonForIssuanceCode,
+                    reasonForIssuanceSubCode,
+                    null,
+                    documentGroupReference)
+            };
+
+            return Addition(
+                Product(ProductType.Lounge, [service], productRef: productRef),
+                [Line(PricingComponentType.ProductCharge, amount, PricingBasisType.OrderService, serviceRef, productRef)],
+                quotedOfferId,
+                selectedOfferItemId);
+        }
+
+        public static AcceptedAddServiceChange EmdBaggageBundle(
+            Order order,
+            decimal amount = 500_000m,
+            string documentGroupReference = "GRP-1",
+            string secondReasonForIssuanceCode = BaggageReasonForIssuanceCode)
+        {
+            var outbound = OutboundAirService(order);
+            var inbound = InboundAirService(order);
+
+            var first = Service(
+                "BAG-EMD-OUT",
+                OrderServiceType.BaggageAllowance,
+                "BAG",
+                new AcceptedBaggageDetail(BaggageServiceKind.PrepaidPiece, Pieces: 1),
+                [outbound.SoleBeneficiaryId],
+                requiresDocument: true,
+                documentKind: ServiceDocumentKind.ElectronicMiscDocument,
+                coveredOrderServiceIds: [outbound.Id]) with
+            {
+                EmdIssuance = IssuanceProfile(
+                    ElectronicMiscDocumentType.Associated,
+                    BaggageReasonForIssuanceCode,
+                    BaggageReasonForIssuanceSubCode,
+                    outbound.Id,
+                    documentGroupReference)
+            };
+
+            var second = Service(
+                "BAG-EMD-IN",
+                OrderServiceType.BaggageAllowance,
+                "BAG",
+                new AcceptedBaggageDetail(BaggageServiceKind.PrepaidPiece, Pieces: 1),
+                [inbound.SoleBeneficiaryId],
+                requiresDocument: true,
+                documentKind: ServiceDocumentKind.ElectronicMiscDocument,
+                coveredOrderServiceIds: [inbound.Id]) with
+            {
+                EmdIssuance = IssuanceProfile(
+                    ElectronicMiscDocumentType.Associated,
+                    secondReasonForIssuanceCode,
+                    "0DG",
+                    inbound.Id,
+                    documentGroupReference)
+            };
+
+            return Addition(
+                Product(ProductType.Baggage, [first, second]),
+                [
+                    Line(PricingComponentType.ProductCharge, amount / 2m, PricingBasisType.OrderService, "BAG-EMD-OUT"),
+                    Line(PricingComponentType.ProductCharge, amount / 2m, PricingBasisType.OrderService, "BAG-EMD-IN")
+                ]);
+        }
+
+        public static AcceptedEmdIssuanceProfile IssuanceProfile(
+            ElectronicMiscDocumentType emdType,
+            string reasonForIssuanceCode,
+            string reasonForIssuanceSubCode,
+            long? associatedAirOrderServiceId,
+            string? documentGroupReference = null)
+            => new(
+                emdType,
+                reasonForIssuanceCode,
+                reasonForIssuanceSubCode,
+                associatedAirOrderServiceId,
+                documentGroupReference,
+                SourceSystem,
+                QuotedOfferId);
 
         public static AcceptedAddServiceChange SettlementOnly(Order order, decimal commission = 30_000m)
         {

@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt), [`audit/p2/P2-E.1-TEST-RUN.txt`](audit/p2/P2-E.1-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt), [`audit/p2/P2-E.1-TEST-RUN.txt`](audit/p2/P2-E.1-TEST-RUN.txt), [`audit/p2/P2-F-TEST-RUN.txt`](audit/p2/P2-F-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -15,7 +15,7 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-D.1** price-treatment & referential-integrity closure | **Complete — P2-D frozen** |
 | **P2-E** idempotent add-service commercial mutation | **Complete — P2-D.1 frozen** |
 | **P2-E.1** benchmark-aligned Order Change / Add Service | **Complete — P2-E frozen** |
-| P2-F ElectronicMiscDocument | Not started |
+| **P2-F** ElectronicMiscDocument | **Complete — P2-E.1 frozen** |
 | P2-G projections / APIs / events | Not started |
 | P2-H verification | Not started |
 
@@ -543,9 +543,61 @@ where useful; public business vocabulary must not invent a parallel airline work
 
 ---
 
+## P2-F — Benchmark-aligned Electronic Miscellaneous Document
+
+**Complete. P2-E.1 is frozen.** Full detail in
+[`P2-F-EMD-IMPLEMENTATION-REPORT.md`](P2-F-EMD-IMPLEMENTATION-REPORT.md); benchmark and scope audit in
+[`audit/p2/P2-F-EMD-BENCHMARK-AND-SCOPE-AUDIT.md`](audit/p2/P2-F-EMD-BENCHMARK-AND-SCOPE-AUDIT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **436 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **309 passed**, 0 failed (real SQL Server) |
+| Total | **745 passed, 0 failed** (baseline 671 -> +74, zero regressions) |
+
+The EMD is modelled as an accountable **fulfilment artefact**, never as commercial truth: issuance advances no
+`CommercialVersion`, `FinancialSequence` or `ObligationVersion` and creates no `OrderChange`, `PriceChangeSet`,
+`PricingLine`, item or service. `ElectronicMiscDocument` is its own aggregate with `EmdCoupon[]` and
+`EmdPriceLink[]`; it does not inherit `ElectronicTicket` and no `TrafficDocumentV2` was created.
+
+**EMD-A / EMD-S** are distinct: an associated document requires a ticket-coupon association on every coupon,
+a standalone document rejects one, and the type is supplied by the accepted quote - never inferred from
+`ServiceType` or `ProductType`. **RFIC** lives once on the document and **RFISC** per coupon, both opaque
+validated codes from the quote, never derived from `ProductType` or `ServiceCode`; one document carries exactly
+one RFIC and mixed codes fail closed.
+
+The new immutable `OrderServiceEmdIssuanceSnapshot` carries the accepted issuance evidence from Add Service;
+the public Order Change contract is unchanged and still cannot supply RFIC, RFISC, EMD type, association or
+document number. **EMD-A association** is coupon-level: the sale references an air `OrderService`, and issuance
+resolves the single current non-void ticket coupon covering it - zero or several candidates fail closed, with
+no sequence guessing or newest/first pick. **Coupon value** comes only from accepted pricing evidence and is
+frozen into `EmdPriceLink`; an item-level price with no defensible split is never divided, it fails closed.
+
+Issuance extends the existing `/Issue` operation rather than inventing `/IssueEmd`: `IssueOrderService` now
+coordinates document families through `ElectronicTicketIssuer` (P1 logic intact) and
+`ElectronicMiscDocumentIssuer`, discovering both scopes, issuing or recovering ET first, then resolving EMD-A
+associations and issuing EMDs; EMD-S needs no ET. Controlled `DocumentStock` is reused under a configured EMD
+document type, the number is allocated before the irreversible call, and retry reuses number, role and provider
+operation key. `Pending`/`Unknown` keep the reservation and stay recoverable; partial irreversibility moves to
+`NeedsReconciliation`. ET and EMD families stay independently correct - an issued EMD never tickets an
+unticketed order, a pending EMD never un-tickets a ticketed one, and an already-issued ET is unchanged.
+
+### Recorded servicing decision — EMD has no revalidation lifecycle
+
+```
+EMD does not use the electronic-ticket revalidation lifecycle.
+Later EMD servicing uses exchange or the other applicable EMD operations.
+```
+
+EMD refund, exchange, void, reassociation and disassociation are deferred to P3 and were not partially
+implemented. No SSR subsystem, SVC segment, TSM, real EMD host, JetPay, Ledger or SIS work was added.
+
+---
+
 ## Scope
 
-P2-F, P2-G and P2-H were not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
+P2-G and P2-H were not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
 `Money`, `CurrencyCode`, ExchangeRate framework, currency service, ROE engine or rounding library was
 created — the existing `ExchangeRate` value object at `decimal(28,12)` is reused unchanged. No parallel
 `PricingV2` / `OrderV2` model exists. Refund, exchange, void, split, DCS, disruption, group booking, tax

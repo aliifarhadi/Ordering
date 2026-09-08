@@ -4,16 +4,14 @@ using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain.DocumentStockAggregate;
 using AeroTech.Ordering.Domain.DocumentStockAggregate.Contracts;
-using AeroTech.Ordering.Domain.DocumentStockAggregate.Entities;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
-using AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects;
 using AeroTech.Ordering.Domain.FulfillmentReservationAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
-using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
-using AeroTech.Ordering.Domain.Ports.DocumentIssuance;
 using AeroTech.Ordering.Domain.Ports.Funding;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
@@ -32,7 +30,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
         int CommercialVersion,
         IReadOnlyList<IssuedTicketSummary> Tickets,
         IReadOnlyList<long> OutstandingServiceIds,
-        string? Detail);
+        string? Detail,
+        IReadOnlyList<IssuedMiscellaneousDocumentSummary> MiscellaneousDocuments);
 
     public sealed record IssuedTicketSummary(long TicketId, long TravelerId, string DocumentNumber, int CouponCount);
 
@@ -48,37 +47,39 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
     public sealed class IssueOrderService : IIssueOrderService
     {
         public const string FundingStep = "coverage";
-        public const string IssueStep = "issue";
 
         private readonly IOrderRepository _orders;
         private readonly IFulfillmentReservationRepository _reservations;
         private readonly IElectronicTicketRepository _tickets;
+        private readonly IElectronicMiscDocumentRepository _miscDocuments;
         private readonly IDocumentStockRepository _stocks;
         private readonly IFundingCoveragePort _funding;
-        private readonly IDocumentIssuancePort _documents;
+        private readonly IElectronicTicketIssuer _ticketIssuer;
+        private readonly IElectronicMiscDocumentIssuer _miscDocumentIssuer;
         private readonly IOrderOperationCoordinator _operations;
         private readonly IServicingOperationStore _operationStore;
         private readonly ICommandReceiptStore _receipts;
         private readonly IHomeOperatorProvider _homeOperator;
         private readonly IUnitOfWork _unitOfWork;
-        private readonly IIdGenerator _idGenerator;
         private readonly IClock _clock;
         private readonly IOrderProjector _projector;
         private readonly string _ticketDocumentType;
+        private readonly string _emdDocumentType;
 
         public IssueOrderService(
             IOrderRepository orders,
             IFulfillmentReservationRepository reservations,
             IElectronicTicketRepository tickets,
+            IElectronicMiscDocumentRepository miscDocuments,
             IDocumentStockRepository stocks,
             IFundingCoveragePort funding,
-            IDocumentIssuancePort documents,
+            IElectronicTicketIssuer ticketIssuer,
+            IElectronicMiscDocumentIssuer miscDocumentIssuer,
             IOrderOperationCoordinator operations,
             IServicingOperationStore operationStore,
             ICommandReceiptStore receipts,
             IHomeOperatorProvider homeOperator,
             IUnitOfWork unitOfWork,
-            IIdGenerator idGenerator,
             IClock clock,
             IOrderProjector projector,
             IOptions<OrderOperationOptions> options)
@@ -86,21 +87,26 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
             _orders = orders;
             _reservations = reservations;
             _tickets = tickets;
+            _miscDocuments = miscDocuments;
             _stocks = stocks;
             _funding = funding;
-            _documents = documents;
+            _ticketIssuer = ticketIssuer;
+            _miscDocumentIssuer = miscDocumentIssuer;
             _operations = operations;
             _operationStore = operationStore;
             _receipts = receipts;
             _homeOperator = homeOperator;
             _unitOfWork = unitOfWork;
-            _idGenerator = idGenerator;
             _clock = clock;
             _projector = projector;
 
             _ticketDocumentType = options.Value.TicketDocumentType
                 ?? throw new InvalidOperationException(
                     $"'{OrderOperationOptions.SectionName}:{nameof(OrderOperationOptions.TicketDocumentType)}' must be configured.");
+
+            _emdDocumentType = options.Value.EmdDocumentType
+                ?? throw new InvalidOperationException(
+                    $"'{OrderOperationOptions.SectionName}:{nameof(OrderOperationOptions.EmdDocumentType)}' must be configured.");
         }
 
         public async Task<IssueOrderOutcome> IssueAsync(
@@ -126,33 +132,41 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                 cancellationToken);
 
             var orderTickets = await _tickets.ListByOrderAsync(orderId, cancellationToken);
+            var orderDocuments = await _miscDocuments.ListByOrderAsync(orderId, cancellationToken);
 
-            order.RecordIssuedDocuments(DocumentEvidenceFrom(orderTickets));
+            order.RecordIssuedDocuments(ElectronicTicketIssuer.DocumentEvidenceFrom(orderTickets));
 
-            var requiredServiceIds = order.RequiredElectronicTicketServiceIds().ToHashSet();
+            foreach (var document in orderDocuments)
+                order.RecordIssuedMiscellaneousDocuments(ElectronicMiscDocumentIssuer.DocumentEvidenceFrom(document));
 
-            var documentedServiceIds = orderTickets
+            var documentedTicketServiceIds = orderTickets
                 .SelectMany(ticket => ticket.Coupons)
                 .Where(coupon => coupon.FinancialStatus != TicketCouponFinancialStatus.Void)
                 .Select(coupon => coupon.CurrentOrderServiceId)
                 .ToHashSet();
 
-            var outstanding = requiredServiceIds.Except(documentedServiceIds).ToHashSet();
+            var documentedMiscServiceIds = order.DocumentedElectronicMiscDocumentServiceIds().ToHashSet();
 
-            if (outstanding.Count == 0)
-                return await CompleteAsync(order, operation, orderTickets, cancellationToken);
+            var outstandingTickets = order.RequiredElectronicTicketServiceIds().Except(documentedTicketServiceIds).ToHashSet();
+            var outstandingDocuments = order.RequiredElectronicMiscDocumentServiceIds().Except(documentedMiscServiceIds).ToHashSet();
+
+            var ticketSummaries = orderTickets
+                .Where(ticket => ticket.OperationId == operation.OperationId)
+                .Select(ElectronicTicketIssuer.Summarize)
+                .ToList();
+
+            var documentSummaries = orderDocuments
+                .Where(document => document.OperationId == operation.OperationId)
+                .Select(ElectronicMiscDocumentIssuer.Summarize)
+                .ToList();
+
+            if (outstandingTickets.Count == 0 && outstandingDocuments.Count == 0)
+                return await CompleteAsync(order, operation, orderTickets, orderDocuments, cancellationToken);
 
             await _operationStore.TransitionAsync(
                 operation.OperationId,
                 ServicingOperationStatus.Executing,
                 operation.ClaimGeneration,
-                cancellationToken);
-
-            var reservations = await _reservations.ListByOrderAsync(orderId, cancellationToken);
-            var stock = await _stocks.GetActiveForOperationAsync(
-                ownerAirlineId,
-                _ticketDocumentType,
-                operation.OperationId,
                 cancellationToken);
 
             var coverage = await _funding.VerifyCoverageAsync(
@@ -165,121 +179,140 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                     order.CurrencyId),
                 cancellationToken);
 
-            var decision = IssueEligibilityPolicy.Evaluate(
-                order,
-                BuildEvidence(stock, coverage, reservations, documentedServiceIds));
+            var alreadyIrreversible = ticketSummaries.Count > 0 || documentSummaries.Count > 0;
 
-            if (!decision.IsAllowed)
-                throw ExceptionFactory.OrderOperationNotEligible(ServicingOperationKind.Issue, orderId, decision.Reasons);
-
-            var plans = BuildPlans(order, decision.EffectiveScopeServiceIds);
-            var summaries = orderTickets
-                .Where(ticket => ticket.OperationId == operation.OperationId)
-                .Select(Summarize)
-                .ToList();
-
-            var alreadyIrreversible = summaries.Count > 0;
-
-            foreach (var plan in plans)
+            if (outstandingTickets.Count > 0)
             {
-                var role = DocumentRole(plan.TravelerId);
-                var priorAttempt = stock!.FindAllocation(operation.OperationId, role);
-
-                DocumentIssuanceResult result;
-                DocumentStockAllocation allocation;
-
-                if (priorAttempt is { State: StockNumberState.Reserved })
-                {
-                    allocation = priorAttempt;
-
-                    result = await _documents.RecoverAsync(
-                        new DocumentRecoveryRequest(
-                            _operations.ProviderOperationKey(operation, $"{IssueStep}:{plan.TravelerId}"),
-                            orderId,
-                            operation.OperationId,
-                            allocation.DocumentNumber),
-                        cancellationToken);
-                }
-                else
-                {
-                    allocation = stock.Allocate(operation.OperationId, role, _idGenerator, _clock);
-                    await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-                    result = await _documents.IssueAsync(
-                        BuildIssuanceRequest(order, operation, plan, allocation, ownerAirlineId),
-                        cancellationToken);
-                }
-
-                if (result.Outcome is ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown)
-                    return await SuspendAsync(order, operation, result, summaries, outstanding, cancellationToken);
-
-                if (result.Outcome == ProviderOperationOutcome.Rejected)
-                {
-                    if (alreadyIrreversible)
-                        return await ReconcileAsync(order, operation, result, summaries, outstanding, cancellationToken);
-
-                    stock.Retire(operation.OperationId, role, _clock);
-
-                    return await RejectAsync(order, operation, result, outstanding, cancellationToken);
-                }
-
-                var ticket = ElectronicTicket.Issue(
-                    _idGenerator.NewId(),
-                    orderId,
-                    plan.TravelerId,
-                    operation.OperationId,
-                    allocation.DocumentNumber,
+                var reservations = await _reservations.ListByOrderAsync(orderId, cancellationToken);
+                var ticketStock = await _stocks.GetActiveForOperationAsync(
                     ownerAirlineId,
-                    order.AirlineOfficeId,
-                    DocumentAuthority.Local,
-                    null,
-                    order.CurrencyId,
-                    plan.Coupons,
-                    _idGenerator,
-                    _clock);
+                    _ticketDocumentType,
+                    operation.OperationId,
+                    cancellationToken);
 
-                ticket.RecordProviderConfirmation(result.ProviderReference, _clock);
+                var decision = IssueEligibilityPolicy.Evaluate(
+                    order,
+                    BuildTicketEvidence(ticketStock, coverage, reservations, documentedTicketServiceIds));
 
-                await _tickets.AddAsync(ticket, cancellationToken);
-                stock.MarkIssued(operation.OperationId, role, _clock);
+                if (!decision.IsAllowed)
+                    throw ExceptionFactory.OrderOperationNotEligible(ServicingOperationKind.Issue, orderId, decision.Reasons);
 
-                var evidence = DocumentEvidenceFrom([ticket]);
-                order.RecordIssuedDocuments(evidence);
+                var ticketResult = await _ticketIssuer.IssueAsync(
+                    new ElectronicTicketIssuanceRequest(
+                        order,
+                        operation,
+                        ticketStock!,
+                        ownerAirlineId,
+                        decision.EffectiveScopeServiceIds,
+                        outstandingTickets,
+                        ticketSummaries),
+                    cancellationToken);
 
-                foreach (var document in evidence)
-                    outstanding.Remove(document.OrderServiceId);
+                ticketSummaries = ticketResult.Summaries.ToList();
+                outstandingTickets = ticketResult.Outstanding.ToHashSet();
+                alreadyIrreversible = ticketResult.AlreadyIrreversible;
 
-                summaries.Add(Summarize(ticket));
-                alreadyIrreversible = true;
+                if (ticketResult.Outcome is ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown)
+                    return await SuspendAsync(order, operation, ticketResult.Outcome, ticketResult.Detail, ticketSummaries, documentSummaries, Outstanding(outstandingTickets, outstandingDocuments), cancellationToken);
+
+                if (ticketResult.Outcome == ProviderOperationOutcome.Rejected)
+                    return alreadyIrreversible
+                        ? await ReconcileAsync(order, operation, ticketResult.Outcome, ticketResult.Detail, ticketSummaries, documentSummaries, Outstanding(outstandingTickets, outstandingDocuments), cancellationToken)
+                        : await RejectAsync(order, operation, ticketResult.Detail, Outstanding(outstandingTickets, outstandingDocuments), cancellationToken);
+
+                orderTickets = await _tickets.ListByOrderAsync(orderId, cancellationToken);
             }
 
-            if (outstanding.Count > 0)
-                return await ReconcileAsync(order, operation, null, summaries, outstanding, cancellationToken);
+            if (outstandingDocuments.Count > 0)
+            {
+                var emdStock = await _stocks.GetActiveForOperationAsync(
+                    ownerAirlineId,
+                    _emdDocumentType,
+                    operation.OperationId,
+                    cancellationToken);
 
-            return await FinalizeAsync(order, operation, summaries, cancellationToken);
+                var decision = ElectronicMiscDocumentEligibilityPolicy.Evaluate(
+                    order,
+                    new MiscellaneousDocumentIssueEvidence(
+                        emdStock is not null,
+                        coverage.Outcome,
+                        coverage.ConfirmedAmount,
+                        documentedMiscServiceIds));
+
+                if (!decision.IsAllowed)
+                    return alreadyIrreversible
+                        ? await ReconcileAsync(order, operation, ProviderOperationOutcome.Rejected, decision.Reasons, ticketSummaries, documentSummaries, Outstanding(outstandingTickets, outstandingDocuments), cancellationToken)
+                        : throw ExceptionFactory.OrderOperationNotEligible(ServicingOperationKind.Issue, orderId, decision.Reasons);
+
+                var documentResult = await _miscDocumentIssuer.IssueAsync(
+                    new ElectronicMiscDocumentIssuanceRequest(
+                        order,
+                        operation,
+                        emdStock!,
+                        ownerAirlineId,
+                        decision.EffectiveScopeServiceIds,
+                        orderTickets,
+                        documentSummaries,
+                        alreadyIrreversible),
+                    cancellationToken);
+
+                documentSummaries = documentResult.Summaries.ToList();
+                outstandingDocuments = documentResult.Outstanding.ToHashSet();
+                alreadyIrreversible = documentResult.AlreadyIrreversible;
+
+                if (documentResult.Outcome is ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown)
+                    return await SuspendAsync(order, operation, documentResult.Outcome, documentResult.Detail, ticketSummaries, documentSummaries, Outstanding(outstandingTickets, outstandingDocuments), cancellationToken);
+
+                if (documentResult.Outcome == ProviderOperationOutcome.Rejected)
+                    return alreadyIrreversible
+                        ? await ReconcileAsync(order, operation, documentResult.Outcome, documentResult.Detail, ticketSummaries, documentSummaries, Outstanding(outstandingTickets, outstandingDocuments), cancellationToken)
+                        : await RejectAsync(order, operation, documentResult.Detail, Outstanding(outstandingTickets, outstandingDocuments), cancellationToken);
+            }
+
+            var stillOutstanding = Outstanding(outstandingTickets, outstandingDocuments);
+
+            if (stillOutstanding.Count > 0)
+                return await ReconcileAsync(order, operation, ProviderOperationOutcome.Rejected, null, ticketSummaries, documentSummaries, stillOutstanding, cancellationToken);
+
+            return await FinalizeAsync(order, operation, ticketSummaries, documentSummaries, cancellationToken);
         }
+
+        private static IReadOnlyCollection<long> Outstanding(
+            IReadOnlyCollection<long> tickets,
+            IReadOnlyCollection<long> documents)
+            => tickets.Concat(documents).Distinct().ToList();
 
         private async Task<IssueOrderOutcome> CompleteAsync(
             Order order,
             OrderOperation operation,
             IReadOnlyList<ElectronicTicket> orderTickets,
+            IReadOnlyList<ElectronicMiscDocument> orderDocuments,
             CancellationToken cancellationToken)
         {
-            var summaries = orderTickets
+            var ticketSummaries = orderTickets
                 .Where(ticket => ticket.OperationId == operation.OperationId)
-                .Select(Summarize)
+                .Select(ElectronicTicketIssuer.Summarize)
                 .ToList();
 
-            if (summaries.Count == 0)
-                summaries = orderTickets.Select(Summarize).ToList();
+            if (ticketSummaries.Count == 0)
+                ticketSummaries = orderTickets.Select(ElectronicTicketIssuer.Summarize).ToList();
 
-            return await FinalizeAsync(order, operation, summaries, cancellationToken);
+            var documentSummaries = orderDocuments
+                .Where(document => document.OperationId == operation.OperationId)
+                .Select(ElectronicMiscDocumentIssuer.Summarize)
+                .ToList();
+
+            if (documentSummaries.Count == 0)
+                documentSummaries = orderDocuments.Select(ElectronicMiscDocumentIssuer.Summarize).ToList();
+
+            return await FinalizeAsync(order, operation, ticketSummaries, documentSummaries, cancellationToken);
         }
 
         private async Task<IssueOrderOutcome> FinalizeAsync(
             Order order,
             OrderOperation operation,
-            IReadOnlyList<IssuedTicketSummary> summaries,
+            IReadOnlyList<IssuedTicketSummary> ticketSummaries,
+            IReadOnlyList<IssuedMiscellaneousDocumentSummary> documentSummaries,
             CancellationToken cancellationToken)
         {
             order.CompleteTicketing(_clock);
@@ -298,7 +331,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                 operation,
                 ProviderOperationOutcome.Confirmed,
                 ServicingOperationStatus.Completed,
-                summaries,
+                ticketSummaries,
+                documentSummaries,
                 [],
                 null,
                 cancellationToken);
@@ -307,8 +341,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
         private async Task<IssueOrderOutcome> SuspendAsync(
             Order order,
             OrderOperation operation,
-            DocumentIssuanceResult result,
-            IReadOnlyList<IssuedTicketSummary> summaries,
+            ProviderOperationOutcome outcome,
+            string? detail,
+            IReadOnlyList<IssuedTicketSummary> ticketSummaries,
+            IReadOnlyList<IssuedMiscellaneousDocumentSummary> documentSummaries,
             IReadOnlyCollection<long> outstanding,
             CancellationToken cancellationToken)
         {
@@ -320,7 +356,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
 
             await _receipts.SetStatusAsync(
                 operation.ReceiptId,
-                result.Outcome == ProviderOperationOutcome.Unknown
+                outcome == ProviderOperationOutcome.Unknown
                     ? CommandReceiptStatus.Unknown
                     : CommandReceiptStatus.Pending,
                 cancellationToken);
@@ -328,19 +364,22 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
             return await PersistAsync(
                 order,
                 operation,
-                result.Outcome,
+                outcome,
                 ServicingOperationStatus.AwaitingExternal,
-                summaries,
+                ticketSummaries,
+                documentSummaries,
                 outstanding,
-                result.Detail,
+                detail,
                 cancellationToken);
         }
 
         private async Task<IssueOrderOutcome> ReconcileAsync(
             Order order,
             OrderOperation operation,
-            DocumentIssuanceResult? result,
-            IReadOnlyList<IssuedTicketSummary> summaries,
+            ProviderOperationOutcome outcome,
+            string? detail,
+            IReadOnlyList<IssuedTicketSummary> ticketSummaries,
+            IReadOnlyList<IssuedMiscellaneousDocumentSummary> documentSummaries,
             IReadOnlyCollection<long> outstanding,
             CancellationToken cancellationToken)
         {
@@ -355,18 +394,19 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
             return await PersistAsync(
                 order,
                 operation,
-                result?.Outcome ?? ProviderOperationOutcome.Rejected,
+                outcome,
                 ServicingOperationStatus.NeedsReconciliation,
-                summaries,
+                ticketSummaries,
+                documentSummaries,
                 outstanding,
-                result?.Detail,
+                detail,
                 cancellationToken);
         }
 
         private async Task<IssueOrderOutcome> RejectAsync(
             Order order,
             OrderOperation operation,
-            DocumentIssuanceResult result,
+            string? detail,
             IReadOnlyCollection<long> outstanding,
             CancellationToken cancellationToken)
         {
@@ -385,8 +425,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                 ProviderOperationOutcome.Rejected,
                 ServicingOperationStatus.Rejected,
                 [],
+                [],
                 outstanding,
-                result.Detail,
+                detail,
                 cancellationToken);
         }
 
@@ -395,7 +436,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
             OrderOperation operation,
             ProviderOperationOutcome outcome,
             ServicingOperationStatus operationStatus,
-            IReadOnlyList<IssuedTicketSummary> summaries,
+            IReadOnlyList<IssuedTicketSummary> ticketSummaries,
+            IReadOnlyList<IssuedMiscellaneousDocumentSummary> documentSummaries,
             IReadOnlyCollection<long> outstanding,
             string? detail,
             CancellationToken cancellationToken)
@@ -411,31 +453,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                 operationStatus,
                 order.CommercialSummary,
                 order.CommercialVersion,
-                summaries,
+                ticketSummaries,
                 outstanding.ToList(),
-                detail);
+                detail,
+                documentSummaries);
         }
 
-        private DocumentIssuanceRequest BuildIssuanceRequest(
-            Order order,
-            OrderOperation operation,
-            TicketPlan plan,
-            DocumentStockAllocation allocation,
-            long ownerAirlineId)
-            => new(
-                _operations.ProviderOperationKey(operation, $"{IssueStep}:{plan.TravelerId}"),
-                order.Id,
-                operation.OperationId,
-                plan.TravelerId,
-                allocation.DocumentNumber,
-                ownerAirlineId,
-                order.CurrencyId,
-                plan.Coupons.Sum(coupon => coupon.IssuanceValue),
-                plan.Coupons
-                    .Select(coupon => new DocumentCouponRequest(coupon.OrderServiceId, coupon.JourneySegmentId, coupon.IssuanceValue))
-                    .ToList());
-
-        private static IssueEvidence BuildEvidence(
+        private static IssueEvidence BuildTicketEvidence(
             DocumentStock? stock,
             FundingCoverageResult coverage,
             IReadOnlyList<Domain.FulfillmentReservationAggregate.FulfillmentReservation> reservations,
@@ -456,66 +480,5 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                     .Select(service => service.OrderServiceId)
                     .ToHashSet(),
                 documentedServiceIds);
-
-        private static IReadOnlyCollection<IssuedServiceDocument> DocumentEvidenceFrom(IEnumerable<ElectronicTicket> tickets)
-            => tickets
-                .SelectMany(ticket => ticket.Coupons
-                    .Where(coupon => coupon.FinancialStatus != TicketCouponFinancialStatus.Void)
-                    .Select(coupon => new IssuedServiceDocument(coupon.CurrentOrderServiceId, ticket.Id, coupon.Id)))
-                .ToList();
-
-        private static IssuedTicketSummary Summarize(ElectronicTicket ticket)
-            => new(ticket.Id, ticket.TravelerId, ticket.DocumentNumber, ticket.Coupons.Count);
-
-        private static string DocumentRole(long travelerId) => $"Ticket:{travelerId}";
-
-        private static IReadOnlyList<TicketPlan> BuildPlans(Order order, IReadOnlyList<long> scope)
-            => order.OrderServices
-                .Where(service => service.IsAirTransport && scope.Contains(service.Id))
-                .GroupBy(service => service.SoleBeneficiaryId)
-                .OrderBy(group => group.Key)
-                .Select(group => new TicketPlan(
-                    group.Key,
-                    group
-                        .OrderBy(service => order.Segments.Single(segment => segment.Id == service.SoldSegmentId!.Value).Sequence)
-                        .Select(service => BuildCoupon(order, service))
-                        .ToList()))
-                .ToList();
-
-        private static TicketCouponIssuance BuildCoupon(Order order, OrderService service)
-        {
-            var segment = order.Segments.Single(candidate => candidate.Id == service.SoldSegmentId!.Value);
-
-            var allocations = order.ServiceValueAttributions(service.Id)
-                .Select(attribution => new
-                {
-                    PricingLineId = attribution.PricingLineId,
-                    AllocationId = attribution.AllocationId,
-                    EquivalentAmount = attribution.SignedSaleAmount
-                })
-                .ToList();
-
-            return new TicketCouponIssuance(
-                service.Id,
-                segment.Id,
-                new IssuedSegmentSnapshot(
-                    segment.MarketingAirlineId,
-                    segment.Number,
-                    segment.OriginAirportId,
-                    segment.DestinationAirportId,
-                    segment.DepartureDateTime,
-                    segment.ArrivalDateTime,
-                    segment.BookingClass),
-                order.ResolveIssueFareBasis(service.Id),
-                allocations.Sum(allocation => allocation.EquivalentAmount),
-                allocations
-                    .Select(allocation => new TicketCouponPriceLink(
-                        allocation.PricingLineId,
-                        allocation.AllocationId,
-                        allocation.EquivalentAmount))
-                    .ToList());
-        }
-
-        private sealed record TicketPlan(long TravelerId, IReadOnlyList<TicketCouponIssuance> Coupons);
     }
 }

@@ -98,6 +98,12 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 
         public long? TicketCouponId { get; private set; }
 
+        public long? ElectronicMiscDocumentId { get; private set; }
+
+        public long? EmdCouponId { get; private set; }
+
+        public OrderServiceEmdIssuanceSnapshot? EmdIssuanceSnapshot { get; private set; }
+
         public IReadOnlyCollection<OrderServiceBeneficiary> Beneficiaries => _beneficiaries.AsReadOnly();
 
         public IReadOnlyCollection<OrderServiceCoveredService> CoveredServices => _coveredServices.AsReadOnly();
@@ -243,6 +249,16 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             ElectronicTicketId = electronicTicketId;
             TicketCouponId = ticketCouponId;
         }
+
+        internal void MarkMiscellaneousDocumented(long electronicMiscDocumentId, long emdCouponId)
+        {
+            DocumentStatus = OrderServiceDocumentStatus.Issued;
+            ElectronicMiscDocumentId = electronicMiscDocumentId;
+            EmdCouponId = emdCouponId;
+        }
+
+        internal void AttachEmdIssuanceSnapshot(OrderServiceEmdIssuanceSnapshot snapshot)
+            => EmdIssuanceSnapshot = snapshot;
 
         internal void MarkFulfilled(string? holdBatchId, string? seatHoldReference)
         {

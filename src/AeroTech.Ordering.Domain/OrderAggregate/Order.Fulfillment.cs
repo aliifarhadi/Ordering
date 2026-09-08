@@ -86,6 +86,34 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             return required.Count > 0 && required.All(documented.Contains);
         }
 
+        public IReadOnlyCollection<long> RequiredElectronicMiscDocumentServiceIds()
+            => _orderServices
+                .Where(RequiresElectronicMiscDocument)
+                .Where(service => service.Status != OrderServiceStatus.Cancelled)
+                .Select(service => service.Id)
+                .ToList();
+
+        public IReadOnlyCollection<long> DocumentedElectronicMiscDocumentServiceIds()
+            => _orderServices
+                .Where(RequiresElectronicMiscDocument)
+                .Where(service => service.ElectronicMiscDocumentId.HasValue)
+                .Select(service => service.Id)
+                .ToList();
+
+        public void RecordIssuedMiscellaneousDocuments(IReadOnlyCollection<IssuedServiceMiscellaneousDocument> documents)
+        {
+            foreach (var document in documents)
+            {
+                var service = _orderServices.SingleOrDefault(candidate => candidate.Id == document.OrderServiceId);
+                service?.MarkMiscellaneousDocumented(document.ElectronicMiscDocumentId, document.EmdCouponId);
+            }
+
+            RecomputeCommercialSummary();
+        }
+
+        internal static bool RequiresElectronicMiscDocument(Entities.OrderService service)
+            => service.RequiresDocument && service.DocumentKind == ServiceDocumentKind.ElectronicMiscDocument;
+
         internal static bool RequiresElectronicTicket(Entities.OrderService service)
             => service.RequiresDocument && service.DocumentKind == ServiceDocumentKind.ElectronicTicket;
 
@@ -145,4 +173,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
     }
 
     public sealed record IssuedServiceDocument(long OrderServiceId, long ElectronicTicketId, long TicketCouponId);
+
+    public sealed record IssuedServiceMiscellaneousDocument(long OrderServiceId, long ElectronicMiscDocumentId, long EmdCouponId);
 }

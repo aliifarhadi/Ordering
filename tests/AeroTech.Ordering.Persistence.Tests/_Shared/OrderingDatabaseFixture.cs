@@ -32,6 +32,9 @@ namespace AeroTech.Ordering.Persistence.Tests._Shared
         {
             command.Database.ExecuteSqlRaw(
                 """
+                DELETE FROM [Order].[EmdPriceLinks];
+                DELETE FROM [Order].[EmdCoupons];
+                DELETE FROM [Order].[ElectronicMiscDocuments];
                 DELETE FROM [Order].[DocumentPriceLinks];
                 DELETE FROM [Order].[TicketCoupons];
                 DELETE FROM [Order].[ElectronicTickets];

@@ -221,8 +221,34 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             AttachAddedBeneficiaries(service, accepted, idGenerator);
             AttachDetail(service, accepted.ServiceType, accepted.Detail, ResolveAddedTargets(accepted.Detail), idGenerator);
             AttachAddedCoverage(service, accepted, idGenerator);
+            AttachAddedEmdIssuanceProfile(service, accepted, idGenerator, now);
 
             return service;
+        }
+
+        private void AttachAddedEmdIssuanceProfile(
+            OrderService service,
+            AcceptedAddedService accepted,
+            IIdGenerator idGenerator,
+            DateTimeOffset now)
+        {
+            if (accepted.EmdIssuance is not { } profile)
+                return;
+
+            if (!service.RequiresDocument || service.DocumentKind != ServiceDocumentKind.ElectronicMiscDocument)
+                throw ExceptionFactory.ServiceDoesNotRequireMiscellaneousDocument(accepted.ServiceRef);
+
+            service.AttachEmdIssuanceSnapshot(new OrderServiceEmdIssuanceSnapshot(
+                idGenerator.NewId(),
+                service.Id,
+                profile.EmdType,
+                profile.ReasonForIssuanceCode,
+                profile.ReasonForIssuanceSubCode,
+                now,
+                profile.AssociatedAirOrderServiceId is { } associatedId ? RequireExistingAirService(associatedId) : null,
+                profile.DocumentGroupReference,
+                profile.SourceSystem,
+                profile.SourceReference));
         }
 
         private void AttachAddedBeneficiaries(OrderService service, AcceptedAddedService accepted, IIdGenerator idGenerator)

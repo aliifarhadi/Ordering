@@ -527,6 +527,56 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException OrderChangeAcceptsOneOfferItem(params object?[] args) =>
             new(2864, ExceptionMessages.OrderChangeAcceptsOneOfferItem, args) { HttpStatus = 422 };
 
+
+        // P2-F electronic miscellaneous document: 2870-2899
+        public static BusinessException MiscellaneousDocumentRequiresCoupon() =>
+            new(2870, ExceptionMessages.MiscellaneousDocumentRequiresCoupon) { HttpStatus = 422 };
+
+        public static BusinessException ReasonForIssuanceCodeRequired() =>
+            new(2871, ExceptionMessages.ReasonForIssuanceCodeRequired) { HttpStatus = 422 };
+
+        public static BusinessException ReasonForIssuanceSubCodeRequired(params object?[] args) =>
+            new(2872, ExceptionMessages.ReasonForIssuanceSubCodeRequired, args) { HttpStatus = 422 };
+
+        public static BusinessException AssociatedDocumentRequiresTicketCoupon(params object?[] args) =>
+            new(2873, ExceptionMessages.AssociatedDocumentRequiresTicketCoupon, args) { HttpStatus = 422 };
+
+        public static BusinessException StandaloneDocumentCannotAssociateTicketCoupon(params object?[] args) =>
+            new(2874, ExceptionMessages.StandaloneDocumentCannotAssociateTicketCoupon, args) { HttpStatus = 422 };
+
+        public static BusinessException ServiceCouponRequiresOrderService() =>
+            new(2875, ExceptionMessages.ServiceCouponRequiresOrderService) { HttpStatus = 422 };
+
+        public static BusinessException FeeCouponRequiresPricingLine() =>
+            new(2876, ExceptionMessages.FeeCouponRequiresPricingLine) { HttpStatus = 422 };
+
+        public static BusinessException ValueCouponRequiresExternalReference(params object?[] args) =>
+            new(2877, ExceptionMessages.ValueCouponRequiresExternalReference, args) { HttpStatus = 422 };
+
+        public static BusinessException EmdCouponValueNotAttributable(params object?[] args) =>
+            new(2878, ExceptionMessages.EmdCouponValueNotAttributable, args) { HttpStatus = 422 };
+
+        public static BusinessException ServiceDoesNotRequireMiscellaneousDocument(params object?[] args) =>
+            new(2879, ExceptionMessages.ServiceDoesNotRequireMiscellaneousDocument, args) { HttpStatus = 422 };
+
+        public static BusinessException MiscellaneousDocumentIssuanceProfileMissing(params object?[] args) =>
+            new(2880, ExceptionMessages.MiscellaneousDocumentIssuanceProfileMissing, args) { HttpStatus = 422 };
+
+        public static BusinessException MiscellaneousDocumentRequiresSingleReasonForIssuance(params object?[] args) =>
+            new(2881, ExceptionMessages.MiscellaneousDocumentRequiresSingleReasonForIssuance, args) { HttpStatus = 422 };
+
+        public static BusinessException AssociatedServiceReferenceMissing(params object?[] args) =>
+            new(2882, ExceptionMessages.AssociatedServiceReferenceMissing, args) { HttpStatus = 422 };
+
+        public static BusinessException TicketCouponAssociationNotResolvable(params object?[] args) =>
+            new(2883, ExceptionMessages.TicketCouponAssociationNotResolvable, args) { HttpStatus = 409 };
+
+        public static BusinessException MiscellaneousDocumentSourceNotConfigured() =>
+            new(2884, ExceptionMessages.MiscellaneousDocumentSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException EmdCouponValueMustBeNonNegative() =>
+            new(2885, ExceptionMessages.EmdCouponValueMustBeNonNegative) { HttpStatus = 422 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }
