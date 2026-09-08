@@ -1,0 +1,103 @@
+P2-H — Final Verification, Architecture Audit & P2 Release Closure
+Repository: E:\Projects\DotAir\Ordering   Branch: k8s-stg   Date: 2026-09-09
+
+Entry commit : 6fc7d227ce532ccc8465027b709199352b541021  (P2-G.1)   [verified, clean tree]
+Parent       : bae30a3c18afa52422a43648c254a9b5f5515177  (P2-G)
+Baseline     : 805 passed / 0 failed  (451 Domain + 354 Persistence)
+
+PRODUCTION CODE CHANGED BY P2-H: none.
+
+--------------------------------------------------------------------------------
+MIGRATION CHAIN VERIFICATION (clean database, from zero)
+--------------------------------------------------------------------------------
+$ sqlcmd -S localhost\SQLEXPRESS -Q "DROP DATABASE [DotAirOrderNewP0Tests]"
+  Result: dropped
+
+  The persistence fixture then re-created the database and applied the full chain
+  via Database.Migrate() for all three contexts.
+
+$ SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId   (22 applied)
+  20260721003513_InitialCreate
+  20260721003537_InitialCreate
+  20260721003559_InitialCreate
+  20260731192016_RenameOfficeIdToAirlineOfficeId
+  20260731192124_RenameOfficeIdToAirlineOfficeId
+  20260907202858_P0OperationsAndRatePrecision
+  20260907202948_P0CommercialVersion
+  20260907211540_P05OperatorSettingsProjection
+  20260907215143_P06ClaimConcurrencyToken
+  20260907224348_P1OrderVerticalSlice
+  20260907224420_P1OrderDetailsProjection
+  20260907233858_P11IssuerCarrierIdentity
+  20260908085039_P2PricingFoundation
+  20260908093026_P2A1PricingProvenance
+  20260908101106_P2BAcceptedSourceSnapshots
+  20260908104409_P2B1DomainSemanticDecoupling
+  20260908113940_P2CAirFareConstruction
+  20260908115128_P2CIgnoreComputedFareComponents
+  20260908124639_P2DServiceComposition
+  20260908134158_P2D1ServiceTreatmentAndIntegrity
+  20260908144244_P2ECommercialOperationUniqueness
+  20260908191228_P2FElectronicMiscDocument
+
+  P2-G, P2-G.1 and P2-H add no migration.
+  No previously applied migration was edited after the fact (git: every migration
+  file has exactly one commit).
+
+--------------------------------------------------------------------------------
+BUILD
+--------------------------------------------------------------------------------
+$ dotnet build AeroTech.Ordering.sln
+  0 Error(s)
+  2 Warning(s)  -- both are the same NU1510 (redundant PackageReference
+                   Microsoft.Extensions.Hosting.Abstractions in
+                   AeroTech.Framework.Infrastructure), reported once per project
+                   and once per solution. Not a correctness, nullability,
+                   migration, serialization or domain-contract warning.
+                   Not a P2 blocker. No unrelated cleanup performed.
+
+--------------------------------------------------------------------------------
+TESTS (against the freshly rebuilt database)
+--------------------------------------------------------------------------------
+$ dotnet test tests/AeroTech.Ordering.Domain.Tests/AeroTech.Ordering.Domain.Tests.csproj
+Passed!  - Failed: 0, Passed: 451, Skipped: 0, Total: 451, Duration: 735 ms
+
+$ dotnet test tests/AeroTech.Ordering.Persistence.Tests/AeroTech.Ordering.Persistence.Tests.csproj
+Passed!  - Failed: 0, Passed: 360, Skipped: 0, Total: 360, Duration: 1 m 22 s
+
+TOTAL: 811 passed, 0 failed     (805 -> 811, +6, zero regressions)
+Requirement was >= 807 / 0 failed.
+
+--------------------------------------------------------------------------------
+NEW VERIFICATION TESTS ADDED BY P2-H (6)
+--------------------------------------------------------------------------------
+P2/OtaCreationFailClosedTests.cs                                       (4)
+  The_ota_api_creation_fails_closed_without_customer_context           <- required §4
+  The_ota_panel_creation_fails_closed_without_customer_context         <- required §4
+  An_unauthenticated_caller_cannot_create_an_ota_order
+  An_authenticated_customer_reaches_the_creation_workflow
+
+  Real OtaController / OtaPanelController, real IOrderCustomerAccessGuard, real
+  MediatR pipeline with a recording creation handler, real SQL Server order count.
+  Asserts: BusinessException 2890 / HTTP 403; creation handler invocations = 0;
+  Orders row count unchanged; quote, reservation, funding, ticket and EMD adapters
+  untouched; no domain event dispatched.
+
+P2/SettlementOnlyPricingGateTests.cs                                   (2)
+  A_committed_settlement_only_change_publishes_one_neutral_pricing_event
+  A_settlement_only_change_writes_exactly_one_outbox_row
+
+  Closes the one real gap found: settlement-only pricing had domain-level coverage
+  but no persistence/outbox-level gate.
+
+--------------------------------------------------------------------------------
+FILTERED RUNS DURING DEVELOPMENT
+--------------------------------------------------------------------------------
+$ --filter FullyQualifiedName~OtaCreationFailClosedTests
+Passed!  - Failed: 0, Passed: 4, Total: 4
+
+$ --filter FullyQualifiedName~SettlementOnlyPricingGateTests
+Passed!  - Failed: 0, Passed: 2, Total: 2
+
+$ --filter FullyQualifiedName~OtaOrderOwnershipTests          (P2-G.1 re-run, §21)
+Passed!  - Failed: 0, Passed: 17, Total: 17

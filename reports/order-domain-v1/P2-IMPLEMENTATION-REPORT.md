@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt), [`audit/p2/P2-E.1-TEST-RUN.txt`](audit/p2/P2-E.1-TEST-RUN.txt), [`audit/p2/P2-F-TEST-RUN.txt`](audit/p2/P2-F-TEST-RUN.txt), [`audit/p2/P2-G-TEST-RUN.txt`](audit/p2/P2-G-TEST-RUN.txt), [`audit/p2/P2-G.1-TEST-RUN.txt`](audit/p2/P2-G.1-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt), [`audit/p2/P2-E.1-TEST-RUN.txt`](audit/p2/P2-E.1-TEST-RUN.txt), [`audit/p2/P2-F-TEST-RUN.txt`](audit/p2/P2-F-TEST-RUN.txt), [`audit/p2/P2-G-TEST-RUN.txt`](audit/p2/P2-G-TEST-RUN.txt), [`audit/p2/P2-G.1-TEST-RUN.txt`](audit/p2/P2-G.1-TEST-RUN.txt), [`audit/p2/P2-H-TEST-RUN.txt`](audit/p2/P2-H-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -18,7 +18,10 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-F** ElectronicMiscDocument | **Complete — P2-E.1 frozen** |
 | **P2-G** OrderView, projection & pricing-change events | **Complete — P2-F frozen** |
 | **P2-G.1** OTA order ownership / resource authorization closure | **Complete — P2-G frozen** |
-| P2-H verification | Not started |
+| **P2-H** final verification, architecture audit & release closure | **Complete** |
+| **P2** | **Complete / Frozen** — 2026-09-09, 811 passed / 0 failed |
+
+**P3 is not started.**
 
 ---
 
@@ -692,9 +695,55 @@ succeeds for an airline caller with no `CustomerId`, and both channels still cal
 
 ---
 
+## P2-H — Final verification, architecture audit & P2 release closure
+
+**Complete. P2 is frozen.** Full detail in
+[`P2-H-FINAL-VERIFICATION-REPORT.md`](P2-H-FINAL-VERIFICATION-REPORT.md); architecture and semantic audit in
+[`audit/p2/P2-H-ARCHITECTURE-AND-SEMANTIC-AUDIT.md`](audit/p2/P2-H-ARCHITECTURE-AND-SEMANTIC-AUDIT.md);
+migration and schema audit in [`audit/p2/P2-H-MIGRATION-AUDIT.md`](audit/p2/P2-H-MIGRATION-AUDIT.md);
+release-gate matrix in [`audit/p2/P2-H-RELEASE-GATE.md`](audit/p2/P2-H-RELEASE-GATE.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors, 2 warnings (both NU1510, not a blocker) |
+| `AeroTech.Ordering.Domain.Tests` | **451 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **360 passed**, 0 failed (database rebuilt from zero) |
+| Total | **811 passed, 0 failed** (baseline 805 -> +6, zero regressions) |
+| Migration | none created; the full 22-migration chain was applied to an empty database and the suite ran green against it |
+| Production code changed | **none** |
+
+**Verification only.** Entry HEAD was exactly `6fc7d22` with a clean tree. Six tests were added: four in
+`OtaCreationFailClosedTests` giving the two customer-facing creation endpoints direct runtime proof that they
+fail closed (2890 / 403, zero handler invocations, no Order row, no provider touched) rather than only
+constructor-shape coverage, and two in `SettlementOnlyPricingGateTests` closing the one real gap found -
+settlement-only pricing had domain coverage but no persistence/outbox gate.
+
+**Boundaries.** Domain references only `Framework.Core` and `Contracts/AeroTech.Messages`; zero
+`AeroTech.Messages.AirPrice` references, all AirPrice coupling confined to the `Providers/Offer` ACL, and no
+provider-shaped `Offer` / `FareFamily` / `AirFare` / `Bound` / `Flight` model. Zero hits for a `Money` /
+`CurrencyCode` / rounding subsystem, for `FareBasis` string parsing, for RT/OpenJaw inference, for `Ledger`,
+and for `CurrentCustomerId` (the `?? 0` pattern is gone from the whole solution). The AirPrice ACL uses
+`AirFareId` once, for the product identifier, and passes `SourcePricingReference` and `SourcePolicyReference`
+explicitly null. The current source supplies no fare construction and none is fabricated.
+
+**Schema.** Every migration file has exactly one commit - none was edited after the fact. The only
+data-moving SQL is the P2-D structural move, the P2-D.1 derivation from existing accepted pricing evidence
+(never inferring `Complimentary`), and fail-closed guards; nothing back-fills an outbox message, a fare
+construction, a source reference or a product identity. Live index inspection confirms every unique
+constraint is a composite pair de-duplication, so through fares, shared beneficiaries and multi-coupon
+documents all stay representable.
+
+**Deferred debt** (recorded, deliberately untouched): the pre-P0 `FlightFlow` enum usage on
+`OrderSegmentLeg.StopType` and three legacy `Domain/Providers` port records; those legacy ports sitting
+outside the `Domain/Ports/<Area>` convention; the legacy `Payment` aggregate reachable only through the
+Internal maintenance channel; and `PingController` route casing. None is a P2 defect, none is on the active
+P2 path, and each would need a new domain concept or a refactor of working architecture to close.
+
+---
+
 ## Scope
 
-P2-H was not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
+P2-H is complete and **P2 is frozen**. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
 `Money`, `CurrencyCode`, ExchangeRate framework, currency service, ROE engine or rounding library was
 created — the existing `ExchangeRate` value object at `decimal(28,12)` is reused unchanged. No parallel
 `PricingV2` / `OrderV2` model exists. Refund, exchange, void, split, DCS, disruption, group booking, tax
