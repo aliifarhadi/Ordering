@@ -52,7 +52,7 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                 .ToListAsync(cancellationToken);
 
             var reservationSummary = RollUpReservation(reservations.Select(reservation => reservation.Status).ToList());
-            var documentSummary = RollUpDocuments(tickets.Select(ticket => ticket.StatusSummary).ToList());
+            var documentSummary = RollUpDocuments(order);
 
             var snapshot = BuildSnapshot(order, reservations, tickets, reservationSummary, documentSummary);
 
@@ -65,7 +65,7 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
         private async Task UpsertSearchAsync(
             Domain.OrderAggregate.Order order,
             FulfillmentReservationStatus? reservationSummary,
-            ElectronicTicketStatus? documentSummary,
+            OrderServiceDocumentStatus? documentSummary,
             CancellationToken cancellationToken)
         {
             var row = await _queryDbContext.Orders.SingleOrDefaultAsync(candidate => candidate.Id == order.Id, cancellationToken);
@@ -184,7 +184,7 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
             IReadOnlyList<Domain.FulfillmentReservationAggregate.FulfillmentReservation> reservations,
             IReadOnlyList<Domain.ElectronicTicketAggregate.ElectronicTicket> tickets,
             FulfillmentReservationStatus? reservationSummary,
-            ElectronicTicketStatus? documentSummary)
+            OrderServiceDocumentStatus? documentSummary)
             => new
             {
                 order.Id,
@@ -211,7 +211,12 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                 {
                     Commercial = order.CommercialSummary,
                     Reservation = reservationSummary,
-                    Document = documentSummary
+                    Document = new
+                    {
+                        Status = documentSummary,
+                        RequiredServices = order.RequiredDocumentServiceIds().Count,
+                        DocumentedServices = order.DocumentedServiceIds().Count
+                    }
                 },
                 Travelers = order.Travellers
                     .OrderBy(traveller => traveller.Index)
@@ -321,12 +326,21 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
             return statuses.Distinct().Count() == 1 ? statuses[0] : FulfillmentReservationStatus.Mixed;
         }
 
-        private static ElectronicTicketStatus? RollUpDocuments(IReadOnlyList<ElectronicTicketStatus> statuses)
+        private static OrderServiceDocumentStatus? RollUpDocuments(Domain.OrderAggregate.Order order)
         {
-            if (statuses.Count == 0)
+            var required = order.RequiredDocumentServiceIds();
+
+            if (required.Count == 0)
                 return null;
 
-            return statuses.Distinct().Count() == 1 ? statuses[0] : ElectronicTicketStatus.PartiallyUsed;
+            var documented = order.DocumentedServiceIds();
+
+            if (documented.Count == 0)
+                return OrderServiceDocumentStatus.Pending;
+
+            return required.All(documented.Contains)
+                ? OrderServiceDocumentStatus.Issued
+                : OrderServiceDocumentStatus.Pending;
         }
     }
 }

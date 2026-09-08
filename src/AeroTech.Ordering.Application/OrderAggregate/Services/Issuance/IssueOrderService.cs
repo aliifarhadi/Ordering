@@ -127,6 +127,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
 
             var orderTickets = await _tickets.ListByOrderAsync(orderId, cancellationToken);
 
+            order.RecordIssuedDocuments(DocumentEvidenceFrom(orderTickets));
+
             var requiredServiceIds = order.OrderServices
                 .Where(service => service.RequiresDocument && service.Status != OrderServiceStatus.Cancelled)
                 .Select(service => service.Id)
@@ -174,7 +176,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                 throw ExceptionFactory.OrderOperationNotEligible(ServicingOperationKind.Issue, orderId, decision.Reasons);
 
             var plans = BuildPlans(order, decision.EffectiveScopeServiceIds);
-            var issuedDocuments = new List<IssuedServiceDocument>();
             var summaries = orderTickets
                 .Where(ticket => ticket.OperationId == operation.OperationId)
                 .Select(Summarize)
@@ -245,17 +246,15 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                 await _tickets.AddAsync(ticket, cancellationToken);
                 stock.MarkIssued(operation.OperationId, role, _clock);
 
-                foreach (var coupon in ticket.Coupons)
-                {
-                    issuedDocuments.Add(new IssuedServiceDocument(coupon.OrderServiceId, ticket.Id, coupon.Id));
-                    outstanding.Remove(coupon.OrderServiceId);
-                }
+                var evidence = DocumentEvidenceFrom([ticket]);
+                order.RecordIssuedDocuments(evidence);
+
+                foreach (var document in evidence)
+                    outstanding.Remove(document.OrderServiceId);
 
                 summaries.Add(Summarize(ticket));
                 alreadyIrreversible = true;
             }
-
-            order.ApplyIssuedDocuments(issuedDocuments, _clock);
 
             if (outstanding.Count > 0)
                 return await ReconcileAsync(order, operation, null, summaries, outstanding, cancellationToken);
@@ -286,6 +285,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
             IReadOnlyList<IssuedTicketSummary> summaries,
             CancellationToken cancellationToken)
         {
+            order.CompleteTicketing(_clock);
+
             await _operationStore.TransitionAsync(
                 operation.OperationId,
                 ServicingOperationStatus.Completed,
@@ -458,6 +459,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                     .Select(service => service.OrderServiceId)
                     .ToHashSet(),
                 documentedServiceIds);
+
+        private static IReadOnlyCollection<IssuedServiceDocument> DocumentEvidenceFrom(IEnumerable<ElectronicTicket> tickets)
+            => tickets
+                .SelectMany(ticket => ticket.Coupons
+                    .Where(coupon => coupon.FinancialStatus != TicketCouponFinancialStatus.Void)
+                    .Select(coupon => new IssuedServiceDocument(coupon.CurrentOrderServiceId, ticket.Id, coupon.Id)))
+                .ToList();
 
         private static IssuedTicketSummary Summarize(ElectronicTicket ticket)
             => new(ticket.Id, ticket.TravelerId, ticket.DocumentNumber, ticket.Coupons.Count);

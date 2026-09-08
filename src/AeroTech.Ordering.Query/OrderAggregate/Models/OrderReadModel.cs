@@ -55,6 +55,6 @@ namespace AeroTech.Ordering.Query.OrderAggregate.Models
 
         public FundingCoverageOutcome? CoverageSummary { get; set; }
 
-        public ElectronicTicketStatus? DocumentSummary { get; set; }
+        public OrderServiceDocumentStatus? DocumentSummary { get; set; }
     }
 }

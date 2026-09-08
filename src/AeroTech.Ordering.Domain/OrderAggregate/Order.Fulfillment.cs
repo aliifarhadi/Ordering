@@ -52,13 +52,40 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             RecomputeCommercialSummary();
         }
 
-        public void ApplyIssuedDocuments(IReadOnlyCollection<IssuedServiceDocument> documents, IClock clock)
+        public IReadOnlyCollection<long> RequiredDocumentServiceIds()
+            => _orderServices
+                .Where(service => service.RequiresDocument && service.Status != OrderServiceStatus.Cancelled)
+                .Select(service => service.Id)
+                .ToList();
+
+        public IReadOnlyCollection<long> DocumentedServiceIds()
+            => _orderServices
+                .Where(service => service.DocumentStatus == OrderServiceDocumentStatus.Issued)
+                .Select(service => service.Id)
+                .ToList();
+
+        public bool IsTicketingComplete()
+        {
+            var required = RequiredDocumentServiceIds();
+
+            return required.Count > 0 && required.All(id => DocumentedServiceIds().Contains(id));
+        }
+
+        public void RecordIssuedDocuments(IReadOnlyCollection<IssuedServiceDocument> documents)
         {
             foreach (var document in documents)
             {
                 var service = _orderServices.SingleOrDefault(candidate => candidate.Id == document.OrderServiceId);
                 service?.MarkDocumented(document.ElectronicTicketId, document.TicketCouponId);
             }
+
+            RecomputeCommercialSummary();
+        }
+
+        public void CompleteTicketing(IClock clock)
+        {
+            if (!IsTicketingComplete())
+                return;
 
             MeetTimeLimit(TimeLimitType.Ticketing, clock);
             TimeToLive = null;

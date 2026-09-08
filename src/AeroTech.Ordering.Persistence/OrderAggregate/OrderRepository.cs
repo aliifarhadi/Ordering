@@ -32,6 +32,8 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
                 .Include(order => order.Segments).ThenInclude(segment => segment.Legs)
                 .Include(order => order.OrderServices)
                 .Include(order => order.Itineraries)
+                .Include(order => order.TimeLimits)
+                .Include(order => order.ExternalReferences)
                 .Include(order => order.Contact!).ThenInclude(contact => contact.ContactPoints)
                 .AsSplitQuery();
 

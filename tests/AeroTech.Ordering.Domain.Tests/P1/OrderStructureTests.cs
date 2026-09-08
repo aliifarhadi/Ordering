@@ -128,9 +128,9 @@ namespace AeroTech.Ordering.Domain.Tests.P1
             var services = order.OrderServices.Select(service => service.Id).ToList();
 
             order.ApplyReservationOutcome(services, "PNR-1", null, _ids, _clock);
-            order.ApplyIssuedDocuments(
-                services.Select(id => new Domain.OrderAggregate.IssuedServiceDocument(id, 900 + id, 800 + id)).ToList(),
-                _clock);
+            order.RecordIssuedDocuments(
+                services.Select(id => new Domain.OrderAggregate.IssuedServiceDocument(id, 900 + id, 800 + id)).ToList());
+            order.CompleteTicketing(_clock);
 
             Assert.Equal(1, order.CommercialVersion);
             Assert.All(order.OrderServices, service => Assert.Equal(OrderServiceDocumentStatus.Issued, service.DocumentStatus));
