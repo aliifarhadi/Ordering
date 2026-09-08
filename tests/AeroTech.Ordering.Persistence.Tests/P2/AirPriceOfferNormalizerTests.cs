@@ -167,7 +167,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             Assert.Equal(CommercialTermState.Permitted, terms.ChangeabilitySummary);
             Assert.Equal(CommercialTermState.Prohibited, terms.UpgradeEligibilitySummary);
             Assert.Equal("AirPrice", terms.SourceSystem);
-            Assert.Equal(AirPriceOfferFixture.AirFareId.ToString(), terms.SourcePolicyReference);
+            Assert.Null(terms.SourcePolicyReference);
+            Assert.Null(terms.SourcePolicyVersion);
         }
 
         [Fact]
@@ -315,6 +316,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             Assert.Null(product.ProductCode);
             Assert.Null(product.ProductName);
             Assert.Null(product.Snapshot.ProductCode);
+            Assert.Null(product.Snapshot.SourcePricingReference);
         }
 
         [Fact]

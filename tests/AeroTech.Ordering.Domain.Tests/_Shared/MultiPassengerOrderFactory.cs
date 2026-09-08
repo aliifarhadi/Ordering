@@ -223,13 +223,13 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                     MarketingAirlineId: 10,
                     OperatingAirlineId: 10,
                     SupplierCode: null,
-                    SourcePricingReference: fareId.ToString()),
+                    SourcePricingReference: null),
                 new AcceptedCommercialTerms(
                     CommercialTermState.Permitted,
                     CommercialTermState.Permitted,
                     CommercialTermState.Prohibited,
                     SourceSystem,
-                    SourcePolicyReference: fareId.ToString()),
+                    SourcePolicyReference: null),
                 services);
 
         private static AcceptedSourcePricingLine Line(

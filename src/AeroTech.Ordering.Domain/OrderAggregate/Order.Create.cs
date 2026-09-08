@@ -46,7 +46,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             order.AssignInfantParents(args);
 
-            order.CommitPriceChange(
+            var changeSet = order.CommitPriceChange(
                 new AcceptedPriceChangeArgs(
                     OrderChangeType.Create,
                     PriceChangeReason.OriginalSale,
@@ -57,6 +57,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 idGenerator,
                 clock);
 
+            order.AcceptFareConstructions(source, changeSet.ChangeId, refs, idGenerator, clock.GetDateTime());
             order.AcceptCommercially();
             order.RaiseCreated(idGenerator, clock);
 

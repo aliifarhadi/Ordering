@@ -4,6 +4,7 @@ using AeroTech.Ordering.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AeroTech.Ordering.Persistence.Migrations
 {
     [DbContext(typeof(OrderingDbContext))]
-    partial class OrderingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260908113940_P2CAirFareConstruction")]
+    partial class P2CAirFareConstruction
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -846,6 +849,9 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long?>("LastUpdatedBy")
                         .HasColumnType("bigint");
 
+                    b.Property<long?>("OrderAirFareConstructionId")
+                        .HasColumnType("bigint");
+
                     b.Property<int?>("OriginAirportId")
                         .HasColumnType("int");
 
@@ -879,6 +885,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .HasColumnType("nvarchar(128)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("OrderAirFareConstructionId");
 
                     b.HasIndex("PricingUnitId");
 
@@ -2938,6 +2946,10 @@ namespace AeroTech.Ordering.Persistence.Migrations
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderFareComponent", b =>
                 {
+                    b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderAirFareConstruction", null)
+                        .WithMany("FareComponents")
+                        .HasForeignKey("OrderAirFareConstructionId");
+
                     b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderFarePricingUnit", null)
                         .WithMany("FareComponents")
                         .HasForeignKey("PricingUnitId")
@@ -3501,6 +3513,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderAirFareConstruction", b =>
                 {
+                    b.Navigation("FareComponents");
+
                     b.Navigation("Items");
 
                     b.Navigation("PricingGroups");

@@ -510,7 +510,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
                     segment.DepartureDateTime,
                     segment.ArrivalDateTime,
                     segment.BookingClass),
-                service.FareBasis,
+                order.ResolveIssueFareBasis(service.Id),
                 allocations.Sum(allocation => allocation.EquivalentAmount),
                 allocations
                     .Select(allocation => new TicketCouponPriceLink(

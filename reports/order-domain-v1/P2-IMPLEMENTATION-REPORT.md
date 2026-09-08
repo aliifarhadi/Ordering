@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -9,7 +9,7 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-A.1** pricing foundation correctness closure | **Complete — P2-A frozen** |
 | **P2-B** accepted source normalization | **Complete** |
 | **P2-B.1** domain semantic decoupling | **Complete — P2-B frozen** |
-| P2-C AirFareConstruction | Not started |
+| **P2-C** AirFareConstruction | **Complete** |
 | P2-D service / item model | Not started |
 | P2-E initial sale + AddProduct | Not started |
 | P2-F ElectronicMiscDocument | Not started |
@@ -262,9 +262,49 @@ default for the new enum columns was corrected by hand to `Unknown`.
 
 ---
 
+## P2-C — Standard air fare construction
+
+**Complete.** Full detail in [`P2-C-FARE-CONSTRUCTION-REPORT.md`](P2-C-FARE-CONSTRUCTION-REPORT.md); the
+field-by-field justification is in
+[`audit/p2/P2-C-FARE-CONSTRUCTION-SEMANTIC-AUDIT.md`](audit/p2/P2-C-FARE-CONSTRUCTION-SEMANTIC-AUDIT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **192 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **177 passed**, 0 failed (real SQL Server) |
+| Total | **369 passed, 0 failed** (baseline 328 → +41, zero regressions) |
+
+**Final P2-B closure:** the ACL was assigning `AirFareId` to both `SourcePolicyReference` and
+`SourcePricingReference`. The current source supplies neither, so both are now `null`; only
+`SourceProductReference` keeps `AirFareId` as opaque provenance. The remaining nullable provenance fields were
+reviewed under the same rule and stay null.
+
+**Model:** `Order → OrderAirFareConstruction[] → OrderFarePricingGroup[] → OrderFarePricingUnit[] →
+OrderFareComponent[]`, Order-owned and immutable, with explicit membership tables for construction↔item,
+component↔service and component↔segment. Construction type, pricing-unit type and combination method are all
+nullable and stored only when the source states them — nothing is inferred from itinerary geometry. True RT vs
+OW+OW is expressed structurally (one RT unit with two components versus two OW units), and a through fare is a
+single component covering several services and segments.
+
+Fare construction carries no money: accepting one moves neither `CustomerTotal`, `FinancialSequence`,
+`ObligationVersion` nor `CommercialVersion`, and ticket value attribution still flows only through
+`DocumentPriceLink → PricingLine`.
+
+**Current AirPrice emits no construction at all** — it cannot defensibly supply pricing-unit boundaries — and an
+Order with none is valid. **ETKT** now resolves issue-time fare basis through `Order.ResolveIssueFareBasis`,
+using `FareComponent.FareBasis` when a construction exists and otherwise the explicit transitional service-field
+fallback; both paths are tested.
+
+Migration `P2CAirFareConstruction` adds eight relational tables; a follow-up `P2CIgnoreComputedFareComponents`
+removes a spurious shadow FK EF generated from a computed convenience property. No previously applied migration
+was edited.
+
+---
+
 ## Scope
 
-P2-C was not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
+P2-D was not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
 `Money`, `CurrencyCode`, ExchangeRate framework, currency service, ROE engine or rounding library was
 created — the existing `ExchangeRate` value object at `decimal(28,12)` is reused unchanged. No parallel
 `PricingV2` / `OrderV2` model exists. Refund, exchange, void, split, DCS, disruption, group booking, tax

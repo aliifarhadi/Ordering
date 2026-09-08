@@ -163,5 +163,14 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string SourceChargeClassificationUnsupported = "Source charge classification '{0}' is not supported; it cannot be accepted as an Ordering pricing component.";
         public const string SourceBaggageUnitUnsupported = "Source baggage unit '{0}' is not a recognised weight unit; a supplied allowance cannot be accepted without its unit.";
         public const string SourcePassengerTypeUnsupported = "Source passenger type '{0}' has no accepted Ordering equivalent.";
+
+        // P2-C air fare construction
+        public const string FareConstructionCannotSupersedeItself = "Fare construction {0} cannot supersede itself.";
+        public const string FareConstructionRequiresPricingGroup = "An accepted fare construction requires at least one pricing group.";
+        public const string FarePricingGroupRequiresTraveller = "A fare pricing group requires at least one traveller.";
+        public const string FarePricingGroupRequiresPricingUnit = "A fare pricing group requires at least one pricing unit.";
+        public const string FarePricingUnitRequiresFareComponent = "A fare pricing unit requires at least one fare component.";
+        public const string FareComponentRequiresService = "A fare component must cover at least one sold air service.";
+        public const string FareConstructionReferenceOutsideOrder = "Fare construction references {0} {1}, which does not belong to this order.";
     }
 }

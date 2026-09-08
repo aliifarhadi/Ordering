@@ -87,13 +87,13 @@ namespace AeroTech.Ordering.Providers.Offer.Services
                     MarketingAirlineId: Unambiguous(_marketingAirlineIds),
                     OperatingAirlineId: Unambiguous(_operatingAirlineIds),
                     SupplierCode: null,
-                    SourcePricingReference: _airFareId.ToString()),
+                    SourcePricingReference: null),
                 new AcceptedCommercialTerms(
                     AirPriceOfferNormalizer.TermStateOf(_fareComponent?.IsRefundable),
                     AirPriceOfferNormalizer.TermStateOf(_fareComponent?.IsChangeable),
                     AirPriceOfferNormalizer.TermStateOf(_fareComponent?.IsUpgradable),
                     AirPriceOfferNormalizer.SourceSystem,
-                    SourcePolicyReference: _airFareId.ToString()),
+                    SourcePolicyReference: null),
                 _services);
 
         private AcceptedBaggageAllowance? CheckedBaggage()

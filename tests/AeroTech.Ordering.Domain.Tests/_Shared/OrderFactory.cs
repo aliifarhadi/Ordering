@@ -102,13 +102,13 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                     MarketingAirlineId: 10,
                     OperatingAirlineId: 10,
                     SupplierCode: null,
-                    SourcePricingReference: AirFareId.ToString()),
+                    SourcePricingReference: null),
                 CommercialTerms: new AcceptedCommercialTerms(
                     RefundabilitySummary: CommercialTermState.Permitted,
                     ChangeabilitySummary: CommercialTermState.Permitted,
                     UpgradeEligibilitySummary: CommercialTermState.Prohibited,
                     SourceSystem: SourceSystem,
-                    SourcePolicyReference: AirFareId.ToString()),
+                    SourcePolicyReference: null),
                 Services: new[]
                 {
                     new AcceptedService(

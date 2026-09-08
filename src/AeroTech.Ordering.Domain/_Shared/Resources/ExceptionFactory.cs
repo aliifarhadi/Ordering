@@ -397,6 +397,28 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException SourcePassengerTypeUnsupported(params object?[] args) =>
             new(2787, ExceptionMessages.SourcePassengerTypeUnsupported, args) { HttpStatus = 422 };
 
+        // P2-C air fare construction: 2800-2819
+        public static BusinessException FareConstructionCannotSupersedeItself(params object?[] args) =>
+            new(2800, ExceptionMessages.FareConstructionCannotSupersedeItself, args) { HttpStatus = 422 };
+
+        public static BusinessException FareConstructionRequiresPricingGroup() =>
+            new(2801, ExceptionMessages.FareConstructionRequiresPricingGroup) { HttpStatus = 422 };
+
+        public static BusinessException FarePricingGroupRequiresTraveller() =>
+            new(2802, ExceptionMessages.FarePricingGroupRequiresTraveller) { HttpStatus = 422 };
+
+        public static BusinessException FarePricingGroupRequiresPricingUnit() =>
+            new(2803, ExceptionMessages.FarePricingGroupRequiresPricingUnit) { HttpStatus = 422 };
+
+        public static BusinessException FarePricingUnitRequiresFareComponent() =>
+            new(2804, ExceptionMessages.FarePricingUnitRequiresFareComponent) { HttpStatus = 422 };
+
+        public static BusinessException FareComponentRequiresService() =>
+            new(2805, ExceptionMessages.FareComponentRequiresService) { HttpStatus = 422 };
+
+        public static BusinessException FareConstructionReferenceOutsideOrder(params object?[] args) =>
+            new(2806, ExceptionMessages.FareConstructionReferenceOutsideOrder, args) { HttpStatus = 422 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

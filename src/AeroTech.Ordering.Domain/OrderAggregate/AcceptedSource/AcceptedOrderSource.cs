@@ -10,5 +10,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource
         IReadOnlyList<AcceptedSourceTraveller> Travellers,
         IReadOnlyList<AcceptedJourney> Journeys,
         IReadOnlyList<AcceptedProduct> Products,
-        IReadOnlyList<AcceptedSourcePricingLine> PricingLines);
+        IReadOnlyList<AcceptedSourcePricingLine> PricingLines,
+        IReadOnlyList<AcceptedFareConstruction>? FareConstructions = null);
 }

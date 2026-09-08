@@ -184,9 +184,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             await command.SaveChangesAsync();
         }
 
-        public async Task<Order> CreateOrderAsync()
+        public Task<Order> CreateOrderAsync() => CreateOrderAsync(MultiPassengerOrderFactory.Create(Ids, Clock));
+
+        public async Task<Order> CreateOrderAsync(Order order)
         {
-            var order = MultiPassengerOrderFactory.Create(Ids, Clock);
 
             await Orders.AddAsync(order);
             await UnitOfWork.SaveChangesAsync();

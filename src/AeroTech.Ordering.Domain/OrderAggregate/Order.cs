@@ -56,6 +56,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
         private readonly List<OrderSegment> _segments = new();
         private readonly List<OrderService> _orderServices = new();
         private readonly List<OrderItinerary> _itineraries = new();
+        private readonly List<OrderAirFareConstruction> _fareConstructions = new();
 
         public IReadOnlyCollection<OrderItem> Items => _items.AsReadOnly();
         public IReadOnlyCollection<OrderChange> Changes => _changes.AsReadOnly();
@@ -65,6 +66,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
         public IReadOnlyCollection<OrderSegment> Segments => _segments.AsReadOnly();
         public IReadOnlyCollection<OrderService> OrderServices => _orderServices.AsReadOnly();
         public IReadOnlyCollection<OrderItinerary> Itineraries => _itineraries.AsReadOnly();
+        public IReadOnlyCollection<OrderAirFareConstruction> FareConstructions => _fareConstructions.AsReadOnly();
 
         private Order()
         {
