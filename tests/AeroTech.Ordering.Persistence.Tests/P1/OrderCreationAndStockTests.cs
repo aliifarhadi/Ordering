@@ -30,7 +30,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             var created = await harness.Create.CreateAsync(
                 MultiPassengerOrderFactory.Args(),
-                MultiPassengerOrderFactory.Offer(harness.Clock),
+                MultiPassengerOrderFactory.AcceptedSource(harness.Clock),
                 NewKey());
 
             Assert.False(created.IsReplay);
@@ -64,8 +64,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var key = NewKey();
             var args = MultiPassengerOrderFactory.Args();
 
-            var first = await harness.Create.CreateAsync(args, MultiPassengerOrderFactory.Offer(harness.Clock), key);
-            var replay = await harness.Create.CreateAsync(args, MultiPassengerOrderFactory.Offer(harness.Clock), key);
+            var first = await harness.Create.CreateAsync(args, MultiPassengerOrderFactory.AcceptedSource(harness.Clock), key);
+            var replay = await harness.Create.CreateAsync(args, MultiPassengerOrderFactory.AcceptedSource(harness.Clock), key);
 
             Assert.False(first.IsReplay);
             Assert.True(replay.IsReplay);
@@ -89,13 +89,13 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             await harness.Create.CreateAsync(
                 MultiPassengerOrderFactory.Args(),
-                MultiPassengerOrderFactory.Offer(harness.Clock),
+                MultiPassengerOrderFactory.AcceptedSource(harness.Clock),
                 key);
 
             var different = MultiPassengerOrderFactory.Args() with { CustomerId = 999 };
 
             var error = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Create.CreateAsync(different, MultiPassengerOrderFactory.Offer(harness.Clock), key));
+                () => harness.Create.CreateAsync(different, MultiPassengerOrderFactory.AcceptedSource(harness.Clock), key));
 
             Assert.Equal(2703, error.Code);
         }

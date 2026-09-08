@@ -3,7 +3,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
-using AeroTech.Ordering.Domain.OrderAggregate.Offers;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource;
+using AeroTech.Ordering.Providers.Offer.Model;
 using AeroTech.Ordering.Providers.Offer.Wire;
 
 namespace AeroTech.Ordering.Providers.Offer.Services
@@ -20,10 +21,15 @@ namespace AeroTech.Ordering.Providers.Offer.Services
         };
 
         private readonly HttpClient _httpClient;
+        private readonly IAirPriceOfferNormalizer _normalizer;
 
-        public OfferProvider(HttpClient httpClient) => _httpClient = httpClient;
+        public OfferProvider(HttpClient httpClient, IAirPriceOfferNormalizer normalizer)
+        {
+            _httpClient = httpClient;
+            _normalizer = normalizer;
+        }
 
-        public async Task<OfferDetail> GetByOfferIdAsync(string offerId, CancellationToken cancellationToken = default)
+        public async Task<AcceptedOrderSource> GetAcceptedSourceAsync(string offerId, CancellationToken cancellationToken = default)
         {
             using var response = await _httpClient.PostAsJsonAsync(
                 OfferDetailRoute,
@@ -37,7 +43,7 @@ namespace AeroTech.Ordering.Providers.Offer.Services
             if (!response.IsSuccessStatusCode || envelope?.Data is null)
                 throw ExceptionFactory.OfferCouldNotBeRetrieved(FirstError(envelope), offerId);
 
-            return OfferResponseMapper.ToDomain(envelope.Data);
+            return _normalizer.Normalize(OfferResponseMapper.ToProviderModel(envelope.Data));
         }
 
         private static string? FirstError(OfferEnvelope<FlightOfferDetailResponse>? envelope)

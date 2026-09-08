@@ -372,6 +372,28 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException AllocationOriginalValueIncomplete() =>
             new(2777, ExceptionMessages.AllocationOriginalValueIncomplete) { HttpStatus = 422 };
 
+        // P2-B accepted source normalization: 2780-2799
+        public static BusinessException AcceptedSourceHasNoProducts(params object?[] args) =>
+            new(2780, ExceptionMessages.AcceptedSourceHasNoProducts, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedSourceHasNoPricing(params object?[] args) =>
+            new(2781, ExceptionMessages.AcceptedSourceHasNoPricing, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedSourceHasNoTravellerWithIndex(params object?[] args) =>
+            new(2782, ExceptionMessages.AcceptedSourceHasNoTravellerWithIndex, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedSourceCurrencyIsInconsistent(params object?[] args) =>
+            new(2783, ExceptionMessages.AcceptedSourceCurrencyIsInconsistent, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedSourceReferenceNotResolved(params object?[] args) =>
+            new(2784, ExceptionMessages.AcceptedSourceReferenceNotResolved, args) { HttpStatus = 422 };
+
+        public static BusinessException SourceChargeClassificationUnsupported(params object?[] args) =>
+            new(2785, ExceptionMessages.SourceChargeClassificationUnsupported, args) { HttpStatus = 422 };
+
+        public static BusinessException SourceBaggageUnitUnsupported(params object?[] args) =>
+            new(2786, ExceptionMessages.SourceBaggageUnitUnsupported, args) { HttpStatus = 422 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

@@ -24,6 +24,8 @@ namespace AeroTech.Ordering.Providers
             var flightFlowBaseUrl = configuration["FlightFlow:BaseUrl"];
             var pricingBaseUrl = configuration["Pricing:BaseUrl"];
 
+            services.AddSingleton<IAirPriceOfferNormalizer, AirPriceOfferNormalizer>();
+
             services.AddHttpClient<IOfferProvider, OfferProvider>(client =>
             {
                 if (!string.IsNullOrWhiteSpace(offerBaseUrl))

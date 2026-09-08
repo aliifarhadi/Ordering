@@ -153,5 +153,14 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string FullReversalMustMatchOutstandingOriginal = "A full reversal of pricing line {0} must reverse the outstanding original amount {1}, not {2}.";
         public const string DuplicateSourceOccurrence = "Source line '{0}' occurrence '{1}' has already been accepted in this price change set.";
         public const string AllocationOriginalValueIncomplete = "An allocation set must supply original-currency values for every allocation or for none; a partial original breakdown cannot be completed locally.";
+
+        // P2-B accepted source normalization
+        public const string AcceptedSourceHasNoProducts = "Accepted source '{0}' carries no commercial product to order.";
+        public const string AcceptedSourceHasNoPricing = "Accepted source '{0}' carries no accepted pricing.";
+        public const string AcceptedSourceHasNoTravellerWithIndex = "The accepted source has no traveller with index {0}.";
+        public const string AcceptedSourceCurrencyIsInconsistent = "Accepted source '{0}' contains a customer-effective line in a currency other than its sale currency.";
+        public const string AcceptedSourceReferenceNotResolved = "The accepted source {0} reference '{1}' could not be resolved.";
+        public const string SourceChargeClassificationUnsupported = "Source charge classification '{0}' is not supported; it cannot be accepted as an Ordering pricing component.";
+        public const string SourceBaggageUnitUnsupported = "Source baggage unit '{0}' is not a recognised weight unit; a supplied allowance cannot be accepted without its unit.";
     }
 }

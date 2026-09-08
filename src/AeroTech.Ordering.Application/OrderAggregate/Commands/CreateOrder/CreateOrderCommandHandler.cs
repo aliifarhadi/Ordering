@@ -41,11 +41,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrder
         public async Task<long> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
         {
             // 1. Resolve offer from AirPrice / Offer provider
-            var offer = await _offerProvider.GetByOfferIdAsync(command.OfferId, cancellationToken);
+            var source = await _offerProvider.GetAcceptedSourceAsync(command.OfferId, cancellationToken);
 
             // 2. ACL maps provider offer model to clean domain args
             // 3. Domain factory creates valid Order
-            var order = Order.Create(MapToArgs(command), offer, await _homeOperator.GetOwnerAirlineIdAsync(cancellationToken), _idGenerator, _clock);
+            var order = Order.Create(MapToArgs(command), source, await _homeOperator.GetOwnerAirlineIdAsync(cancellationToken), _idGenerator, _clock);
 
              // 4. Persist
             await _orderRepository.AddAsync(order, cancellationToken);

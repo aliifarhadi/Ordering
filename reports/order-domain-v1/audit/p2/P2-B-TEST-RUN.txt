@@ -1,0 +1,6 @@
+Test run for E:\Projects\DotAir\Ordering\tests\AeroTech.Ordering.Persistence.Tests\bin\Debug\net10.0\AeroTech.Ordering.Persistence.Tests.dll (.NETCoreApp,Version=v10.0)
+Test run for E:\Projects\DotAir\Ordering\tests\AeroTech.Ordering.Domain.Tests\bin\Debug\net10.0\AeroTech.Ordering.Domain.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+A total of 1 test files matched the specified pattern.
+Passed!  - Failed:     0, Passed:   141, Skipped:     0, Total:   141, Duration: 469 ms - AeroTech.Ordering.Domain.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   162, Skipped:     0, Total:   162, Duration: 37 s - AeroTech.Ordering.Persistence.Tests.dll (net10.0)

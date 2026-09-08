@@ -4,6 +4,7 @@ using AeroTech.Ordering.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AeroTech.Ordering.Persistence.Migrations
 {
     [DbContext(typeof(OrderingDbContext))]
-    partial class OrderingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260908101106_P2BAcceptedSourceSnapshots")]
+    partial class P2BAcceptedSourceSnapshots
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2917,6 +2920,29 @@ namespace AeroTech.Ordering.Persistence.Migrations
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Order", b =>
                 {
+                    b.OwnsOne("AeroTech.Ordering.Domain.OrderAggregate.ValueObjects.Commission", "Commission", b1 =>
+                        {
+                            b1.Property<long>("OrderId")
+                                .HasColumnType("bigint");
+
+                            b1.Property<decimal>("CommissionAmount")
+                                .HasPrecision(18, 2)
+                                .HasColumnType("decimal(18,2)")
+                                .HasColumnName("CommissionAmount");
+
+                            b1.Property<decimal>("CommissionRate")
+                                .HasPrecision(18, 2)
+                                .HasColumnType("decimal(18,2)")
+                                .HasColumnName("CommissionRate");
+
+                            b1.HasKey("OrderId");
+
+                            b1.ToTable("Orders", "Order");
+
+                            b1.WithOwner()
+                                .HasForeignKey("OrderId");
+                        });
+
                     b.OwnsOne("AeroTech.Ordering.Domain.OrderAggregate.ValueObjects.OrderAmount", "Amount", b1 =>
                         {
                             b1.Property<long>("OrderId")
@@ -2961,29 +2987,6 @@ namespace AeroTech.Ordering.Persistence.Migrations
                                 .HasPrecision(18, 2)
                                 .HasColumnType("decimal(18,2)")
                                 .HasColumnName("TaxTotal");
-
-                            b1.HasKey("OrderId");
-
-                            b1.ToTable("Orders", "Order");
-
-                            b1.WithOwner()
-                                .HasForeignKey("OrderId");
-                        });
-
-                    b.OwnsOne("AeroTech.Ordering.Domain.OrderAggregate.ValueObjects.Commission", "Commission", b1 =>
-                        {
-                            b1.Property<long>("OrderId")
-                                .HasColumnType("bigint");
-
-                            b1.Property<decimal>("CommissionAmount")
-                                .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)")
-                                .HasColumnName("CommissionAmount");
-
-                            b1.Property<decimal>("CommissionRate")
-                                .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)")
-                                .HasColumnName("CommissionRate");
 
                             b1.HasKey("OrderId");
 

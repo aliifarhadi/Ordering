@@ -27,6 +27,8 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
         private IQueryable<Order> AggregateQuery()
             => _dbContext.Set<Order>()
                 .Include(order => order.Items).ThenInclude(item => item.PolicySnapshot)
+                .Include(order => order.Items).ThenInclude(item => item.ProductSnapshot)
+                .Include(order => order.Items).ThenInclude(item => item.CommercialTermsSnapshot)
                 .Include(order => order.PricingLines).ThenInclude(line => line.AllocationSets).ThenInclude(set => set.Allocations)
                 .Include(order => order.PriceChangeSets)
                 .Include(order => order.Changes)

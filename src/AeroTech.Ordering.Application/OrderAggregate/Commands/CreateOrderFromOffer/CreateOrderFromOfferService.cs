@@ -40,9 +40,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromO
             CreateOrderArgs args,
             CancellationToken cancellationToken = default)
         {
-            var offer = await _offerProvider.GetByOfferIdAsync(args.OfferId, cancellationToken);
+            var source = await _offerProvider.GetAcceptedSourceAsync(args.OfferId, cancellationToken);
 
-            var order = Order.Create(args, offer, await _homeOperator.GetOwnerAirlineIdAsync(cancellationToken), _idGenerator, _clock);
+            var order = Order.Create(args, source, await _homeOperator.GetOwnerAirlineIdAsync(cancellationToken), _idGenerator, _clock);
             await _orderRepository.AddAsync(order, cancellationToken);
 
             var reservationKey = $"reserve:{order.Id}";

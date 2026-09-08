@@ -16,6 +16,12 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
 
             builder.HasOne(item => item.PolicySnapshot).WithOne().HasForeignKey<OrderItemPolicySnapshot>(policy => policy.OrderItemId).OnDelete(DeleteBehavior.Cascade);
             builder.Navigation(item => item.PolicySnapshot).IsRequired();
+
+            builder.HasOne(item => item.ProductSnapshot).WithOne().HasForeignKey<OrderItemProductSnapshot>(snapshot => snapshot.OrderItemId).OnDelete(DeleteBehavior.Cascade);
+            builder.Navigation(item => item.ProductSnapshot).IsRequired();
+
+            builder.HasOne(item => item.CommercialTermsSnapshot).WithOne().HasForeignKey<OrderItemCommercialTermsSnapshot>(snapshot => snapshot.OrderItemId).OnDelete(DeleteBehavior.Cascade);
+            builder.Navigation(item => item.CommercialTermsSnapshot).IsRequired();
         }
     }
 }

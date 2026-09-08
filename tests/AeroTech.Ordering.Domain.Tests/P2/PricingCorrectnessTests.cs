@@ -250,7 +250,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         {
             var order = Order.Create(
                 OrderFactory.Args() with { CommissionRate = 9m },
-                OrderFactory.Offer(_clock),
+                OrderFactory.AcceptedSource(_clock),
                 OrderFactory.OwnerAirlineId,
                 _ids,
                 _clock);
@@ -265,7 +265,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         {
             var order = Order.Create(
                 OrderFactory.Args() with { CommissionRate = 9m },
-                OrderFactory.Offer(_clock),
+                OrderFactory.AcceptedSource(_clock),
                 OrderFactory.OwnerAirlineId,
                 _ids,
                 _clock);

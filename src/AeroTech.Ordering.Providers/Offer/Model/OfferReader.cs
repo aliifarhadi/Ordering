@@ -1,8 +1,8 @@
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Domain.OrderAggregate.Offers
+namespace AeroTech.Ordering.Providers.Offer.Model
 {
-    public sealed class OfferReader
+    internal sealed class OfferReader
     {
         private readonly OfferDetail _offer;
 

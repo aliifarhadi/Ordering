@@ -13,7 +13,11 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
         {
         }
 
-        public OrderItem(CreateOrderItemArgs args, OrderItemPolicySnapshot policySnapshot)
+        public OrderItem(
+            CreateOrderItemArgs args,
+            OrderItemPolicySnapshot policySnapshot,
+            OrderItemProductSnapshot productSnapshot,
+            OrderItemCommercialTermsSnapshot commercialTermsSnapshot)
         {
             Id = args.Id;
             OrderId = args.OrderId;
@@ -27,6 +31,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             FulfillmentStatus = OrderItemFulfillmentStatus.NotFulfilled;
             FinancialStatus = OrderItemFinancialStatus.None;
             PolicySnapshot = policySnapshot;
+            ProductSnapshot = productSnapshot;
+            CommercialTermsSnapshot = commercialTermsSnapshot;
             CreationDate = args.CreationDate;
         }
 
@@ -52,6 +58,10 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 
         public OrderItemPolicySnapshot PolicySnapshot { get; private set; } = default!;
 
+        public OrderItemProductSnapshot ProductSnapshot { get; private set; } = default!;
+
+        public OrderItemCommercialTermsSnapshot CommercialTermsSnapshot { get; private set; } = default!;
+
         public DateTimeOffset CreationDate { get; private set; }
 
         internal void MarkCancelled()
@@ -65,7 +75,9 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
         {
             var copy = new OrderItem(
                 new CreateOrderItemArgs(newId, newOrderId, ProductType, ProductCode, ProductName, Quantity, UnitOfMeasure, CreationDate),
-                PolicySnapshot.CopyTo(idGenerator.NewId(), newId));
+                PolicySnapshot.CopyTo(idGenerator.NewId(), newId),
+                ProductSnapshot.CopyTo(idGenerator.NewId(), newId),
+                CommercialTermsSnapshot.CopyTo(idGenerator.NewId(), newId));
 
             copy.CommercialStatus = CommercialStatus;
             copy.PaymentStatus = PaymentStatus;

@@ -1,11 +1,11 @@
-using AeroTech.Ordering.Domain.OrderAggregate.Offers;
+using AeroTech.Ordering.Providers.Offer.Model;
 using AeroTech.Messages.AirPrice.Enums;
 
 namespace AeroTech.Ordering.Providers.Offer.Services
 {
     public static class OfferResponseMapper
     {
-        public static OfferDetail ToDomain(Wire.FlightOfferDetailResponse source)
+        public static OfferDetail ToProviderModel(Wire.FlightOfferDetailResponse source)
         {
             var couponsByTicket = source.Tickets
                 .SelectMany(ticket => ticket.Coupons.Select(coupon => (ticket, coupon)))

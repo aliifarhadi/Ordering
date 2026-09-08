@@ -1,9 +1,9 @@
-using AeroTech.Ordering.Domain.OrderAggregate.Offers;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.Contracts
 {
     public interface IOfferProvider
     {
-        Task<OfferDetail> GetByOfferIdAsync(string offerId, CancellationToken cancellationToken = default);
+        Task<AcceptedOrderSource> GetAcceptedSourceAsync(string offerId, CancellationToken cancellationToken = default);
     }
 }

@@ -1,13 +1,13 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
-| **P2-A** pricing foundation | **Complete** |
+| **P2-A** pricing foundation | **Complete / Frozen** |
 | **P2-A.1** pricing foundation correctness closure | **Complete — P2-A frozen** |
-| P2-B accepted source normalization | Not started |
+| **P2-B** accepted source normalization | **Complete** |
 | P2-C AirFareConstruction | Not started |
 | P2-D service / item model | Not started |
 | P2-E initial sale + AddProduct | Not started |
@@ -190,9 +190,42 @@ source-reference rejection, and a reversal supplying `OriginalAmount = 0`); neit
 
 ---
 
+## P2-B — Accepted source normalization & commercial snapshots
+
+**Complete.** Full detail in [`P2-B-NORMALIZATION-REPORT.md`](P2-B-NORMALIZATION-REPORT.md); the field-by-field
+source classification is in [`audit/p2/P2-B-SOURCE-NORMALIZATION-MAPPING.md`](audit/p2/P2-B-SOURCE-NORMALIZATION-MAPPING.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **141 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **162 passed**, 0 failed (real SQL Server) |
+| Total | **303 passed, 0 failed** (baseline 257 → +46, zero regressions) |
+
+AirPrice vocabulary now terminates at the ACL. `OfferDetail`/`OfferReader` and the whole offer graph moved
+from the Domain into `AeroTech.Ordering.Providers.Offer.Model` (one record per file), a new
+`AirPriceOfferNormalizer` translates them into the Ordering-owned `AcceptedOrderSource`, and `IOfferProvider`
+now returns that accepted source rather than a provider DTO. `Order.Create` consumes only Ordering semantics
+and resolves source-local refs (`JourneyRef`/`SegmentRef`/`ProductRef`/`ServiceRef`/`TravellerRef`) to
+generated ids; there is exactly one active creation path.
+
+Both silent defaults are gone and both moved to the boundary: an unknown or unresolvable source charge kind
+fails closed (2785) instead of becoming a Fee, and a supplied baggage allowance with an unknown or missing
+unit fails closed (2786) instead of becoming kilograms. `WeightUnit.Kg` no longer appears as a literal in
+`src`. The closed `Surcharge → CarrierSurcharge` mapping is unchanged and now lives only in the normalizer.
+
+`OrderItem` gained two immutable accepted-sale snapshots — `OrderItemProductSnapshot` (what product was
+accepted) and `OrderItemCommercialTermsSnapshot` (what customer-facing terms were accepted) — kept
+semantically distinct from the pre-existing `OrderItemPolicySnapshot` (how Ordering operationally treats the
+item), which was not touched. Migration `P2BAcceptedSourceSnapshots` is purely additive; the P2-A and P2-A.1
+migrations were not modified. P2-A pricing facts pass through normalization unreinterpreted, including the
+`SourceLineRef` / `OccurrenceKey` split.
+
+---
+
 ## Scope
 
-P2-B was not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
+P2-C was not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
 `Money`, `CurrencyCode`, ExchangeRate framework, currency service, ROE engine or rounding library was
 created — the existing `ExchangeRate` value object at `decimal(28,12)` is reused unchanged. No parallel
 `PricingV2` / `OrderV2` model exists. Refund, exchange, void, split, DCS, disruption, group booking, tax

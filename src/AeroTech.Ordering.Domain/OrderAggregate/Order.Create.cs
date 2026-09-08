@@ -1,13 +1,11 @@
 using AeroTech.Ordering.Domain._Shared.Resources;
 using AeroTech.Framework.Core.ServiceContracts;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
-using AeroTech.Ordering.Domain.OrderAggregate.Offers;
 using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
 using AeroTech.Messages.Ordering.Enums;
-using BoundDirection = AeroTech.Messages.Ordering.Enums.BoundDirection;
-using AeroTech.Messages.AirPrice.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate
 {
@@ -15,12 +13,12 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
     {
         public static Order Create(
             CreateOrderArgs args,
-            OfferDetail offer,
+            AcceptedOrderSource source,
             long ownerAirlineId,
             IIdGenerator idGenerator,
             IClock clock)
         {
-            var reader = new OfferReader(offer);
+            EnsureAcceptedSourceIsUsable(args, source);
 
             var order = new Order(
                 idGenerator.NewId(),
@@ -31,29 +29,30 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 args.AirlineOfficeId,
                 args.Channel,
                 OrderType.Normal,
-                reader.CurrencyId,
+                source.SaleCurrencyId,
                 args.Travellers.Count,
                 clock.GetDateTime(),
-                reader.LastTicketingDate);
+                source.TicketingDeadline);
 
             order.BuildContact(args, idGenerator);
             order.BuildTravellers(args, idGenerator);
             order.EnsureValidComposition();
-            order.BuildItineraries(reader, idGenerator);
-            order.BuildSegments(reader, idGenerator);
-            var acceptedLines = new List<AcceptedPricingLineArgs>();
-            var sourceLineRefs = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-            order.BuildItemsServicesAndPricing(args, reader, acceptedLines, sourceLineRefs, idGenerator, clock);
-            order.BuildOrderCharges(reader, acceptedLines, sourceLineRefs);
+            var refs = new AcceptedSourceRefMap();
+
+            order.BuildJourneys(source, refs, idGenerator);
+            order.MapTravellerRefs(source, refs);
+            order.BuildProductsAndServices(args, source, refs, idGenerator, clock);
+
             order.AssignInfantParents(args);
+
             order.CommitPriceChange(
                 new AcceptedPriceChangeArgs(
                     OrderChangeType.Create,
                     PriceChangeReason.OriginalSale,
                     PricingSource.OfferProvider,
-                    acceptedLines,
-                    SourceOfferId: offer.OfferId,
+                    order.AcceptPricingLines(source, refs),
+                    SourceOfferId: source.SourceOfferId,
                     ActorId: args.CreatorUserId),
                 idGenerator,
                 clock);
@@ -63,6 +62,276 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             return order;
         }
+
+        private static void EnsureAcceptedSourceIsUsable(CreateOrderArgs args, AcceptedOrderSource source)
+        {
+            if (source.Products.Count == 0)
+                throw ExceptionFactory.AcceptedSourceHasNoProducts(source.SourceOfferId);
+
+            if (source.PricingLines.Count == 0)
+                throw ExceptionFactory.AcceptedSourceHasNoPricing(source.SourceOfferId);
+
+            foreach (var traveller in args.Travellers)
+                if (source.Travellers.All(candidate => candidate.TravellerIndex != traveller.Index))
+                    throw ExceptionFactory.AcceptedSourceHasNoTravellerWithIndex(traveller.Index);
+
+            if (source.PricingLines.Any(line => line.Effect == PricingEffect.CustomerBalance
+                                                && line.SaleCurrencyId != source.SaleCurrencyId))
+                throw ExceptionFactory.AcceptedSourceCurrencyIsInconsistent(source.SourceOfferId);
+        }
+
+        private void BuildJourneys(AcceptedOrderSource source, AcceptedSourceRefMap refs, IIdGenerator idGenerator)
+        {
+            foreach (var journey in source.Journeys.OrderBy(journey => journey.Sequence))
+            {
+                var itinerary = new OrderItinerary(
+                    idGenerator.NewId(),
+                    Id,
+                    journey.OriginAirportId,
+                    journey.DestinationAirportId,
+                    journey.JourneyRef,
+                    journey.Sequence,
+                    journey.Direction);
+
+                AddItinerary(itinerary);
+
+                foreach (var accepted in journey.Segments.OrderBy(segment => segment.Sequence))
+                {
+                    var segment = new OrderSegment(Id, new CreateOrderSegmentArgs(
+                        idGenerator.NewId(),
+                        itinerary.Id,
+                        accepted.Sequence,
+                        accepted.CabinClassId,
+                        accepted.RbdId,
+                        accepted.BookingClassCode,
+                        accepted.CapacityReference,
+                        accepted.BookingClass,
+                        accepted.FareReference,
+                        accepted.FlightSourceId,
+                        accepted.FlightVersion,
+                        accepted.FlightNumber,
+                        accepted.OriginAirportId,
+                        accepted.OriginAirportTerminalId,
+                        accepted.DestinationAirportId,
+                        accepted.DestinationAirportTerminalId,
+                        accepted.OperatingAirlineId,
+                        accepted.MarketingAirlineId,
+                        accepted.DepartureAt,
+                        accepted.ArrivalAt,
+                        accepted.DurationMinutes,
+                        accepted.AircraftId));
+
+                    foreach (var leg in accepted.Legs.OrderBy(leg => leg.Sequence))
+                        segment.AddLeg(new CreateOrderSegmentLegArgs(
+                            idGenerator.NewId(),
+                            leg.Sequence,
+                            leg.LegSourceId,
+                            leg.OriginAirportId,
+                            leg.OriginAirportTerminalId,
+                            leg.DestinationAirportId,
+                            leg.DestinationAirportTerminalId,
+                            leg.DepartureAt,
+                            leg.ArrivalAt,
+                            null,
+                            null));
+
+                    AddSegment(segment);
+                    refs.SegmentIds[accepted.SegmentRef] = segment.Id;
+                    refs.SegmentJourneyRefs[accepted.SegmentRef] = journey.JourneyRef;
+                }
+            }
+        }
+
+        private void MapTravellerRefs(AcceptedOrderSource source, AcceptedSourceRefMap refs)
+        {
+            foreach (var accepted in source.Travellers)
+            {
+                var traveller = _travellers.FirstOrDefault(candidate => candidate.Index == accepted.TravellerIndex);
+
+                if (traveller is null)
+                    continue;
+
+                refs.TravellerIds[accepted.TravellerRef] = traveller.Id;
+                refs.TravellerIndexes[accepted.TravellerRef] = accepted.TravellerIndex;
+            }
+        }
+
+        private void BuildProductsAndServices(
+            CreateOrderArgs args,
+            AcceptedOrderSource source,
+            AcceptedSourceRefMap refs,
+            IIdGenerator idGenerator,
+            IClock clock)
+        {
+            var now = clock.GetDateTime();
+
+            foreach (var product in source.Products)
+            {
+                var itemId = idGenerator.NewId();
+
+                var item = new OrderItem(
+                    new CreateOrderItemArgs(
+                        itemId,
+                        Id,
+                        product.ProductType,
+                        product.ProductCode,
+                        product.ProductName,
+                        product.Quantity,
+                        product.UnitOfMeasure,
+                        now),
+                    AirTransportPolicy(idGenerator, clock),
+                    ProductSnapshotOf(product.Snapshot, itemId, idGenerator, now),
+                    CommercialTermsSnapshotOf(product.CommercialTerms, itemId, idGenerator, now));
+
+                AddItem(item);
+                refs.ProductItemIds[product.ProductRef] = item.Id;
+
+                foreach (var accepted in product.Services)
+                    BuildService(args, accepted, item.Id, refs, idGenerator, now);
+            }
+        }
+
+        private void BuildService(
+            CreateOrderArgs args,
+            AcceptedService accepted,
+            long orderItemId,
+            AcceptedSourceRefMap refs,
+            IIdGenerator idGenerator,
+            DateTimeOffset now)
+        {
+            if (!refs.SegmentIds.TryGetValue(accepted.SegmentRef, out var segmentId))
+                throw ExceptionFactory.AcceptedSourceReferenceNotResolved("segment", accepted.SegmentRef);
+
+            if (!refs.TravellerIds.TryGetValue(accepted.TravellerRef, out var travellerId))
+                throw ExceptionFactory.AcceptedSourceReferenceNotResolved("traveller", accepted.TravellerRef);
+
+            if (accepted.AirTransport is not { } air)
+                throw ExceptionFactory.AcceptedSourceReferenceNotResolved("air service detail", accepted.ServiceRef);
+
+            var service = new OrderAirTransportService(
+                new CreateOrderServiceArgs(
+                    idGenerator.NewId(),
+                    Id,
+                    orderItemId,
+                    accepted.ServiceType,
+                    accepted.ServiceCode,
+                    accepted.Name,
+                    accepted.DeliveryModel,
+                    accepted.RequiresFulfillment,
+                    accepted.RequiresSupplierConfirmation,
+                    accepted.RequiresDocument,
+                    accepted.ProviderType,
+                    accepted.SupplierCode,
+                    now),
+                new CreateOrderAirTransportServiceArgs(
+                    segmentId,
+                    travellerId,
+                    SeatFor(args, accepted, refs),
+                    air.FareReference,
+                    air.FareBasis,
+                    air.FareFamily,
+                    air.FareNumber,
+                    air.IsChangeable,
+                    air.IsRefundable,
+                    air.IsUpgradable,
+                    BaggageOf(air.CheckedBaggage),
+                    BaggageOf(air.CabinBaggage)));
+
+            AddOrderService(service);
+            refs.ServiceIds[accepted.ServiceRef] = service.Id;
+        }
+
+        private IReadOnlyList<AcceptedPricingLineArgs> AcceptPricingLines(
+            AcceptedOrderSource source,
+            AcceptedSourceRefMap refs)
+        {
+            var lines = new List<AcceptedPricingLineArgs>();
+
+            foreach (var line in source.PricingLines)
+            {
+                long? orderItemId = line.ProductRef is { } productRef && refs.ProductItemIds.TryGetValue(productRef, out var itemId)
+                    ? itemId
+                    : null;
+
+                long? serviceId = line.ServiceRef is { } serviceRef && refs.ServiceIds.TryGetValue(serviceRef, out var mapped)
+                    ? mapped
+                    : null;
+
+                if (line.ServiceRef is not null && serviceId is null)
+                    throw ExceptionFactory.AcceptedSourceReferenceNotResolved("service", line.ServiceRef);
+
+                if (line.ProductRef is not null && orderItemId is null)
+                    throw ExceptionFactory.AcceptedSourceReferenceNotResolved("product", line.ProductRef);
+
+                lines.Add(new AcceptedPricingLineArgs(
+                    line.ComponentType,
+                    line.Effect,
+                    line.Direction,
+                    line.LineRole,
+                    line.OriginalAmount,
+                    line.OriginalCurrencyId,
+                    line.SaleAmount,
+                    line.SaleCurrencyId,
+                    line.BasisType,
+                    line.Refundability,
+                    OrderItemId: orderItemId,
+                    Code: line.Code,
+                    Description: line.Description,
+                    ExchangeRate: line.ExchangeRate,
+                    ApplicationLevel: line.ApplicationLevel,
+                    BasisReferenceId: BasisReferenceFor(line, orderItemId, serviceId),
+                    SourceLineRef: line.SourceLineRef,
+                    OccurrenceKey: line.OccurrenceKey));
+            }
+
+            return lines;
+        }
+
+        private long? BasisReferenceFor(AcceptedSourcePricingLine line, long? orderItemId, long? serviceId)
+            => line.BasisType switch
+            {
+                PricingBasisType.Order => Id,
+                PricingBasisType.OrderItem => orderItemId,
+                PricingBasisType.OrderService => serviceId,
+                _ => null
+            };
+
+        private static OrderItemProductSnapshot ProductSnapshotOf(
+            AcceptedProductSnapshot snapshot,
+            long orderItemId,
+            IIdGenerator idGenerator,
+            DateTimeOffset acceptedAt)
+            => new(idGenerator.NewId(), orderItemId, new CreateOrderItemProductSnapshotArgs(
+                snapshot.ProductType,
+                snapshot.SourceProductReference,
+                snapshot.SourceSystem,
+                snapshot.SourceOfferId,
+                acceptedAt,
+                snapshot.ProductCode,
+                snapshot.ProductName,
+                snapshot.Brand,
+                snapshot.MarketingAirlineId,
+                snapshot.OperatingAirlineId,
+                snapshot.SupplierCode,
+                snapshot.SourcePricingReference));
+
+        private static OrderItemCommercialTermsSnapshot CommercialTermsSnapshotOf(
+            AcceptedCommercialTerms terms,
+            long orderItemId,
+            IIdGenerator idGenerator,
+            DateTimeOffset capturedAt)
+            => new(idGenerator.NewId(), orderItemId, new CreateOrderItemCommercialTermsSnapshotArgs(
+                terms.IsRefundable,
+                terms.IsChangeable,
+                terms.IsUpgradable,
+                terms.PolicySource,
+                capturedAt,
+                BaggageOf(terms.CheckedBaggage),
+                BaggageOf(terms.CabinBaggage),
+                terms.SourceRuleReference));
+
+        private static Baggage? BaggageOf(AcceptedBaggageAllowance? allowance)
+            => allowance is null ? null : new Baggage(allowance.Weight, allowance.Unit, allowance.Pieces);
 
         private void RaiseCreated(IIdGenerator idGenerator, IClock clock)
             => Causes(new OrderCreated(
@@ -140,299 +409,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 throw ExceptionFactory.OrderCannotHaveMoreInfantsThanAdults();
         }
 
-        private void BuildItineraries(OfferReader reader, IIdGenerator idGenerator)
-        {
-            var bounds = reader.BoundsInSequence();
-
-            for (var index = 0; index < bounds.Count; index++)
-            {
-                var bound = bounds[index];
-                var direction = bounds.Count == 1 || index == 0 ? BoundDirection.Outbound : BoundDirection.Inbound;
-
-                AddItinerary(new OrderItinerary(
-                    idGenerator.NewId(),
-                    Id,
-                    bound.OriginAirportId,
-                    bound.DestinationAirportId,
-                    bound.BoundId,
-                    bound.Sequence,
-                    direction));
-            }
-        }
-
-        private void BuildSegments(OfferReader reader, IIdGenerator idGenerator)
-        {
-            foreach (var bound in reader.BoundsInSequence())
-            {
-                var itineraryId = ItineraryIdFor(bound.BoundId);
-                var fareComponent = reader.PrimaryFareComponent(bound.BoundId);
-                var sequence = 1;
-
-                foreach (var flight in reader.BoundFlightsInOrder(bound))
-                {
-                    var segment = new OrderSegment(Id, new CreateOrderSegmentArgs(
-                        idGenerator.NewId(),
-                        itineraryId,
-                        sequence++,
-                        (int?)flight.CabinClassId,
-                        flight.RbdId,
-                        fareComponent?.BookingClass,
-                        flight.FlightCapacityId,
-                        flight.BookingClass,
-                        fareComponent?.AirFareId ?? 0,
-                        flight.FlightId,
-                        flight.FlightVersion,
-                        flight.Number,
-                        (int)flight.OriginAirportId,
-                        (int?)flight.OriginAirportTerminalId,
-                        (int)flight.DestinationAirportId,
-                        (int?)flight.DestinationAirportTerminalId,
-                        (int)flight.OperatingAirlineId,
-                        (int)flight.MarketingAirlineId,
-                        flight.DepartureDateTime,
-                        flight.ArrivalDateTime,
-                        flight.Duration,
-                        (int)(flight.AircraftId ?? 0)));
-
-                    foreach (var leg in flight.Legs.OrderBy(item => item.Sequence))
-                    {
-                        segment.AddLeg(new CreateOrderSegmentLegArgs(
-                            idGenerator.NewId(),
-                            leg.Sequence,
-                            leg.LegId,
-                            (int)leg.OriginAirportId,
-                            (int?)leg.OriginAirportTerminalId,
-                            (int)leg.DestinationAirportId,
-                            (int?)leg.DestinationAirportTerminalId,
-                            leg.DepartureDateTime,
-                            leg.ArrivalDateTime,
-                            null,
-                            null));
-                    }
-
-                    AddSegment(segment);
-                }
-            }
-        }
-
-        private void BuildItemsServicesAndPricing(
-            CreateOrderArgs args,
-            OfferReader reader,
-            List<AcceptedPricingLineArgs> acceptedLines,
-            Dictionary<string, int> sourceLineRefs,
-            IIdGenerator idGenerator,
-            IClock clock)
-        {
-            foreach (var traveller in _travellers)
-            {
-                var travellerRef = reader.GetTravellerRef(traveller.Index);
-                var itemsByProduct = new Dictionary<(ProductType, string, string), OrderItem>();
-                var couponServices = new Dictionary<long, long>();
-
-                foreach (var bound in reader.BoundsInSequence())
-                {
-                    var baseLines = reader.BaseLines(travellerRef, bound.BoundId);
-                    var airFareId = reader.ResolveTravellerBoundAirFareId(baseLines, bound.BoundId);
-                    var fareComponent = reader.FareComponent(bound.BoundId, airFareId);
-                    var fareBasis = fareComponent?.FareBasis ?? string.Empty;
-                    var productKey = (ProductType.AirFare, airFareId.ToString(), fareBasis);
-
-                    if (!itemsByProduct.TryGetValue(productKey, out var fareItem))
-                    {
-                        fareItem = new OrderItem(
-                            new CreateOrderItemArgs(idGenerator.NewId(), Id, ProductType.AirFare, airFareId.ToString(), fareBasis, 1m, OrderItemUnitOfMeasure.PassengerFare, clock.GetDateTime()),
-                            AirTransportPolicy(idGenerator, clock));
-                        AddItem(fareItem);
-                        itemsByProduct.Add(productKey, fareItem);
-                    }
-
-                    foreach (var flight in reader.BoundFlightsInOrder(bound))
-                    {
-                        var segment = _segments.Single(candidate => candidate.FlightId == flight.FlightId);
-
-                        var service = new OrderAirTransportService(
-                            new CreateOrderServiceArgs(
-                                idGenerator.NewId(),
-                                Id,
-                                fareItem.Id,
-                                OrderServiceType.AirTransportation,
-                                "AIR",
-                                "Air transportation",
-                                DeliveryModel.PerPassengerSegment,
-                                true,
-                                false,
-                                true,
-                                OrderProviderType.Airline,
-                                null,
-                                clock.GetDateTime()),
-                            new CreateOrderAirTransportServiceArgs(
-                                segment.Id,
-                                traveller.Id,
-                                ResolveSeat(args, bound.BoundId, traveller.Index),
-                                airFareId,
-                                fareComponent?.FareBasis,
-                                fareComponent?.FareFamily,
-                                null,
-                                fareComponent?.IsChangeable ?? false,
-                                fareComponent?.IsRefundable ?? false,
-                                fareComponent?.IsUpgradable ?? false,
-                                ResolveCheckedBaggage(fareComponent),
-                                ResolveCabinBaggage(fareComponent)));
-
-                        AddOrderService(service);
-                        couponServices[flight.FlightId] = service.Id;
-                    }
-
-                    foreach (var line in baseLines)
-                        acceptedLines.Add(AcceptedLine(
-                            reader,
-                            line,
-                            PricingComponentType.Fare,
-                            fareComponent?.FareBasis,
-                            null,
-                            (fareComponent?.IsRefundable ?? false) ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable,
-                            fareItem.Id,
-                            couponServices,
-                            sourceLineRefs,
-                            reader.SourceOfferId,
-                            travellerRef));
-                }
-
-                foreach (var line in reader.ChargeLines(travellerRef))
-                {
-                    var charge = reader.Charge(line.AirChargeId);
-                    var firstItem = itemsByProduct.Values.FirstOrDefault();
-
-                    acceptedLines.Add(AcceptedLine(
-                        reader,
-                        line,
-                        ComponentTypeOf(charge?.Kind),
-                        charge?.Code ?? line.Code,
-                        charge?.Name,
-                        (charge?.IsRefundable ?? false) ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable,
-                        firstItem?.Id,
-                        couponServices,
-                        sourceLineRefs,
-                        reader.SourceOfferId,
-                        travellerRef));
-                }
-            }
-        }
-
-        private void BuildOrderCharges(
-            OfferReader reader,
-            List<AcceptedPricingLineArgs> acceptedLines,
-            Dictionary<string, int> sourceLineRefs)
-        {
-            foreach (var line in reader.OrderChargeLines())
-            {
-                var charge = reader.Charge(line.AirChargeId);
-
-                acceptedLines.Add(new AcceptedPricingLineArgs(
-                    ComponentTypeOf(charge?.Kind),
-                    PricingEffect.CustomerBalance,
-                    OrderPricingLineDirection.Debit,
-                    PricingLineRole.Original,
-                    line.Amount,
-                    reader.SourceCurrencyId(line),
-                    line.EquivalentAmount,
-                    reader.EquivalentCurrencyId(line),
-                    PricingBasisType.Order,
-                    (charge?.IsRefundable ?? false) ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable,
-                    Code: charge?.Code ?? line.Code,
-                    Description: charge?.Name,
-                    ExchangeRate: BuildExchangeRate(reader, line),
-                    ApplicationLevel: PricingApplicationLevel.PerOrder,
-                    BasisReferenceId: Id,
-                    SourceLineRef: SourceLineIdentity(
-                        reader.SourceOfferId,
-                        "ORDER",
-                        line.BoundId,
-                        line.FlightId,
-                        line.AirChargeId ?? line.Code),
-                    OccurrenceKey: NextOccurrenceKey(
-                        sourceLineRefs,
-                        SourceLineIdentity(
-                            reader.SourceOfferId,
-                            "ORDER",
-                            line.BoundId,
-                            line.FlightId,
-                            line.AirChargeId ?? line.Code))));
-            }
-        }
-
-        private AcceptedPricingLineArgs AcceptedLine(
-            OfferReader reader,
-            OfferPriceLine line,
-            PricingComponentType componentType,
-            string? code,
-            string? description,
-            RefundabilityRule refundability,
-            long? orderItemId,
-            IReadOnlyDictionary<long, long> couponServices,
-            Dictionary<string, int> sourceLineRefs,
-            string sourceOfferId,
-            string travellerRef)
-        {
-            var hasService = line.FlightId.HasValue && couponServices.TryGetValue(line.FlightId.Value, out var serviceId);
-
-            return new AcceptedPricingLineArgs(
-                componentType,
-                PricingEffect.CustomerBalance,
-                OrderPricingLineDirection.Debit,
-                PricingLineRole.Original,
-                line.Amount,
-                reader.SourceCurrencyId(line),
-                line.EquivalentAmount,
-                reader.EquivalentCurrencyId(line),
-                hasService ? PricingBasisType.OrderService : PricingBasisType.OrderItem,
-                refundability,
-                OrderItemId: orderItemId,
-                Code: code,
-                Description: description,
-                ExchangeRate: BuildExchangeRate(reader, line),
-                ApplicationLevel: hasService ? PricingApplicationLevel.PerSegment : PricingApplicationLevel.PerTraveler,
-                BasisReferenceId: hasService ? couponServices[line.FlightId!.Value] : orderItemId,
-                SourceLineRef: SourceLineIdentity(
-                    sourceOfferId,
-                    travellerRef,
-                    line.BoundId,
-                    line.FlightId,
-                    line.AirChargeId ?? line.AirFareId?.ToString() ?? line.Code),
-                OccurrenceKey: NextOccurrenceKey(
-                    sourceLineRefs,
-                    SourceLineIdentity(
-                        sourceOfferId,
-                        travellerRef,
-                        line.BoundId,
-                        line.FlightId,
-                        line.AirChargeId ?? line.AirFareId?.ToString() ?? line.Code)));
-        }
-
-        private static PricingComponentType ComponentTypeOf(AirChargeKind? kind)
-            => kind switch
-            {
-                AirChargeKind.Tax => PricingComponentType.Tax,
-                AirChargeKind.Surcharge => PricingComponentType.CarrierSurcharge,
-                _ => PricingComponentType.Fee
-            };
-
-        private static string SourceLineIdentity(
-            string sourceOfferId,
-            string travellerRef,
-            string? boundId,
-            long? flightId,
-            string? code)
-            => string.Join(':', sourceOfferId, travellerRef, boundId ?? "-", flightId?.ToString() ?? "-", code ?? "-");
-
-        private static string NextOccurrenceKey(Dictionary<string, int> occurrences, string sourceLineIdentity)
-        {
-            var occurrence = occurrences.TryGetValue(sourceLineIdentity, out var previous) ? previous + 1 : 1;
-            occurrences[sourceLineIdentity] = occurrence;
-
-            return occurrence.ToString();
-        }
-
         private void AssignInfantParents(CreateOrderArgs args)
         {
             foreach (var travellerArgs in args.Travellers.Where(traveller => traveller.ParentIndex.HasValue))
@@ -445,15 +421,18 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             }
         }
 
-        private long ItineraryIdFor(string boundId)
-            => _itineraries.First(itinerary => string.Equals(itinerary.BoundId, boundId, StringComparison.OrdinalIgnoreCase)).Id;
-
-        private static ExchangeRate? BuildExchangeRate(OfferReader reader, OfferPriceLine line)
+        private static string? SeatFor(CreateOrderArgs args, AcceptedService accepted, AcceptedSourceRefMap refs)
         {
-            var rate = reader.Rate(line.RateOfExchangePeriodId);
-            return rate is null
-                ? null
-                : new ExchangeRate(new ExchangeRateArgs(rate.Rate, rate.DecimalPlaces, rate.RateOfExchangePeriodId, 0));
+            if (!refs.SegmentJourneyRefs.TryGetValue(accepted.SegmentRef, out var journeyRef))
+                return null;
+
+            if (!refs.TravellerIndexes.TryGetValue(accepted.TravellerRef, out var travellerIndex))
+                return null;
+
+            return args.SeatSelections
+                .FirstOrDefault(selection => string.Equals(selection.BoundId, journeyRef, StringComparison.OrdinalIgnoreCase)
+                                             && selection.TravellerIndex == travellerIndex)
+                ?.SeatNumber;
         }
 
         private static OrderItemPolicySnapshot AirTransportPolicy(IIdGenerator idGenerator, IClock clock)
@@ -475,24 +454,5 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 SupplierPolicyRef: null,
                 clock.GetDateTime(),
                 "1"));
-
-        private static string? ResolveSeat(CreateOrderArgs args, string boundId, int travellerIndex)
-            => args.SeatSelections
-                .FirstOrDefault(selection => string.Equals(selection.BoundId, boundId, StringComparison.OrdinalIgnoreCase)
-                                             && selection.TravellerIndex == travellerIndex)
-                ?.SeatNumber;
-
-        private static Baggage? ResolveCheckedBaggage(OfferFareComponent? fareComponent)
-            => fareComponent is null || (fareComponent.BaggagePieces <= 0 && fareComponent.BaggageWeight <= 0)
-                ? null
-                : new Baggage(fareComponent.BaggageWeight, ParseWeightUnit(fareComponent.BaggageUnit), fareComponent.BaggagePieces);
-
-        private static Baggage? ResolveCabinBaggage(OfferFareComponent? fareComponent)
-            => fareComponent is null || (fareComponent.CabinBaggagePieces <= 0 && fareComponent.CabinBaggageWeight <= 0)
-                ? null
-                : new Baggage(fareComponent.CabinBaggageWeight, ParseWeightUnit(fareComponent.CabinBaggageUnit), fareComponent.CabinBaggagePieces);
-
-        private static WeightUnit ParseWeightUnit(string? unit)
-            => Enum.TryParse<WeightUnit>(unit, ignoreCase: true, out var parsed) ? parsed : WeightUnit.Kg;
     }
 }

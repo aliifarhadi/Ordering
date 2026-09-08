@@ -1,9 +1,10 @@
 using AeroTech.Messages.AirPrice.Enums;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Messages.Shared.Enums;
+using BoundDirection = AeroTech.Messages.Ordering.Enums.BoundDirection;
 using AeroTech.Ordering.Domain.OrderAggregate;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
-using AeroTech.Ordering.Domain.OrderAggregate.Offers;
 
 namespace AeroTech.Ordering.Domain.Tests._Shared
 {
@@ -15,19 +16,27 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public const long OutboundFlightId = 5001;
         public const long InboundFlightId = 5002;
         public const long OwnerAirlineId = 77;
+        public const string SourceOfferId = "OFFER-RT-2PAX";
+        public const string SourceSystem = "AirPrice";
+        public const string FareBasis = "YRT";
+
+        private const decimal OutboundFare = 1_000_000m;
+        private const decimal OutboundTax = 90_000m;
+        private const decimal InboundFare = 1_100_000m;
+        private const decimal InboundTax = 99_000m;
 
         public static Order Create(SequentialIdGenerator ids, TestClock clock)
-            => Order.Create(Args(), Offer(clock), OwnerAirlineId, ids, clock);
+            => Order.Create(Args(), AcceptedSource(clock), OwnerAirlineId, ids, clock);
 
         public static Order CreateWithThroughFare(SequentialIdGenerator ids, TestClock clock)
-            => Order.Create(Args(), Offer(clock, throughFare: true), OwnerAirlineId, ids, clock);
+            => Order.Create(Args(), AcceptedSource(clock, throughFare: true), OwnerAirlineId, ids, clock);
 
         public static CreateOrderArgs Args() => new(
             CustomerId: 42,
             Channel: SalesChannel.BackOffice,
             CreatorUserId: 7,
             AirlineOfficeId: 11,
-            OfferId: "OFFER-RT-2PAX",
+            OfferId: SourceOfferId,
             CommissionRate: 0m,
             Travellers:
             [
@@ -53,107 +62,226 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             CountryOfResidenceId: 1,
             Documents: []);
 
-        public static OfferDetail Offer(TestClock clock, bool throughFare = false)
+        public static AcceptedOrderSource AcceptedSource(TestClock clock, bool throughFare = false)
         {
             var inboundFareId = throughFare ? OutboundAirFareId : InboundAirFareId;
             var outbound = clock.GetDateTime().AddDays(30);
             var inbound = clock.GetDateTime().AddDays(37);
 
-            return new OfferDetail(
-                OfferId: "OFFER-RT-2PAX",
-                CurrencyId: CurrencyId,
-                LastTicketingDate: clock.GetDateTime().AddDays(1),
-                Travellers:
-                [
-                    new OfferTraveller("T1", 1, "ADT"),
-                    new OfferTraveller("T2", 2, "ADT")
-                ],
-                Bounds:
-                [
-                    Bound("B1", 1, 100, 200, OutboundFlightId, "W5 1234", outbound),
-                    Bound("B2", 2, 200, 100, InboundFlightId, "W5 4321", inbound)
-                ],
-                FareComponents:
-                [
-                    FareComponent(OutboundAirFareId, "B1"),
-                    FareComponent(inboundFareId, "B2")
-                ],
-                PriceLines:
-                [
-                    Line("T1", true, OutboundAirFareId, null, "FARE", "B1", OutboundFlightId, 1_000_000m),
-                    Line("T1", false, OutboundAirFareId, "TAX-1", "I6", "B1", OutboundFlightId, 90_000m),
-                    Line("T1", true, inboundFareId, null, "FARE", "B2", InboundFlightId, 1_100_000m),
-                    Line("T1", false, inboundFareId, "TAX-1", "I6", "B2", InboundFlightId, 99_000m),
-                    Line("T2", true, OutboundAirFareId, null, "FARE", "B1", OutboundFlightId, 1_000_000m),
-                    Line("T2", false, OutboundAirFareId, "TAX-1", "I6", "B1", OutboundFlightId, 90_000m),
-                    Line("T2", true, inboundFareId, null, "FARE", "B2", InboundFlightId, 1_100_000m),
-                    Line("T2", false, inboundFareId, "TAX-1", "I6", "B2", InboundFlightId, 99_000m)
-                ],
-                OrderCharges: [],
-                Charges: [new OfferCharge("TAX-1", AirChargeKind.Tax, "I6", "Value added tax", true)],
-                Rates: []);
+            var journeys = new[]
+            {
+                Journey("B1", 1, 100, 200, OutboundFlightId, "W5 1234", outbound, BoundDirection.Outbound, OutboundAirFareId),
+                Journey("B2", 2, 200, 100, InboundFlightId, "W5 4321", inbound, BoundDirection.Inbound, inboundFareId)
+            };
+
+            var products = new List<AcceptedProduct>();
+            var pricingLines = new List<AcceptedSourcePricingLine>();
+
+            foreach (var travellerRef in new[] { "T1", "T2" })
+            {
+                var byProduct = new Dictionary<string, List<AcceptedService>>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var leg in new[]
+                         {
+                             ("B1", OutboundFlightId, OutboundAirFareId, OutboundFare, OutboundTax),
+                             ("B2", InboundFlightId, inboundFareId, InboundFare, InboundTax)
+                         })
+                {
+                    var (journeyRef, flightId, fareId, fare, tax) = leg;
+                    var productRef = ProductRef(travellerRef, fareId);
+                    var serviceRef = ServiceRef(travellerRef, journeyRef, flightId);
+
+                    if (!byProduct.TryGetValue(productRef, out var services))
+                    {
+                        services = [];
+                        byProduct.Add(productRef, services);
+                    }
+
+                    services.Add(Service(serviceRef, travellerRef, SegmentRef(journeyRef, flightId), fareId));
+
+                    pricingLines.Add(Line(
+                        PricingComponentType.Fare,
+                        fare,
+                        "YRT",
+                        null,
+                        fareId.ToString(),
+                        productRef,
+                        serviceRef,
+                        travellerRef,
+                        journeyRef,
+                        flightId));
+
+                    pricingLines.Add(Line(
+                        PricingComponentType.Tax,
+                        tax,
+                        "I6",
+                        "Value added tax",
+                        "TAX-1",
+                        productRef,
+                        serviceRef,
+                        travellerRef,
+                        journeyRef,
+                        flightId));
+                }
+
+                products.AddRange(byProduct.Select(entry => Product(entry.Key, travellerRef, FareIdOf(entry.Key), entry.Value)));
+            }
+
+            return new AcceptedOrderSource(
+                SourceSystem: SourceSystem,
+                SourceOfferId: SourceOfferId,
+                SaleCurrencyId: CurrencyId,
+                TicketingDeadline: clock.GetDateTime().AddDays(1),
+                Travellers: [new AcceptedSourceTraveller("T1", 1), new AcceptedSourceTraveller("T2", 2)],
+                Journeys: journeys,
+                Products: products,
+                PricingLines: pricingLines);
         }
 
-        private static OfferBound Bound(
-            string boundId,
+        private static AcceptedJourney Journey(
+            string journeyRef,
             int sequence,
             long origin,
             long destination,
             long flightId,
             string number,
-            DateTimeOffset departure) => new(
-            BoundId: boundId,
-            Sequence: sequence,
-            OriginAirportId: origin,
-            DestinationAirportId: destination,
-            Flights:
-            [
-                new OfferFlight(
-                    FlightId: flightId,
-                    FlightVersion: 1,
-                    Number: number,
-                    OriginAirportId: origin,
-                    OriginAirportTerminalId: null,
-                    DestinationAirportId: destination,
-                    DestinationAirportTerminalId: null,
-                    OperatingAirlineId: 10,
-                    MarketingAirlineId: 10,
-                    DepartureDateTime: departure,
-                    ArrivalDateTime: departure.AddHours(2),
-                    Duration: 120,
-                    AircraftId: 1,
-                    CabinClassId: 1,
-                    RbdId: 1,
-                    BookingClass: "Y",
-                    FlightCapacityId: 70 + flightId,
-                    Legs: [])
-            ]);
+            DateTimeOffset departure,
+            BoundDirection direction,
+            long fareId)
+            => new(
+                journeyRef,
+                sequence,
+                origin,
+                destination,
+                direction,
+                [
+                    new AcceptedSegment(
+                        SegmentRef(journeyRef, flightId),
+                        1,
+                        flightId,
+                        1,
+                        number,
+                        (int)origin,
+                        null,
+                        (int)destination,
+                        null,
+                        10,
+                        10,
+                        departure,
+                        departure.AddHours(2),
+                        120,
+                        1,
+                        1,
+                        1,
+                        "Y",
+                        "Y",
+                        70 + flightId,
+                        fareId,
+                        [])
+                ]);
 
-        private static OfferFareComponent FareComponent(long airFareId, string boundId) => new(
-            AirFareId: airFareId,
-            BoundId: boundId,
-            BookingClass: "Y",
-            FareBasis: "YRT",
-            FareFamily: "ECO",
-            IsRefundable: true,
-            IsChangeable: true,
-            IsUpgradable: false,
-            BaggagePieces: 1,
-            BaggageWeight: 20m,
-            BaggageUnit: "KG",
-            CabinBaggagePieces: 1,
-            CabinBaggageWeight: 7m,
-            CabinBaggageUnit: "KG");
+        private static AcceptedService Service(string serviceRef, string travellerRef, string segmentRef, long fareId)
+            => new(
+                serviceRef,
+                travellerRef,
+                segmentRef,
+                OrderServiceType.AirTransportation,
+                "AIR",
+                "Air transportation",
+                DeliveryModel.PerPassengerSegment,
+                RequiresFulfillment: true,
+                RequiresSupplierConfirmation: false,
+                RequiresDocument: true,
+                OrderProviderType.Airline,
+                SupplierCode: null,
+                new AcceptedAirServiceDetail(
+                    fareId,
+                    FareBasis,
+                    "ECO",
+                    null,
+                    IsChangeable: true,
+                    IsRefundable: true,
+                    IsUpgradable: false,
+                    CheckedBaggage(),
+                    CabinBaggage()));
 
-        private static OfferPriceLine Line(
+        private static AcceptedProduct Product(
+            string productRef,
             string travellerRef,
-            bool isBase,
-            long airFareId,
-            string? airChargeId,
-            string code,
-            string boundId,
-            long flightId,
-            decimal amount)
-            => new(travellerRef, isBase, airFareId, airChargeId, code, boundId, flightId, amount, CurrencyId, amount, CurrencyId, null);
+            long fareId,
+            IReadOnlyList<AcceptedService> services)
+            => new(
+                productRef,
+                travellerRef,
+                ProductType.AirFare,
+                fareId.ToString(),
+                FareBasis,
+                1m,
+                OrderItemUnitOfMeasure.PassengerFare,
+                new AcceptedProductSnapshot(
+                    ProductType.AirFare,
+                    fareId.ToString(),
+                    fareId.ToString(),
+                    FareBasis,
+                    "ECO",
+                    10,
+                    10,
+                    null,
+                    SourceSystem,
+                    SourceOfferId,
+                    fareId.ToString()),
+                new AcceptedCommercialTerms(
+                    IsRefundable: true,
+                    IsChangeable: true,
+                    IsUpgradable: false,
+                    CheckedBaggage(),
+                    CabinBaggage(),
+                    SourceSystem,
+                    fareId.ToString()),
+                services);
+
+        private static AcceptedSourcePricingLine Line(
+            PricingComponentType componentType,
+            decimal amount,
+            string? code,
+            string? description,
+            string sourceCode,
+            string productRef,
+            string serviceRef,
+            string travellerRef,
+            string journeyRef,
+            long flightId)
+            => new(
+                componentType,
+                PricingEffect.CustomerBalance,
+                OrderPricingLineDirection.Debit,
+                PricingLineRole.Original,
+                amount,
+                CurrencyId,
+                amount,
+                CurrencyId,
+                PricingBasisType.OrderService,
+                PricingApplicationLevel.PerSegment,
+                RefundabilityRule.Refundable,
+                $"{SourceOfferId}:{travellerRef}:{journeyRef}:{flightId}:{sourceCode}",
+                "1",
+                productRef,
+                serviceRef,
+                code,
+                description,
+                null);
+
+        private static AcceptedBaggageAllowance CheckedBaggage() => new(1, 20m, WeightUnit.Kg);
+
+        private static AcceptedBaggageAllowance CabinBaggage() => new(1, 7m, WeightUnit.Kg);
+
+        private static string SegmentRef(string journeyRef, long flightId) => $"{journeyRef}:{flightId}";
+
+        private static string ServiceRef(string travellerRef, string journeyRef, long flightId)
+            => $"{travellerRef}:{journeyRef}:{flightId}";
+
+        private static string ProductRef(string travellerRef, long fareId) => $"{travellerRef}:{fareId}:{FareBasis}";
+
+        private static long FareIdOf(string productRef) => long.Parse(productRef.Split(':')[1]);
     }
 }

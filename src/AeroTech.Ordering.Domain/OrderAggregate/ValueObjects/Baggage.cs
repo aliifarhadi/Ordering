@@ -22,8 +22,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.ValueObjects
 
         public int Pieces { get; private set; }
 
-        public static Baggage None() => new(0m, WeightUnit.Kg, 0);
-
         public Baggage Copy() => new()
         {
             Weight = Weight,

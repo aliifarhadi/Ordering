@@ -5,7 +5,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
-using AeroTech.Ordering.Domain.OrderAggregate.Offers;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
@@ -23,7 +23,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Creation
     {
         Task<CreateOrderOutcome> CreateAsync(
             CreateOrderArgs args,
-            OfferDetail offer,
+            AcceptedOrderSource source,
             string idempotencyKey,
             CancellationToken cancellationToken = default);
     }
@@ -61,7 +61,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Creation
 
         public async Task<CreateOrderOutcome> CreateAsync(
             CreateOrderArgs args,
-            OfferDetail offer,
+            AcceptedOrderSource source,
             string idempotencyKey,
             CancellationToken cancellationToken = default)
         {
@@ -96,7 +96,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Creation
             }
 
             var ownerAirlineId = await _homeOperator.GetOwnerAirlineIdAsync(cancellationToken);
-            var order = Order.Create(args, offer, ownerAirlineId, _idGenerator, _clock);
+            var order = Order.Create(args, source, ownerAirlineId, _idGenerator, _clock);
 
             await _orders.AddAsync(order, cancellationToken);
             await _receipts.AttachOrderAsync(receipt.ReceiptId, order.Id, cancellationToken);
