@@ -1,5 +1,7 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer.Ota;
+using AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition;
+using AeroTech.Ordering.RestApi._Shared;
 using AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests;
 using Asp.Versioning;
 using MediatR;
@@ -16,11 +18,13 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
     {
         private readonly IMediator _mediator;
         private readonly IIdentityService _identity;
+        private readonly IAddProductService _addProductService;
 
-        public OtaController(IMediator mediator, IIdentityService identity)
+        public OtaController(IMediator mediator, IIdentityService identity, IAddProductService addProductService)
         {
             _mediator = mediator;
             _identity = identity;
+            _addProductService = addProductService;
         }
 
         [HttpPost("FlightOffers")]
@@ -36,5 +40,19 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
             var result = await _mediator.Send(command, cancellationToken);
             return Ok(result);
         }
+
+        [HttpPost("{orderId:long}/AddProduct")]
+        public async Task<IActionResult> AddProduct(
+            [FromRoute] long orderId,
+            [FromBody] OtaAddProductRequest request,
+            CancellationToken cancellationToken)
+            => Ok(await _addProductService.AddProductAsync(
+                orderId,
+                request.SourceReference,
+                IdempotencyKey.Require(Request),
+                request.ExpectedCommercialVersion,
+                cancellationToken));
     }
+
+    public sealed record OtaAddProductRequest(string SourceReference, int? ExpectedCommercialVersion);
 }

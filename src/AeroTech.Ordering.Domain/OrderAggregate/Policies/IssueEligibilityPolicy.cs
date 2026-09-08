@@ -22,8 +22,10 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
             if (order.CommercialSummary != CommercialSummary.Active)
                 return EligibilityDecision.Denied(EligibilityReasonCodes.OrderNotCommerciallyActive);
 
+            var required = order.RequiredElectronicTicketServiceIds().ToHashSet();
+
             var candidates = order.OrderServices
-                .Where(service => service.RequiresDocument && service.Status != OrderServiceStatus.Cancelled)
+                .Where(service => required.Contains(service.Id))
                 .ToList();
 
             if (candidates.Count == 0)

@@ -95,7 +95,9 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             if (CommercialSummary == CommercialSummary.Cancelled)
                 return OrderStatus.Cancelled;
 
-            if (_orderServices.Count > 0 && _orderServices.All(service =>
+            var ticketScope = _orderServices.Where(RequiresElectronicTicket).ToList();
+
+            if (ticketScope.Count > 0 && ticketScope.All(service =>
                     service.DocumentStatus == OrderServiceDocumentStatus.Issued
                     || service.Status == OrderServiceStatus.Cancelled))
                 return OrderStatus.Ticketed;

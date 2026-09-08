@@ -194,5 +194,19 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string HotelRoomCountMustBePositive = "A hotel stay must sell at least one room.";
         public const string HotelGuestCountMustBePositive = "A hotel stay must have at least one guest.";
         public const string GroundTransportPassengerCountMustBePositive = "A ground transport service must carry at least one passenger.";
+        public const string OrderNotEligibleForProductAddition = "Order {0} cannot accept a product addition while it is {1}.";
+        public const string ProductTypeNotSellable = "Product type '{0}' is a financial adjustment and cannot be sold as an order item.";
+        public const string AirTransportationCannotBeAdded = "Air transportation cannot be added through a product addition; itinerary changes belong to a voluntary or involuntary change.";
+        public const string ProductAdditionRequiresAService = "A product addition must create at least one service.";
+        public const string ProductAdditionReferenceNotResolved = "The accepted product addition references an unknown {0} '{1}'.";
+        public const string ProductAdditionTargetIsCancelled = "The accepted product addition targets order service {0}, which is already cancelled.";
+        public const string ProductAdditionCannotReverse = "A product addition is additive and cannot reverse pricing line {0}.";
+        public const string SeparatelyPricedServiceRequiresValue = "Order service '{0}' is marked separately priced but the accepted addition supplies no primary customer value for it.";
+        public const string ProductAdditionBasisNotSupported = "A product addition cannot price on basis '{0}'.";
+        public const string ExpectedCommercialVersionRequired = "A commercial mutation on order {0} requires the expected commercial version.";
+        public const string ProductAdditionQuantityMustBePositive = "An added order item must have a positive quantity.";
+        public const string ProductAdditionServiceRefNotUnique = "The accepted product addition repeats service reference '{0}'.";
+        public const string AcceptedProductAdditionNotUsable = "The accepted product addition '{0}' is not available or is no longer usable; a new source decision is required.";
+        public const string ProductAdditionSourceNotConfigured = "No accepted product addition source is configured for this deployment.";
     }
 }

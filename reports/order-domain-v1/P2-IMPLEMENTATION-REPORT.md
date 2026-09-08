@@ -1,7 +1,7 @@
 # P2 — Pricing, Fare Construction, Ancillary Catalogue & EMD
 
 **Repository:** `E:\Projects\DotAir\Ordering` · **Branch:** `k8s-stg` · **Started:** 2026-09-08
-Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt)
+Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.md) · Evidence: [`audit/p2/P2-TEST-RUN.txt`](audit/p2/P2-TEST-RUN.txt), [`audit/p2/P2-A.1-TEST-RUN.txt`](audit/p2/P2-A.1-TEST-RUN.txt), [`audit/p2/P2-B-TEST-RUN.txt`](audit/p2/P2-B-TEST-RUN.txt), [`audit/p2/P2-B.1-TEST-RUN.txt`](audit/p2/P2-B.1-TEST-RUN.txt), [`audit/p2/P2-C-TEST-RUN.txt`](audit/p2/P2-C-TEST-RUN.txt), [`audit/p2/P2-C.1-TEST-RUN.txt`](audit/p2/P2-C.1-TEST-RUN.txt), [`audit/p2/P2-D-TEST-RUN.txt`](audit/p2/P2-D-TEST-RUN.txt), [`audit/p2/P2-D.1-TEST-RUN.txt`](audit/p2/P2-D.1-TEST-RUN.txt), [`audit/p2/P2-E-TEST-RUN.txt`](audit/p2/P2-E-TEST-RUN.txt)
 
 | Sub-phase | Status |
 |---|---|
@@ -13,7 +13,7 @@ Entry gate: [`audit/p2/P2-ENTRY-AND-MAPPING.md`](audit/p2/P2-ENTRY-AND-MAPPING.m
 | **P2-C.1** fare construction scope resolution | **Complete — P2-C frozen** |
 | **P2-D** OrderService composition & ancillary domain | **Complete** |
 | **P2-D.1** price-treatment & referential-integrity closure | **Complete — P2-D frozen** |
-| P2-E initial sale + AddProduct | Not started |
+| **P2-E** idempotent AddProduct commercial mutation | **Complete — P2-D.1 frozen** |
 | P2-F ElectronicMiscDocument | Not started |
 | P2-G projections / APIs / events | Not started |
 | P2-H verification | Not started |
@@ -428,9 +428,61 @@ repointed or invented. `P2DServiceComposition` was not edited. The corrective st
 
 ---
 
+## P2-E — Idempotent AddProduct commercial mutation
+
+**Complete. P2-D.1 is frozen.** Full detail in
+[`P2-E-ADD-PRODUCT-REPORT.md`](P2-E-ADD-PRODUCT-REPORT.md); binding audit in
+[`audit/p2/P2-E-COMMERCIAL-MUTATION-AUDIT.md`](audit/p2/P2-E-COMMERCIAL-MUTATION-AUDIT.md).
+
+| Build / test | Result |
+|---|---|
+| `dotnet build AeroTech.Ordering.sln` | 0 errors |
+| `AeroTech.Ordering.Domain.Tests` | **399 passed**, 0 failed |
+| `AeroTech.Ordering.Persistence.Tests` | **250 passed**, 0 failed (real SQL Server) |
+| Total | **649 passed, 0 failed** (baseline 549 -> +100, zero regressions) |
+
+The first real post-creation commercial mutation. One durable idempotent operation produces exactly one
+`OrderChange(AddProduct)`, one new `OrderItem` with its product and commercial-terms snapshots, one or more new
+`OrderServices` with immutable `OrderItemServiceLinks`, and one committed `PriceChangeSet(AddProduct)` carrying
+the accepted pricing evidence - advancing `CommercialVersion` once, `FinancialSequence` once, and
+`ObligationVersion` only when `CustomerTotal` actually moves.
+
+**Atomicity.** `Order.AddProduct` follows the P2-A two-phase shape: `StageProductAddition` builds and validates
+the whole candidate - change, item, snapshots, every service with beneficiaries, typed detail and coverage,
+membership links, mapped pricing lines and allocation sets - while the aggregate is untouched;
+`AttachProductAddition` then attaches, commits, activates only the new services and versions once, with no
+validation left to fail. A rejected addition leaves every collection, cache, summary and counter identical.
+
+**Idempotency.** The P0 stack is reused unchanged (`ServicingOperationKind.AddProduct = 9` appended).
+`OrderChange.OperationId` is the persisted commercial recovery proof, and replay resolves from persisted order
+state - a fresh process retrying the same key returns the same change, item and service ids without calling the
+provider. Replay recognition runs before the expected-version check, so a retry after an unrelated later
+mutation still resolves the original addition. Migration `P2ECommercialOperationUniqueness` adds the filtered
+unique index on `OrderChanges(OrderId, OperationId)` behind a fail-closed duplicate pre-check.
+
+**Boundary.** One new semantic port, `IAcceptedProductAdditionPort`, carrying only Ordering-owned values and
+returning the Ordering-owned `AcceptedProductAddition`. The public command is just
+`OrderId + SourceReference + ExpectedCommercialVersion + Idempotency-Key`. A deterministic test double and a
+fail-closed `UnconfiguredProductAdditionProvider` are the only implementations; no fake production ancillary ACL
+was written and no sibling repository was touched.
+
+**Scope guards.** `AirTransportation` cannot be added, so no journey, segment, traveller or fare construction is
+ever created; financial pseudo-products and pseudo-services stay blocked and order-level fees remain pricing
+lines; reversals are rejected; commission and tax stay source-owned; nothing is reserved, documented or
+EMD-issued, and the existing electronic ticket is provably untouched. Bundle pricing moves the total once and
+invents no per-service allocation. `ProductType.Ancillary` was appended for honest generic categorisation.
+
+**Two defects fixed on the way.** Legacy ticketing treated every `RequiresDocument` service as one completion
+scope, so a pending EMD ancillary would have made an already ticketed air order look unticketed; completion is
+now scoped to `DocumentKind == ElectronicTicket`. And `OrderItemPolicySnapshot`, which an exhaustive search
+showed has no reader anywhere and whose every field is now owned by `OrderService`, became optional rather than
+having a false `AirTransportPolicy()` stamped on hotel or baggage items.
+
+---
+
 ## Scope
 
-P2-E, P2-F, P2-G, P2-H were not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
+P2-F, P2-G and P2-H were not started. P3 was not started. No sibling service was inspected or changed. Enum placement was not reopened. No
 `Money`, `CurrencyCode`, ExchangeRate framework, currency service, ROE engine or rounding library was
 created — the existing `ExchangeRate` value object at `decimal(28,12)` is reused unchanged. No parallel
 `PricingV2` / `OrderV2` model exists. Refund, exchange, void, split, DCS, disruption, group booking, tax

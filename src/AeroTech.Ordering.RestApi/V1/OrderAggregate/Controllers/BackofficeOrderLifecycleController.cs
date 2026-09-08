@@ -1,8 +1,10 @@
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
+using AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
 using AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrderDetails;
+using AeroTech.Ordering.RestApi._Shared;
 using Asp.Versioning;
 using MediatR;
 using Microsoft.AspNetCore.Http;
@@ -16,23 +18,24 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
     [Route($"Backoffice/v{{version:apiVersion}}/Orders")]
     public sealed class BackofficeOrderLifecycleController : ControllerBase
     {
-        private const string IdempotencyKeyHeader = "Idempotency-Key";
-
         private readonly IMediator _mediator;
         private readonly IReserveOrderService _reserveOrderService;
         private readonly IIssueOrderService _issueOrderService;
         private readonly IWithdrawOrderService _withdrawOrderService;
+        private readonly IAddProductService _addProductService;
 
         public BackofficeOrderLifecycleController(
             IMediator mediator,
             IReserveOrderService reserveOrderService,
             IIssueOrderService issueOrderService,
-            IWithdrawOrderService withdrawOrderService)
+            IWithdrawOrderService withdrawOrderService,
+            IAddProductService addProductService)
         {
             _mediator = mediator;
             _reserveOrderService = reserveOrderService;
             _issueOrderService = issueOrderService;
             _withdrawOrderService = withdrawOrderService;
+            _addProductService = addProductService;
         }
 
         [HttpGet("{orderId:long}/Details")]
@@ -50,7 +53,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             CancellationToken cancellationToken)
             => Ok(await _reserveOrderService.ReserveAsync(
                 orderId,
-                RequireIdempotencyKey(),
+                IdempotencyKey.Require(Request),
                 request.ExpectedCommercialVersion,
                 cancellationToken));
 
@@ -61,7 +64,19 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             CancellationToken cancellationToken)
             => Ok(await _issueOrderService.IssueAsync(
                 orderId,
-                RequireIdempotencyKey(),
+                IdempotencyKey.Require(Request),
+                request.ExpectedCommercialVersion,
+                cancellationToken));
+
+        [HttpPost("{orderId:long}/AddProduct")]
+        public async Task<IActionResult> AddProduct(
+            [FromRoute] long orderId,
+            [FromBody] AddProductRequest request,
+            CancellationToken cancellationToken)
+            => Ok(await _addProductService.AddProductAsync(
+                orderId,
+                request.SourceReference,
+                IdempotencyKey.Require(Request),
                 request.ExpectedCommercialVersion,
                 cancellationToken));
 
@@ -73,24 +88,10 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             => Ok(await _withdrawOrderService.WithdrawAsync(
                 orderId,
                 request.Reason,
-                RequireIdempotencyKey(),
+                IdempotencyKey.Require(Request),
                 request.ExpectedCommercialVersion,
                 cancellationToken));
 
-        private string RequireIdempotencyKey()
-        {
-            var key = Request.Headers[IdempotencyKeyHeader].ToString();
-
-            if (string.IsNullOrWhiteSpace(key))
-                throw new AeroTech.Framework.Core.Domain.Exceptions.BusinessException(
-                    2731,
-                    $"The '{IdempotencyKeyHeader}' header is required for this operation.")
-                {
-                    HttpStatus = 400
-                };
-
-            return key;
-        }
     }
 
     public sealed record ReserveOrderRequest(int? ExpectedCommercialVersion);
@@ -98,4 +99,6 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
     public sealed record IssueOrderRequest(int? ExpectedCommercialVersion);
 
     public sealed record WithdrawOrderRequest(VoidReason Reason, int? ExpectedCommercialVersion);
+
+    public sealed record AddProductRequest(string SourceReference, int? ExpectedCommercialVersion);
 }

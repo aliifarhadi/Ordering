@@ -1,6 +1,8 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.ProductAddition;
+using AeroTech.Ordering.Domain.OrderAggregate.Dto;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
@@ -61,7 +63,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 accepted.DeliveryProviderReference));
 
             AttachBeneficiaries(service, accepted, refs, idGenerator);
-            AttachDetail(service, accepted, refs, idGenerator);
+            AttachAcceptedDetail(service, accepted, refs, idGenerator);
             AttachCoverage(service, accepted, refs, idGenerator);
 
             AddOrderService(service);
@@ -106,13 +108,26 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
         private static (bool RequiresReservation, bool RequiresDocument, ServiceDocumentKind? DocumentKind) ResolveFulfillmentProfile(
             AcceptedService accepted)
+            => ResolveFulfillmentProfile(
+                accepted.Detail,
+                accepted.ServiceType,
+                accepted.RequiresReservation,
+                accepted.RequiresDocument,
+                accepted.DocumentKind);
+
+        private static (bool RequiresReservation, bool RequiresDocument, ServiceDocumentKind? DocumentKind) ResolveFulfillmentProfile(
+            AcceptedServiceDetail detail,
+            OrderServiceType serviceType,
+            bool requiresReservation,
+            bool requiresDocument,
+            ServiceDocumentKind? documentKind)
         {
-            if (accepted.Detail is not AcceptedGenericServiceDetail generic)
-                return (accepted.RequiresReservation, accepted.RequiresDocument, accepted.DocumentKind);
+            if (detail is not AcceptedGenericServiceDetail generic)
+                return (requiresReservation, requiresDocument, documentKind);
 
             var schema = GenericServiceSchemaRegistry.Resolve(generic.SchemaName, generic.SchemaVersion);
 
-            EnsureDetailMatchesType(accepted.ServiceType, schema.ServiceType);
+            EnsureDetailMatchesType(serviceType, schema.ServiceType);
             GenericServiceSchemaRegistry.EnsureAttributesAreValid(schema, generic.AttributesJson);
 
             return (schema.RequiresReservation, schema.RequiresDocument, schema.DocumentKind);
@@ -176,20 +191,39 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             }
         }
 
-        private void AttachDetail(
+        private void AttachAcceptedDetail(
             OrderService service,
             AcceptedService accepted,
             AcceptedSourceRefMap refs,
             IIdGenerator idGenerator)
         {
-            switch (accepted.Detail)
+            var targets = accepted.Detail switch
+            {
+                AcceptedAirTransportDetail air => new ResolvedServiceDetailTargets(SegmentId: ResolveSegment(air.SegmentRef, refs)),
+                AcceptedSeatDetail seat => new ResolvedServiceDetailTargets(AirServiceId: ResolveAirService(seat.AirServiceRef, refs)),
+                AcceptedLoungeDetail lounge => new ResolvedServiceDetailTargets(
+                    AirServiceId: lounge.RelatedAirServiceRef is { } relatedRef ? ResolveAirService(relatedRef, refs) : null),
+                _ => new ResolvedServiceDetailTargets()
+            };
+
+            AttachDetail(service, accepted.ServiceType, accepted.Detail, targets, idGenerator);
+        }
+
+        private static void AttachDetail(
+            OrderService service,
+            OrderServiceType serviceType,
+            AcceptedServiceDetail detail,
+            ResolvedServiceDetailTargets targets,
+            IIdGenerator idGenerator)
+        {
+            switch (detail)
             {
                 case AcceptedAirTransportDetail air:
-                    EnsureDetailMatchesType(accepted.ServiceType, OrderServiceType.AirTransportation);
+                    EnsureDetailMatchesType(serviceType, OrderServiceType.AirTransportation);
                     service.AttachAirTransport(new OrderAirTransportServiceDetail(
                         idGenerator.NewId(),
                         service.Id,
-                        ResolveSegment(air.SegmentRef, refs),
+                        targets.SegmentId!.Value,
                         air.TransitionalFareBasis,
                         air.RequestedSeat,
                         BaggageOf(air.TransitionalCheckedBaggage),
@@ -197,16 +231,25 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     break;
 
                 case AcceptedSeatDetail seat:
-                    EnsureDetailMatchesType(accepted.ServiceType, OrderServiceType.SeatAssignment);
+                    EnsureDetailMatchesType(serviceType, OrderServiceType.SeatAssignment);
                     service.AttachSeat(new OrderSeatServiceDetail(
                         idGenerator.NewId(),
                         service.Id,
-                        ResolveAirService(seat.AirServiceRef, refs),
+                        targets.AirServiceId!.Value,
                         seat.SoldSeatNumber));
                     break;
 
+                case AcceptedAddedSeatDetail addedSeat:
+                    EnsureDetailMatchesType(serviceType, OrderServiceType.SeatAssignment);
+                    service.AttachSeat(new OrderSeatServiceDetail(
+                        idGenerator.NewId(),
+                        service.Id,
+                        targets.AirServiceId!.Value,
+                        addedSeat.SoldSeatNumber));
+                    break;
+
                 case AcceptedBaggageDetail baggage:
-                    EnsureDetailMatchesType(accepted.ServiceType, OrderServiceType.BaggageAllowance);
+                    EnsureDetailMatchesType(serviceType, OrderServiceType.BaggageAllowance);
                     service.AttachBaggage(new OrderBaggageServiceDetail(
                         idGenerator.NewId(),
                         service.Id,
@@ -218,7 +261,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     break;
 
                 case AcceptedMealDetail meal:
-                    EnsureDetailMatchesType(accepted.ServiceType, OrderServiceType.Meal);
+                    EnsureDetailMatchesType(serviceType, OrderServiceType.Meal);
                     service.AttachMeal(new OrderMealServiceDetail(
                         idGenerator.NewId(),
                         service.Id,
@@ -228,7 +271,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     break;
 
                 case AcceptedLoungeDetail lounge:
-                    EnsureDetailMatchesType(accepted.ServiceType, OrderServiceType.LoungeAccess);
+                    EnsureDetailMatchesType(serviceType, OrderServiceType.LoungeAccess);
                     service.AttachLounge(new OrderLoungeServiceDetail(
                         idGenerator.NewId(),
                         service.Id,
@@ -237,11 +280,24 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                         lounge.AccessStart,
                         lounge.AccessEnd,
                         lounge.GuestCount,
-                        lounge.RelatedAirServiceRef is { } relatedRef ? ResolveAirService(relatedRef, refs) : null));
+                        targets.AirServiceId));
+                    break;
+
+                case AcceptedAddedLoungeDetail addedLounge:
+                    EnsureDetailMatchesType(serviceType, OrderServiceType.LoungeAccess);
+                    service.AttachLounge(new OrderLoungeServiceDetail(
+                        idGenerator.NewId(),
+                        service.Id,
+                        addedLounge.AirportId,
+                        addedLounge.LoungeCode,
+                        addedLounge.AccessStart,
+                        addedLounge.AccessEnd,
+                        addedLounge.GuestCount,
+                        targets.AirServiceId));
                     break;
 
                 case AcceptedHotelDetail hotel:
-                    EnsureDetailMatchesType(accepted.ServiceType, OrderServiceType.HotelStay);
+                    EnsureDetailMatchesType(serviceType, OrderServiceType.HotelStay);
                     service.AttachHotel(new OrderHotelServiceDetail(
                         idGenerator.NewId(),
                         service.Id,
@@ -256,7 +312,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     break;
 
                 case AcceptedGroundTransportDetail ground:
-                    EnsureDetailMatchesType(accepted.ServiceType, OrderServiceType.GroundTransport);
+                    EnsureDetailMatchesType(serviceType, OrderServiceType.GroundTransport);
                     service.AttachGroundTransport(new OrderGroundTransportServiceDetail(
                         idGenerator.NewId(),
                         service.Id,
@@ -277,7 +333,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     break;
 
                 default:
-                    throw ExceptionFactory.ServiceDetailNotSupported(accepted.ServiceType);
+                    throw ExceptionFactory.ServiceDetailNotSupported(serviceType);
             }
         }
 

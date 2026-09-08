@@ -63,7 +63,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             Assert.NotNull(order.ActiveTimeLimit(TimeLimitType.Ticketing));
             Assert.NotNull(order.TimeToLive);
-            Assert.False(order.IsTicketingComplete());
+            Assert.False(order.IsElectronicTicketingComplete());
 
             var blocking = await verification.Set<OperationOrderClaim>()
                 .AsNoTracking()
@@ -95,7 +95,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             {
                 var order = await LoadOrderAsync(midway, context.OrderId);
                 Assert.NotNull(order.ActiveTimeLimit(TimeLimitType.Ticketing));
-                Assert.False(order.IsTicketingComplete());
+                Assert.False(order.IsElectronicTicketingComplete());
             }
 
             harness.Documents.RecoveryForTraveler(context.TravelerB, ProviderOperationOutcome.Confirmed);
@@ -118,7 +118,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             var completed = await LoadOrderAsync(verification, context.OrderId);
 
-            Assert.True(completed.IsTicketingComplete());
+            Assert.True(completed.IsElectronicTicketingComplete());
             Assert.All(completed.OrderServices, service =>
                 Assert.Equal(OrderServiceDocumentStatus.Issued, service.DocumentStatus));
             Assert.Null(completed.ActiveTimeLimit(TimeLimitType.Ticketing));

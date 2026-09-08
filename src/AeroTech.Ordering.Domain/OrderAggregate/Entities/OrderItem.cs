@@ -15,7 +15,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 
         public OrderItem(
             CreateOrderItemArgs args,
-            OrderItemPolicySnapshot policySnapshot,
+            OrderItemPolicySnapshot? policySnapshot,
             OrderItemProductSnapshot productSnapshot,
             OrderItemCommercialTermsSnapshot commercialTermsSnapshot)
         {
@@ -56,7 +56,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 
         public OrderItemFinancialStatus FinancialStatus { get; private set; }
 
-        public OrderItemPolicySnapshot PolicySnapshot { get; private set; } = default!;
+        public OrderItemPolicySnapshot? PolicySnapshot { get; private set; }
 
         public OrderItemProductSnapshot ProductSnapshot { get; private set; } = default!;
 
@@ -75,7 +75,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
         {
             var copy = new OrderItem(
                 new CreateOrderItemArgs(newId, newOrderId, ProductType, ProductCode, ProductName, Quantity, UnitOfMeasure, CreationDate),
-                PolicySnapshot.CopyTo(idGenerator.NewId(), newId),
+                PolicySnapshot?.CopyTo(idGenerator.NewId(), newId),
                 ProductSnapshot.CopyTo(idGenerator.NewId(), newId),
                 CommercialTermsSnapshot.CopyTo(idGenerator.NewId(), newId));
 

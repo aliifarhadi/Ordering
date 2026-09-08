@@ -480,6 +480,50 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException GroundTransportPassengerCountMustBePositive() =>
             new(2838, ExceptionMessages.GroundTransportPassengerCountMustBePositive) { HttpStatus = 422 };
 
+
+        // P2-E product addition: 2850-2879
+        public static BusinessException OrderNotEligibleForProductAddition(params object?[] args) =>
+            new(2850, ExceptionMessages.OrderNotEligibleForProductAddition, args) { HttpStatus = 409 };
+
+        public static BusinessException ProductTypeNotSellable(params object?[] args) =>
+            new(2851, ExceptionMessages.ProductTypeNotSellable, args) { HttpStatus = 422 };
+
+        public static BusinessException AirTransportationCannotBeAdded() =>
+            new(2852, ExceptionMessages.AirTransportationCannotBeAdded) { HttpStatus = 422 };
+
+        public static BusinessException ProductAdditionCannotReverse(params object?[] args) =>
+            new(2853, ExceptionMessages.ProductAdditionCannotReverse, args) { HttpStatus = 422 };
+
+        public static BusinessException SeparatelyPricedServiceRequiresValue(params object?[] args) =>
+            new(2854, ExceptionMessages.SeparatelyPricedServiceRequiresValue, args) { HttpStatus = 422 };
+
+        public static BusinessException ProductAdditionRequiresAService() =>
+            new(2855, ExceptionMessages.ProductAdditionRequiresAService) { HttpStatus = 422 };
+
+        public static BusinessException ExpectedCommercialVersionRequired(params object?[] args) =>
+            new(2856, ExceptionMessages.ExpectedCommercialVersionRequired, args) { HttpStatus = 400 };
+
+        public static BusinessException ProductAdditionBasisNotSupported(params object?[] args) =>
+            new(2857, ExceptionMessages.ProductAdditionBasisNotSupported, args) { HttpStatus = 422 };
+
+        public static BusinessException ProductAdditionReferenceNotResolved(params object?[] args) =>
+            new(2858, ExceptionMessages.ProductAdditionReferenceNotResolved, args) { HttpStatus = 422 };
+
+        public static BusinessException ProductAdditionTargetIsCancelled(params object?[] args) =>
+            new(2859, ExceptionMessages.ProductAdditionTargetIsCancelled, args) { HttpStatus = 409 };
+
+        public static BusinessException ProductAdditionQuantityMustBePositive() =>
+            new(2860, ExceptionMessages.ProductAdditionQuantityMustBePositive) { HttpStatus = 422 };
+
+        public static BusinessException ProductAdditionServiceRefNotUnique(params object?[] args) =>
+            new(2861, ExceptionMessages.ProductAdditionServiceRefNotUnique, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedProductAdditionNotUsable(params object?[] args) =>
+            new(2862, ExceptionMessages.AcceptedProductAdditionNotUsable, args) { HttpStatus = 409 };
+
+        public static BusinessException ProductAdditionSourceNotConfigured() =>
+            new(2863, ExceptionMessages.ProductAdditionSourceNotConfigured) { HttpStatus = 501 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

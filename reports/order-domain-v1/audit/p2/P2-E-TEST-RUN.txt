@@ -1,0 +1,41 @@
+﻿P2-E - Idempotent AddProduct commercial mutation
+Repository: E:\Projects\DotAir\Ordering   Branch: k8s-stg   Date: 2026-09-08
+Baseline entering P2-E: 549 passed / 0 failed (324 domain + 225 persistence), commit 853e2db
+
+=== dotnet ef database update (DotAirOrderNew) ===
+20260908_P2ECommercialOperationUniqueness applied; duplicate (OrderId, OperationId) pre-check raised nothing.
+
+=== dotnet build AeroTech.Ordering.sln ===
+
+    33 Warning(s)
+    0 Error(s)
+
+
+
+=== dotnet test AeroTech.Ordering.Domain.Tests ===
+
+Passed!  - Failed:     0, Passed:   399, Skipped:     0, Total:   399, Duration: 580 ms - 
+AeroTech.Ordering.Domain.Tests.dll (net10.0)
+
+
+
+=== dotnet test AeroTech.Ordering.Persistence.Tests (real SQL Server) ===
+
+Passed!  - Failed:     0, Passed:   250, Skipped:     0, Total:   250, Duration: 45 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+
+
+TOTAL: 649 passed / 0 failed  (baseline 549 -> +100, zero regressions)
+
+=== new P2-E test classes ===
+
+Passed!  - Failed:     0, Passed:    75, Skipped:     0, Total:    75, Duration: 422 ms - 
+AeroTech.Ordering.Domain.Tests.dll (net10.0)
+
+
+
+Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: 17 s - 
+AeroTech.Ordering.Persistence.Tests.dll (net10.0)
+
+

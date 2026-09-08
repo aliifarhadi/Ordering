@@ -129,10 +129,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
 
             order.RecordIssuedDocuments(DocumentEvidenceFrom(orderTickets));
 
-            var requiredServiceIds = order.OrderServices
-                .Where(service => service.RequiresDocument && service.Status != OrderServiceStatus.Cancelled)
-                .Select(service => service.Id)
-                .ToHashSet();
+            var requiredServiceIds = order.RequiredElectronicTicketServiceIds().ToHashSet();
 
             var documentedServiceIds = orderTickets
                 .SelectMany(ticket => ticket.Coupons)

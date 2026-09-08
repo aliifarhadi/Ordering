@@ -25,11 +25,13 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             AcceptedPriceChangeArgs change,
             IIdGenerator idGenerator,
             DateTimeOffset now)
-        {
-            if (change.Lines.Count == 0)
-                throw ExceptionFactory.PriceChangeSetRequiresLines();
+            => StagePriceChange(StageOrderChange(change, idGenerator, now), change, idGenerator, now);
 
-            var orderChange = new OrderChange(new CreateOrderChangeArgs(
+        private OrderChange StageOrderChange(
+            AcceptedPriceChangeArgs change,
+            IIdGenerator idGenerator,
+            DateTimeOffset now)
+            => new(new CreateOrderChangeArgs(
                 idGenerator.NewId(),
                 Id,
                 change.ChangeType,
@@ -40,6 +42,15 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 change.ActorScope,
                 change.ActorId,
                 change.OperationId));
+
+        private StagedPriceChange StagePriceChange(
+            OrderChange orderChange,
+            AcceptedPriceChangeArgs change,
+            IIdGenerator idGenerator,
+            DateTimeOffset now)
+        {
+            if (change.Lines.Count == 0)
+                throw ExceptionFactory.PriceChangeSetRequiresLines();
 
             var changeSet = new OrderPriceChangeSet(new CreateOrderPriceChangeSetArgs(
                 idGenerator.NewId(),

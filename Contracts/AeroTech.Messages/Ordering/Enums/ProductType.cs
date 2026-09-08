@@ -19,7 +19,8 @@ namespace AeroTech.Messages.Ordering.Enums
         [Display(Name = "Credit")] Credit ,
         [Display(Name = "Voucher")] Voucher ,
         [Display(Name = "Tax Adjustment")] TaxAdjustment ,
-        [Display(Name = "Manual Adjustment")] ManualAdjustment 
-    
+        [Display(Name = "Manual Adjustment")] ManualAdjustment ,
+        [Display(Name = "Ancillary")] Ancillary
+
     }
 }

@@ -58,18 +58,36 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 .Select(service => service.Id)
                 .ToList();
 
+        public IReadOnlyCollection<long> RequiredElectronicTicketServiceIds()
+            => _orderServices
+                .Where(RequiresElectronicTicket)
+                .Where(service => service.Status != OrderServiceStatus.Cancelled)
+                .Select(service => service.Id)
+                .ToList();
+
         public IReadOnlyCollection<long> DocumentedServiceIds()
             => _orderServices
                 .Where(service => service.DocumentStatus == OrderServiceDocumentStatus.Issued)
                 .Select(service => service.Id)
                 .ToList();
 
-        public bool IsTicketingComplete()
-        {
-            var required = RequiredDocumentServiceIds();
+        public IReadOnlyCollection<long> DocumentedElectronicTicketServiceIds()
+            => _orderServices
+                .Where(RequiresElectronicTicket)
+                .Where(service => service.DocumentStatus == OrderServiceDocumentStatus.Issued)
+                .Select(service => service.Id)
+                .ToList();
 
-            return required.Count > 0 && required.All(id => DocumentedServiceIds().Contains(id));
+        public bool IsElectronicTicketingComplete()
+        {
+            var required = RequiredElectronicTicketServiceIds();
+            var documented = DocumentedElectronicTicketServiceIds();
+
+            return required.Count > 0 && required.All(documented.Contains);
         }
+
+        internal static bool RequiresElectronicTicket(Entities.OrderService service)
+            => service.RequiresDocument && service.DocumentKind == ServiceDocumentKind.ElectronicTicket;
 
         public void RecordIssuedDocuments(IReadOnlyCollection<IssuedServiceDocument> documents)
         {
@@ -84,7 +102,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
         public void CompleteTicketing(IClock clock)
         {
-            if (!IsTicketingComplete())
+            if (!IsElectronicTicketingComplete())
                 return;
 
             MeetTimeLimit(TimeLimitType.Ticketing, clock);

@@ -3,6 +3,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
+using AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
 using AeroTech.Messages.Ordering.Enums;
@@ -51,6 +52,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Reservation = new DeterministicReservationAdapter();
             Funding = new DeterministicFundingCoverageAdapter();
             Documents = new DeterministicDocumentIssuanceAdapter();
+            ProductAdditions = new DeterministicProductAdditionAdapter();
 
             var homeOperator = new ReferenceDataHomeOperatorProvider(_reference);
             var frameworkClock = new OrderingDatabaseFixture.FixedClock();
@@ -92,6 +94,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Issue = new IssueOrderService(Orders, reservations, tickets, stocks, Funding, Documents, coordinator, operationStore, receipts, homeOperator, unitOfWork, Ids, frameworkClock, projector, options);
             Create = new CreateOrderService(Orders, receipts, coordinator, unitOfWork, Ids, frameworkClock, projector, homeOperator);
             Withdraw = new WithdrawOrderService(Orders, reservations, tickets, Reservation, Funding, coordinator, new StubIdentity(), unitOfWork, Ids, frameworkClock, projector);
+            AddProduct = new AddProductService(Orders, ProductAdditions, coordinator, caller, unitOfWork, Ids, frameworkClock, projector);
         }
 
         public SequentialIdGenerator Ids { get; }
@@ -103,6 +106,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicFundingCoverageAdapter Funding { get; }
 
         public DeterministicDocumentIssuanceAdapter Documents { get; }
+
+        public DeterministicProductAdditionAdapter ProductAdditions { get; }
 
         public OrderRepository Orders { get; }
 
@@ -121,6 +126,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public IIssueOrderService Issue { get; }
 
         public IWithdrawOrderService Withdraw { get; }
+
+        public IAddProductService AddProduct { get; }
 
         public ICreateOrderService Create { get; }
 

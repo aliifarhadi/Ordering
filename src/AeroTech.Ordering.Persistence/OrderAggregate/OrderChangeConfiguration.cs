@@ -16,6 +16,10 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.Property(change => change.ActorScope).HasMaxLength(512);
 
             builder.HasIndex(change => new { change.OrderId, change.OccurredAt });
+
+            builder.HasIndex(change => new { change.OrderId, change.OperationId })
+                .IsUnique()
+                .HasFilter("[OperationId] IS NOT NULL");
         }
     }
 }

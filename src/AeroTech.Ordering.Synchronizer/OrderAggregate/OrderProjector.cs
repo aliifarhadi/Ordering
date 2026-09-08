@@ -31,11 +31,26 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                 .Include(candidate => candidate.Travellers)
                 .Include(candidate => candidate.Segments)
                 .Include(candidate => candidate.Itineraries)
-                .Include(candidate => candidate.Items)
-                .Include(candidate => candidate.OrderServices)
+                .Include(candidate => candidate.Items).ThenInclude(item => item.ProductSnapshot)
+                .Include(candidate => candidate.Items).ThenInclude(item => item.CommercialTermsSnapshot)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.Beneficiaries)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.CoveredServices)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.CoveredSegments)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.AirTransportDetail)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.SeatDetail)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.BaggageDetail)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.MealDetail)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.LoungeDetail)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.HotelDetail)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.GroundTransportDetail)
+                .Include(candidate => candidate.OrderServices).ThenInclude(service => service.GenericDetail)
+                .Include(candidate => candidate.ItemServiceLinks)
+                .Include(candidate => candidate.Changes)
+                .Include(candidate => candidate.PriceChangeSets)
                 .Include(candidate => candidate.PricingLines)
                 .Include(candidate => candidate.TimeLimits)
                 .Include(candidate => candidate.ExternalReferences)
+                .AsSplitQuery()
                 .SingleOrDefaultAsync(candidate => candidate.Id == orderId, cancellationToken);
 
             if (order is null)
@@ -259,7 +274,33 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                     item.Id,
                     item.ProductType,
                     item.ProductCode,
+                    item.ProductName,
+                    item.Quantity,
+                    item.UnitOfMeasure,
                     item.CommercialStatus,
+                    ProductSnapshot = item.ProductSnapshot is null ? null : new
+                    {
+                        item.ProductSnapshot.ProductType,
+                        item.ProductSnapshot.SourceSystem,
+                        item.ProductSnapshot.SourceOfferId,
+                        item.ProductSnapshot.SourceProductReference,
+                        item.ProductSnapshot.SourcePricingReference,
+                        item.ProductSnapshot.ProductCode,
+                        item.ProductSnapshot.ProductName,
+                        item.ProductSnapshot.BrandCode,
+                        item.ProductSnapshot.BrandName,
+                        item.ProductSnapshot.SupplierCode,
+                        item.ProductSnapshot.AcceptedAt
+                    },
+                    CommercialTerms = item.CommercialTermsSnapshot is null ? null : new
+                    {
+                        item.CommercialTermsSnapshot.RefundabilitySummary,
+                        item.CommercialTermsSnapshot.ChangeabilitySummary,
+                        item.CommercialTermsSnapshot.UpgradeEligibilitySummary,
+                        item.CommercialTermsSnapshot.SourceSystem,
+                        item.CommercialTermsSnapshot.SourcePolicyReference,
+                        item.CommercialTermsSnapshot.TermsCapturedAt
+                    },
                     Services = order.OrderServices
                         .Where(service => service.OrderItemId == item.Id)
                         .Select(service => new
@@ -302,6 +343,40 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                             service.TicketCouponId
                         })
                 }),
+                Changes = order.Changes
+                    .OrderBy(change => change.OccurredAt)
+                    .ThenBy(change => change.Id)
+                    .Select(change => new
+                    {
+                        change.Id,
+                        change.ChangeType,
+                        change.Source,
+                        change.OperationId,
+                        change.OccurredAt,
+                        Items = order.ItemServiceLinks
+                            .Where(link => link.LinkedByChangeId == change.Id)
+                            .Select(link => link.OrderItemId)
+                            .Distinct()
+                            .ToList(),
+                        Services = order.ItemServiceLinks
+                            .Where(link => link.LinkedByChangeId == change.Id)
+                            .Select(link => link.OrderServiceId)
+                            .ToList()
+                    }),
+                PriceChangeSets = order.PriceChangeSets
+                    .OrderBy(set => set.FinancialSequence)
+                    .Select(set => new
+                    {
+                        set.Id,
+                        set.ChangeId,
+                        set.FinancialSequence,
+                        set.Reason,
+                        set.Source,
+                        set.CommittedAt,
+                        Impact = order.PricingLines
+                            .Where(line => line.PriceChangeSetId == set.Id && line.AffectsCustomerBalance)
+                            .Sum(line => line.SignedSaleAmount)
+                    }),
                 Reservations = reservations.Select(reservation => new
                 {
                     reservation.Id,

@@ -8,7 +8,9 @@ using AeroTech.Ordering.Providers.Payment.Services;
 using AeroTech.Ordering.Providers.Payment.Options;
 using AeroTech.Ordering.Domain.Ports.DocumentIssuance;
 using AeroTech.Ordering.Domain.Ports.Funding;
+using AeroTech.Ordering.Domain.Ports.ProductAddition;
 using AeroTech.Ordering.Domain.Ports.Reservation;
+using AeroTech.Ordering.Providers.ProductAddition.Services;
 using AeroTech.Ordering.Providers.Pricing.Services;
 using AeroTech.Ordering.Providers.Testing;
 using Microsoft.Extensions.Configuration;
@@ -56,6 +58,12 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<IReservationPort>(provider => provider.GetRequiredService<DeterministicReservationAdapter>());
                 services.AddScoped<IFundingCoveragePort>(provider => provider.GetRequiredService<DeterministicFundingCoverageAdapter>());
                 services.AddScoped<IDocumentIssuancePort>(provider => provider.GetRequiredService<DeterministicDocumentIssuanceAdapter>());
+                services.AddSingleton<DeterministicProductAdditionAdapter>();
+                services.AddScoped<IAcceptedProductAdditionPort>(provider => provider.GetRequiredService<DeterministicProductAdditionAdapter>());
+            }
+            else
+            {
+                services.AddScoped<IAcceptedProductAdditionPort, UnconfiguredProductAdditionProvider>();
             }
 
             return services;

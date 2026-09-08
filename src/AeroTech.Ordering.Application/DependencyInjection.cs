@@ -11,6 +11,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Services.Expiry;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Payment;
+using AeroTech.Ordering.Application.OrderAggregate.Services.ProductAddition;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Split;
 using AeroTech.Ordering.Application.TrafficDocumentAggregate;
@@ -79,6 +80,7 @@ namespace AeroTech.Ordering.Application
             services.AddScoped<IReserveOrderService, ReserveOrderService>();
             services.AddScoped<IIssueOrderService, IssueOrderService>();
             services.AddScoped<IWithdrawOrderService, WithdrawOrderService>();
+            services.AddScoped<IAddProductService, AddProductService>();
 
             return services;
         }

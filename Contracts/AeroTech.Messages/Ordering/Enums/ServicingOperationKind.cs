@@ -26,6 +26,9 @@ namespace AeroTech.Messages.Ordering.Enums
         Split = 7,
 
         [Display(Name = "EXPIRE")]
-        Expire = 8
+        Expire = 8,
+
+        [Display(Name = "ADD PRODUCT")]
+        AddProduct = 9
     }
 }
