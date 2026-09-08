@@ -137,7 +137,9 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 if (allocations.Count > 0)
                 {
                     saleAmount = allocations.Sum(allocation => allocation.SaleAmount);
-                    originalAmount = allocations.Sum(allocation => allocation.OriginalAmount ?? 0m);
+                    originalAmount = allocations.All(allocation => allocation.OriginalAmount.HasValue)
+                        ? allocations.Sum(allocation => allocation.OriginalAmount!.Value)
+                        : DefensibleOriginalAmount(line, saleAmount);
                     originalAllocationId = allocations.Count == 1 ? allocations[0].Id : null;
                 }
                 else if (line.BasisType == PricingBasisType.OrderService
@@ -164,12 +166,17 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             return CommitReversals(reversals, changeType, reason, occurredAt, idGenerator);
         }
 
+        private static decimal DefensibleOriginalAmount(OrderPricingLine line, decimal saleAmount)
+            => line.ExchangeRate is null && line.OriginalCurrencyId == line.SaleCurrencyId
+                ? saleAmount
+                : 0m;
+
         private IEnumerable<OrderPricingLine> ReversibleLines()
             => _pricingLines.Where(line => line.LineRole == PricingLineRole.Original).ToList();
 
         private decimal OutstandingSaleOf(OrderPricingLine line) => line.SaleAmount - ReversedSaleAmount(line.Id);
 
-        private decimal OutstandingOriginalOf(OrderPricingLine line) => line.OriginalAmount - ReversedOriginalAmount(line.Id);
+        private decimal OutstandingOriginalOf(OrderPricingLine line) => line.OriginalAmount - ReversedOriginalAmount(line.Id, []);
 
         private static AcceptedPricingLineArgs ReversalOf(
             OrderPricingLine line,

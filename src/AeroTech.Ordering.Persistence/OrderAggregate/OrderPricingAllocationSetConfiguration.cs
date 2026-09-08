@@ -13,6 +13,8 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.Property(set => set.Id).ValueGeneratedNever();
             builder.Property(set => set.PricingContextRef).HasMaxLength(256);
             builder.Property(set => set.PolicyVersion).HasMaxLength(64);
+            builder.Property(set => set.ResidualSaleAmount).HasPrecision(18, 2);
+            builder.Property(set => set.ResidualOriginalAmount).HasPrecision(18, 2);
 
             builder.HasIndex(set => new { set.OrderPricingLineId, set.Purpose, set.Version }).IsUnique();
 

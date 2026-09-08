@@ -55,6 +55,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             BasisType = args.BasisType;
             BasisReferenceId = args.BasisReferenceId;
             SourceLineRef = args.SourceLineRef;
+            OccurrenceKey = args.OccurrenceKey;
             OriginalPricingLineId = args.OriginalPricingLineId;
             OriginalAllocationId = args.OriginalAllocationId;
             TransferGroupId = args.TransferGroupId;
@@ -109,6 +110,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
         public long? BasisReferenceId { get; private set; }
 
         public string? SourceLineRef { get; private set; }
+
+        public string? OccurrenceKey { get; private set; }
 
         public long? OriginalPricingLineId { get; private set; }
 

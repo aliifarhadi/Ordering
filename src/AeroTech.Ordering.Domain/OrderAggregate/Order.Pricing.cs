@@ -19,11 +19,15 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             => CommitPriceChange(change, idGenerator, clock.GetDateTime());
 
         public OrderPriceChangeSet CommitPriceChange(AcceptedPriceChangeArgs change, IIdGenerator idGenerator, DateTimeOffset now)
+            => AttachPriceChange(StagePriceChange(change, idGenerator, now), now);
+
+        private StagedPriceChange StagePriceChange(
+            AcceptedPriceChangeArgs change,
+            IIdGenerator idGenerator,
+            DateTimeOffset now)
         {
             if (change.Lines.Count == 0)
                 throw ExceptionFactory.PriceChangeSetRequiresLines();
-
-            var totalBefore = CustomerTotal;
 
             var orderChange = new OrderChange(new CreateOrderChangeArgs(
                 idGenerator.NewId(),
@@ -37,15 +41,11 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 change.ActorId,
                 change.OperationId));
 
-            _changes.Add(orderChange);
-
-            FinancialSequence++;
-
             var changeSet = new OrderPriceChangeSet(new CreateOrderPriceChangeSetArgs(
                 idGenerator.NewId(),
                 Id,
                 orderChange.Id,
-                FinancialSequence,
+                FinancialSequence + 1,
                 CommercialVersion,
                 change.Reason,
                 change.Source,
@@ -53,30 +53,44 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 change.SourceOfferId,
                 change.SourcePricingRef));
 
-            _priceChangeSets.Add(changeSet);
+            var staged = new List<OrderPricingLine>();
 
             foreach (var accepted in change.Lines)
-                AppendPricingLine(changeSet, accepted, now, idGenerator);
+                staged.Add(StagePricingLine(changeSet, accepted, staged, now, idGenerator));
 
-            changeSet.Commit(now);
+            return new StagedPriceChange(orderChange, changeSet, staged);
+        }
+
+        private OrderPriceChangeSet AttachPriceChange(StagedPriceChange staged, DateTimeOffset now)
+        {
+            var totalBefore = CustomerTotal;
+
+            _changes.Add(staged.Change);
+            _priceChangeSets.Add(staged.ChangeSet);
+            _pricingLines.AddRange(staged.Lines);
+
+            FinancialSequence = staged.ChangeSet.FinancialSequence;
+
+            staged.ChangeSet.Commit(now);
 
             RecomputeAmountCache();
 
             if (CustomerTotal != totalBefore)
                 AdvanceObligationVersion();
 
-            return changeSet;
+            return staged.ChangeSet;
         }
 
-        private void AppendPricingLine(
+        private OrderPricingLine StagePricingLine(
             OrderPriceChangeSet changeSet,
             AcceptedPricingLineArgs accepted,
+            IReadOnlyList<OrderPricingLine> staged,
             DateTimeOffset now,
             IIdGenerator idGenerator)
         {
-            EnsureSourceLineNotAlreadyAccepted(accepted.SourceLineRef);
+            EnsureSourceOccurrenceIsUnique(accepted, staged);
             EnsureSaleCurrencyIsCoherent(accepted);
-            EnsureReversalIsBounded(accepted);
+            EnsureReversalIsWellFormed(accepted, staged);
 
             var line = new OrderPricingLine(new CreateOrderPricingLineArgs(
                 idGenerator.NewId(),
@@ -103,6 +117,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 accepted.UnitPrice,
                 accepted.BasisReferenceId,
                 accepted.SourceLineRef,
+                accepted.OccurrenceKey,
                 accepted.OriginalPricingLineId,
                 accepted.OriginalAllocationId,
                 accepted.TransferGroupId,
@@ -113,12 +128,12 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 accepted.SettlementCategory));
 
             foreach (var acceptedSet in accepted.AllocationSets ?? [])
-                AppendAllocationSet(line, acceptedSet, now, idGenerator);
+                StageAllocationSet(line, acceptedSet, now, idGenerator);
 
-            _pricingLines.Add(line);
+            return line;
         }
 
-        private void AppendAllocationSet(
+        private void StageAllocationSet(
             OrderPricingLine line,
             AcceptedPricingAllocationSetArgs acceptedSet,
             DateTimeOffset now,
@@ -156,16 +171,19 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     allocation.ExchangeRate,
                     allocation.OriginalAllocationId));
 
-            set.EnsureReconciles(line.SaleAmount, line.SaleCurrencyId);
+            set.EnsureReconciles(line.SaleAmount, line.SaleCurrencyId, line.OriginalAmount, line.OriginalCurrencyId);
         }
 
-        private void EnsureSourceLineNotAlreadyAccepted(string? sourceLineRef)
+        private static void EnsureSourceOccurrenceIsUnique(
+            AcceptedPricingLineArgs accepted,
+            IReadOnlyList<OrderPricingLine> staged)
         {
-            if (string.IsNullOrWhiteSpace(sourceLineRef))
+            if (string.IsNullOrWhiteSpace(accepted.SourceLineRef))
                 return;
 
-            if (_pricingLines.Any(line => line.SourceLineRef == sourceLineRef))
-                throw ExceptionFactory.DuplicateSourceLineReference(sourceLineRef);
+            if (staged.Any(line => line.SourceLineRef == accepted.SourceLineRef
+                                   && line.OccurrenceKey == accepted.OccurrenceKey))
+                throw ExceptionFactory.DuplicateSourceOccurrence(accepted.SourceLineRef, accepted.OccurrenceKey ?? "-");
         }
 
         private void EnsureSaleCurrencyIsCoherent(AcceptedPricingLineArgs accepted)
@@ -174,7 +192,9 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 throw ExceptionFactory.CustomerBalanceCurrencyMismatch(accepted.SaleCurrencyId, CurrencyId);
         }
 
-        private void EnsureReversalIsBounded(AcceptedPricingLineArgs accepted)
+        private void EnsureReversalIsWellFormed(
+            AcceptedPricingLineArgs accepted,
+            IReadOnlyList<OrderPricingLine> staged)
         {
             if (accepted.LineRole != PricingLineRole.Reversal)
                 return;
@@ -185,6 +205,9 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             var original = _pricingLines.FirstOrDefault(line => line.Id == originalId)
                 ?? throw ExceptionFactory.OriginalPricingLineNotFound(originalId);
 
+            if (original.LineRole == PricingLineRole.Reversal)
+                throw ExceptionFactory.ReversalCannotReverseAReversal(originalId);
+
             if (original.ComponentType != accepted.ComponentType
                 || original.Effect != accepted.Effect
                 || original.SaleCurrencyId != accepted.SaleCurrencyId
@@ -192,26 +215,43 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 || accepted.Direction != PricingComponentPolicy.Opposite(original.Direction))
                 throw ExceptionFactory.ReversalMustOpposeOriginal(originalId);
 
-            var outstandingSale = original.SaleAmount - ReversedSaleAmount(originalId);
+            if (original.ExchangeRate is not null && !original.ExchangeRate.Equals(accepted.ExchangeRate))
+                throw ExceptionFactory.ReversalMustPreserveConversionProvenance(originalId);
+
+            var outstandingSale = original.SaleAmount - ReversedSaleAmount(originalId, staged);
 
             if (accepted.SaleAmount > outstandingSale)
                 throw ExceptionFactory.ReversalExceedsOutstandingValue(accepted.SaleAmount, originalId, outstandingSale);
 
-            var outstandingOriginal = original.OriginalAmount - ReversedOriginalAmount(originalId);
+            var outstandingOriginal = original.OriginalAmount - ReversedOriginalAmount(originalId, staged);
 
             if (accepted.OriginalAmount > outstandingOriginal)
                 throw ExceptionFactory.ReversalExceedsOutstandingValue(accepted.OriginalAmount, originalId, outstandingOriginal);
+
+            if (outstandingOriginal > 0m && accepted.OriginalAmount <= 0m)
+                throw ExceptionFactory.ReversalRequiresOriginalCurrencyAmount(originalId, outstandingOriginal);
+
+            if (accepted.SaleAmount == outstandingSale && accepted.OriginalAmount != outstandingOriginal)
+                throw ExceptionFactory.FullReversalMustMatchOutstandingOriginal(
+                    originalId,
+                    outstandingOriginal,
+                    accepted.OriginalAmount);
         }
 
         public decimal ReversedSaleAmount(long originalPricingLineId)
-            => _pricingLines
-                .Where(line => line.LineRole == PricingLineRole.Reversal && line.OriginalPricingLineId == originalPricingLineId)
-                .Sum(line => line.SaleAmount);
+            => ReversedSaleAmount(originalPricingLineId, []);
 
-        private decimal ReversedOriginalAmount(long originalPricingLineId)
+        private decimal ReversedSaleAmount(long originalPricingLineId, IReadOnlyList<OrderPricingLine> staged)
+            => ReversalsOf(originalPricingLineId, staged).Sum(line => line.SaleAmount);
+
+        private decimal ReversedOriginalAmount(long originalPricingLineId, IReadOnlyList<OrderPricingLine> staged)
+            => ReversalsOf(originalPricingLineId, staged).Sum(line => line.OriginalAmount);
+
+        private IEnumerable<OrderPricingLine> ReversalsOf(long originalPricingLineId, IReadOnlyList<OrderPricingLine> staged)
             => _pricingLines
-                .Where(line => line.LineRole == PricingLineRole.Reversal && line.OriginalPricingLineId == originalPricingLineId)
-                .Sum(line => line.OriginalAmount);
+                .Concat(staged)
+                .Where(line => line.LineRole == PricingLineRole.Reversal
+                               && line.OriginalPricingLineId == originalPricingLineId);
 
         public decimal OutstandingSaleAmount(long pricingLineId)
         {
@@ -274,11 +314,13 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 CustomerTotalOf(PricingComponentType.ProductCharge),
                 CustomerTotal));
 
+            var commissionLines = _pricingLines
+                .Where(line => line.ComponentType == PricingComponentType.Commission)
+                .ToList();
+
             SetCommission(new Commission(
-                Commission?.CommissionRate ?? 0m,
-                _pricingLines
-                    .Where(line => line.ComponentType == PricingComponentType.Commission)
-                    .Sum(line => line.SignedSaleAmount)));
+                commissionLines.LastOrDefault(line => line.UnitPrice.HasValue)?.UnitPrice ?? 0m,
+                commissionLines.Sum(line => line.SignedSaleAmount)));
         }
 
         private IReadOnlyList<PricingLineSnapshot> BuildPricingLines(long? priceChangeSetId = null)

@@ -347,14 +347,30 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException PriceChangeSetRequiresLines() =>
             new(2768, ExceptionMessages.PriceChangeSetRequiresLines) { HttpStatus = 422 };
 
-        public static BusinessException DuplicateSourceLineReference(params object?[] args) =>
-            new(2769, ExceptionMessages.DuplicateSourceLineReference, args) { HttpStatus = 409 };
 
         public static BusinessException CustomerBalanceCurrencyMismatch(params object?[] args) =>
             new(2770, ExceptionMessages.CustomerBalanceCurrencyMismatch, args) { HttpStatus = 422 };
 
         public static BusinessException OwnerAirlineIdRequired() =>
             new(2771, ExceptionMessages.OwnerAirlineIdRequired) { HttpStatus = 500 };
+
+        public static BusinessException ReversalCannotReverseAReversal(params object?[] args) =>
+            new(2772, ExceptionMessages.ReversalCannotReverseAReversal, args) { HttpStatus = 422 };
+
+        public static BusinessException ReversalMustPreserveConversionProvenance(params object?[] args) =>
+            new(2773, ExceptionMessages.ReversalMustPreserveConversionProvenance, args) { HttpStatus = 422 };
+
+        public static BusinessException ReversalRequiresOriginalCurrencyAmount(params object?[] args) =>
+            new(2774, ExceptionMessages.ReversalRequiresOriginalCurrencyAmount, args) { HttpStatus = 422 };
+
+        public static BusinessException FullReversalMustMatchOutstandingOriginal(params object?[] args) =>
+            new(2775, ExceptionMessages.FullReversalMustMatchOutstandingOriginal, args) { HttpStatus = 422 };
+
+        public static BusinessException DuplicateSourceOccurrence(params object?[] args) =>
+            new(2776, ExceptionMessages.DuplicateSourceOccurrence, args) { HttpStatus = 409 };
+
+        public static BusinessException AllocationOriginalValueIncomplete() =>
+            new(2777, ExceptionMessages.AllocationOriginalValueIncomplete) { HttpStatus = 422 };
 
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;

@@ -29,6 +29,7 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
                 .Include(order => order.Items).ThenInclude(item => item.PolicySnapshot)
                 .Include(order => order.PricingLines).ThenInclude(line => line.AllocationSets).ThenInclude(set => set.Allocations)
                 .Include(order => order.PriceChangeSets)
+                .Include(order => order.Changes)
                 .Include(order => order.Travellers).ThenInclude(traveller => traveller.Documents)
                 .Include(order => order.Segments).ThenInclude(segment => segment.Legs)
                 .Include(order => order.OrderServices)

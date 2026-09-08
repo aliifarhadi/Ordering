@@ -47,8 +47,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             order.BuildItemsServicesAndPricing(args, reader, acceptedLines, sourceLineRefs, idGenerator, clock);
             order.BuildOrderCharges(reader, acceptedLines, sourceLineRefs);
             order.AssignInfantParents(args);
-            order.SetCommission(new Commission(args.CommissionRate, 0m));
-
             order.CommitPriceChange(
                 new AcceptedPriceChangeArgs(
                     OrderChangeType.Create,
@@ -346,13 +344,20 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     ExchangeRate: BuildExchangeRate(reader, line),
                     ApplicationLevel: PricingApplicationLevel.PerOrder,
                     BasisReferenceId: Id,
-                    SourceLineRef: NextSourceLineRef(
-                        sourceLineRefs,
+                    SourceLineRef: SourceLineIdentity(
                         reader.SourceOfferId,
                         "ORDER",
                         line.BoundId,
                         line.FlightId,
-                        line.AirChargeId ?? line.Code)));
+                        line.AirChargeId ?? line.Code),
+                    OccurrenceKey: NextOccurrenceKey(
+                        sourceLineRefs,
+                        SourceLineIdentity(
+                            reader.SourceOfferId,
+                            "ORDER",
+                            line.BoundId,
+                            line.FlightId,
+                            line.AirChargeId ?? line.Code))));
             }
         }
 
@@ -388,13 +393,20 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 ExchangeRate: BuildExchangeRate(reader, line),
                 ApplicationLevel: hasService ? PricingApplicationLevel.PerSegment : PricingApplicationLevel.PerTraveler,
                 BasisReferenceId: hasService ? couponServices[line.FlightId!.Value] : orderItemId,
-                SourceLineRef: NextSourceLineRef(
-                    sourceLineRefs,
+                SourceLineRef: SourceLineIdentity(
                     sourceOfferId,
                     travellerRef,
                     line.BoundId,
                     line.FlightId,
-                    line.AirChargeId ?? line.AirFareId?.ToString() ?? line.Code));
+                    line.AirChargeId ?? line.AirFareId?.ToString() ?? line.Code),
+                OccurrenceKey: NextOccurrenceKey(
+                    sourceLineRefs,
+                    SourceLineIdentity(
+                        sourceOfferId,
+                        travellerRef,
+                        line.BoundId,
+                        line.FlightId,
+                        line.AirChargeId ?? line.AirFareId?.ToString() ?? line.Code)));
         }
 
         private static PricingComponentType ComponentTypeOf(AirChargeKind? kind)
@@ -405,19 +417,20 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 _ => PricingComponentType.Fee
             };
 
-        private static string NextSourceLineRef(
-            Dictionary<string, int> sourceLineRefs,
+        private static string SourceLineIdentity(
             string sourceOfferId,
             string travellerRef,
             string? boundId,
             long? flightId,
             string? code)
-        {
-            var key = string.Join(':', sourceOfferId, travellerRef, boundId ?? "-", flightId?.ToString() ?? "-", code ?? "-");
-            var occurrence = sourceLineRefs.TryGetValue(key, out var previous) ? previous + 1 : 1;
-            sourceLineRefs[key] = occurrence;
+            => string.Join(':', sourceOfferId, travellerRef, boundId ?? "-", flightId?.ToString() ?? "-", code ?? "-");
 
-            return $"{key}:{occurrence}";
+        private static string NextOccurrenceKey(Dictionary<string, int> occurrences, string sourceLineIdentity)
+        {
+            var occurrence = occurrences.TryGetValue(sourceLineIdentity, out var previous) ? previous + 1 : 1;
+            occurrences[sourceLineIdentity] = occurrence;
+
+            return occurrence.ToString();
         }
 
         private void AssignInfantParents(CreateOrderArgs args)

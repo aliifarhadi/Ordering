@@ -145,8 +145,13 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string DerivedAllocationRequiresMethodEvidence = "Allocation method {0} is derived and requires an explicit policy version.";
         public const string PriceChangeSetAlreadyCommitted = "A price change set is immutable once committed.";
         public const string PriceChangeSetRequiresLines = "A price change set must carry at least one pricing line.";
-        public const string DuplicateSourceLineReference = "Source pricing line reference '{0}' has already been accepted for this order.";
         public const string CustomerBalanceCurrencyMismatch = "Customer-effective pricing line currency {0} does not match the order sale currency {1}.";
         public const string OwnerAirlineIdRequired = "An order requires a trusted owning airline identity.";
+        public const string ReversalCannotReverseAReversal = "Pricing line {0} is itself a reversal; undoing it requires an explicit correction, not a second reversal.";
+        public const string ReversalMustPreserveConversionProvenance = "Reversal of pricing line {0} must preserve the accepted historical conversion provenance of the original.";
+        public const string ReversalRequiresOriginalCurrencyAmount = "Reversal of pricing line {0} must supply a defensible original-currency amount; the outstanding original value is {1}.";
+        public const string FullReversalMustMatchOutstandingOriginal = "A full reversal of pricing line {0} must reverse the outstanding original amount {1}, not {2}.";
+        public const string DuplicateSourceOccurrence = "Source line '{0}' occurrence '{1}' has already been accepted in this price change set.";
+        public const string AllocationOriginalValueIncomplete = "An allocation set must supply original-currency values for every allocation or for none; a partial original breakdown cannot be completed locally.";
     }
 }

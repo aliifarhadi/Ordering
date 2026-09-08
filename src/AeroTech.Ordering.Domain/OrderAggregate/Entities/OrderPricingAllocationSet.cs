@@ -56,29 +56,81 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 
         public DateTimeOffset CreatedAt { get; private set; }
 
+        public decimal ResidualSaleAmount { get; private set; }
+
+        public int ResidualSaleCurrencyId { get; private set; }
+
+        public decimal? ResidualOriginalAmount { get; private set; }
+
+        public int? ResidualOriginalCurrencyId { get; private set; }
+
         public IReadOnlyCollection<OrderPricingAllocation> Allocations => _allocations.AsReadOnly();
+
+        public bool IsFullyAttributed => ResidualSaleAmount == 0m;
 
         internal void Allocate(CreateOrderPricingAllocationArgs args)
             => _allocations.Add(new OrderPricingAllocation(Id, args));
 
-        internal void EnsureReconciles(decimal parentSaleAmount, int parentSaleCurrencyId)
+        internal void EnsureReconciles(
+            decimal parentSaleAmount,
+            int parentSaleCurrencyId,
+            decimal parentOriginalAmount,
+            int parentOriginalCurrencyId)
         {
             if (_allocations.Any(allocation => allocation.SaleCurrencyId != parentSaleCurrencyId))
                 throw ExceptionFactory.AllocationCurrencyMismatch();
 
-            var allocated = _allocations.Sum(allocation => allocation.SaleAmount);
+            var allocatedSale = _allocations.Sum(allocation => allocation.SaleAmount);
 
             switch (Completeness)
             {
-                case PricingAllocationCompleteness.Complete when allocated != parentSaleAmount:
-                    throw ExceptionFactory.AllocationSetDoesNotReconcile(allocated, parentSaleAmount);
+                case PricingAllocationCompleteness.Complete when allocatedSale != parentSaleAmount:
+                    throw ExceptionFactory.AllocationSetDoesNotReconcile(allocatedSale, parentSaleAmount);
 
-                case PricingAllocationCompleteness.Partial when allocated > parentSaleAmount:
-                    throw ExceptionFactory.AllocationSetExceedsParent(allocated, parentSaleAmount);
+                case PricingAllocationCompleteness.Partial when allocatedSale > parentSaleAmount:
+                    throw ExceptionFactory.AllocationSetExceedsParent(allocatedSale, parentSaleAmount);
 
                 case PricingAllocationCompleteness.Unavailable when _allocations.Count > 0:
                     throw ExceptionFactory.UnavailableAllocationSetMustBeEmpty();
             }
+
+            ResidualSaleAmount = parentSaleAmount - allocatedSale;
+            ResidualSaleCurrencyId = parentSaleCurrencyId;
+
+            ReconcileOriginalValues(parentOriginalAmount, parentOriginalCurrencyId);
+        }
+
+        private void ReconcileOriginalValues(decimal parentOriginalAmount, int parentOriginalCurrencyId)
+        {
+            var supplying = _allocations.Where(allocation => allocation.OriginalAmount.HasValue).ToList();
+
+            if (supplying.Count == 0)
+            {
+                ResidualOriginalAmount = null;
+                ResidualOriginalCurrencyId = null;
+
+                return;
+            }
+
+            if (supplying.Count != _allocations.Count)
+                throw ExceptionFactory.AllocationOriginalValueIncomplete();
+
+            if (supplying.Any(allocation => allocation.OriginalCurrencyId != parentOriginalCurrencyId))
+                throw ExceptionFactory.AllocationCurrencyMismatch();
+
+            var allocatedOriginal = supplying.Sum(allocation => allocation.OriginalAmount!.Value);
+
+            switch (Completeness)
+            {
+                case PricingAllocationCompleteness.Complete when allocatedOriginal != parentOriginalAmount:
+                    throw ExceptionFactory.AllocationSetDoesNotReconcile(allocatedOriginal, parentOriginalAmount);
+
+                case PricingAllocationCompleteness.Partial when allocatedOriginal > parentOriginalAmount:
+                    throw ExceptionFactory.AllocationSetExceedsParent(allocatedOriginal, parentOriginalAmount);
+            }
+
+            ResidualOriginalAmount = parentOriginalAmount - allocatedOriginal;
+            ResidualOriginalCurrencyId = parentOriginalCurrencyId;
         }
     }
 }

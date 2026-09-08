@@ -178,16 +178,15 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         }
 
         [Fact]
-        public void The_same_source_line_cannot_be_accepted_twice()
+        public void Create_records_source_identity_and_occurrence_separately()
         {
             var order = OrderFactory.CreatedOrder(_ids, _clock);
-            var duplicated = order.PricingLines.First().SourceLineRef;
 
-            Assert.NotNull(duplicated);
-            Assert.Throws<BusinessException>(() => Commit(
-                order,
-                Line(PricingComponentType.Fee, PricingEffect.CustomerBalance, OrderPricingLineDirection.Debit, 10m)
-                    with { SourceLineRef = duplicated }));
+            Assert.All(order.PricingLines, line => Assert.False(string.IsNullOrWhiteSpace(line.SourceLineRef)));
+            Assert.All(order.PricingLines, line => Assert.False(string.IsNullOrWhiteSpace(line.OccurrenceKey)));
+
+            Assert.All(order.PricingLines, line => Assert.Equal(5, line.SourceLineRef!.Split(':').Length));
+            Assert.All(order.PricingLines, line => Assert.Equal("1", line.OccurrenceKey));
         }
 
         [Fact]
@@ -349,17 +348,24 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             => order.PricingLines.First(line => line.ComponentType == PricingComponentType.Fare);
 
         private static AcceptedPricingLineArgs ReversalOf(OrderPricingLine original, decimal saleAmount)
+            => ReversalOf(original, saleAmount, saleAmount);
+
+        private static AcceptedPricingLineArgs ReversalOf(
+            OrderPricingLine original,
+            decimal saleAmount,
+            decimal originalAmount)
             => new(
                 original.ComponentType,
                 original.Effect,
                 OrderPricingLineDirection.Credit,
                 PricingLineRole.Reversal,
-                0m,
+                originalAmount,
                 original.OriginalCurrencyId,
                 saleAmount,
                 original.SaleCurrencyId,
                 original.BasisType,
                 original.Refundability,
+                ExchangeRate: original.ExchangeRate,
                 OriginalPricingLineId: original.Id);
 
         private static AcceptedPricingLineArgs Line(

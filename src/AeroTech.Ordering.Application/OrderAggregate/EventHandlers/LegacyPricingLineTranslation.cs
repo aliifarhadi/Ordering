@@ -2,7 +2,7 @@ using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.EventHandlers
 {
-    internal static class LegacyPricingLineTranslation
+    public static class LegacyPricingLineTranslation
     {
         public static OrderPricingLineDirection Direction(OrderPricingLineDirection direction)
             => direction == OrderPricingLineDirection.Debit

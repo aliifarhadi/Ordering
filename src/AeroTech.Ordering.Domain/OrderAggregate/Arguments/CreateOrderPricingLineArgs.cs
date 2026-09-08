@@ -28,6 +28,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Arguments
         decimal? UnitPrice = null,
         long? BasisReferenceId = null,
         string? SourceLineRef = null,
+        string? OccurrenceKey = null,
         long? OriginalPricingLineId = null,
         long? OriginalAllocationId = null,
         string? TransferGroupId = null,

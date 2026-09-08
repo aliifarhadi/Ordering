@@ -15,6 +15,7 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.Property(line => line.Description).HasMaxLength(256);
             builder.Property(line => line.UnitOfMeasure).HasMaxLength(32);
             builder.Property(line => line.SourceLineRef).HasMaxLength(512);
+            builder.Property(line => line.OccurrenceKey).HasMaxLength(64);
             builder.Property(line => line.TransferGroupId).HasMaxLength(64);
             builder.Property(line => line.SettlementPartyRef).HasMaxLength(256);
             builder.Property(line => line.SettlementCategory).HasMaxLength(128);
@@ -22,7 +23,7 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
 
             builder.HasIndex(line => line.PriceChangeSetId);
             builder.HasIndex(line => line.OriginalPricingLineId);
-            builder.HasIndex(line => new { line.OrderId, line.SourceLineRef })
+            builder.HasIndex(line => new { line.PriceChangeSetId, line.SourceLineRef, line.OccurrenceKey })
                 .IsUnique()
                 .HasFilter("[SourceLineRef] IS NOT NULL");
 
