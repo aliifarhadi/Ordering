@@ -20,9 +20,9 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             var wasTicketed = Status == OrderStatus.Ticketed
                 || _orderServices.Any(service => service.TrafficDocumentId is not null);
 
-            CancelAllServices(idGenerator);
+            var changeSet = CancelAllServices(at, idGenerator);
 
-            var reversalLines = BuildPricingLines(OrderPricingReason.Cancel);
+            var reversalLines = changeSet is null ? [] : BuildPricingLines(changeSet.Id);
 
             TransitionTo(OrderStatus.Cancelled);
             TimeToLive = null;

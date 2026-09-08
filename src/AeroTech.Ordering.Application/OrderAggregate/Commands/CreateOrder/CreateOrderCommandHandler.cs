@@ -3,6 +3,7 @@ using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
+using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using MediatR;
@@ -17,6 +18,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrder
         private readonly IUnitOfWork _unitOfWork;
         private readonly IIdGenerator _idGenerator;
         private readonly IClock _clock;
+        private readonly IHomeOperatorProvider _homeOperator;
 
         public CreateOrderCommandHandler(
             IOfferProvider offerProvider,
@@ -24,7 +26,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrder
             IOrderQueryDbSynchronizer orderSynchronizer,
             IUnitOfWork unitOfWork,
             IIdGenerator idGenerator,
-            IClock clock)
+            IClock clock,
+            IHomeOperatorProvider homeOperator)
         {
             _offerProvider = offerProvider;
             _orderRepository = orderRepository;
@@ -32,6 +35,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrder
             _unitOfWork = unitOfWork;
             _idGenerator = idGenerator;
             _clock = clock;
+            _homeOperator = homeOperator;
         }
 
         public async Task<long> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
@@ -41,7 +45,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrder
 
             // 2. ACL maps provider offer model to clean domain args
             // 3. Domain factory creates valid Order
-            var order = Order.Create(MapToArgs(command), offer, _idGenerator, _clock);
+            var order = Order.Create(MapToArgs(command), offer, await _homeOperator.GetOwnerAirlineIdAsync(cancellationToken), _idGenerator, _clock);
 
              // 4. Persist
             await _orderRepository.AddAsync(order, cancellationToken);

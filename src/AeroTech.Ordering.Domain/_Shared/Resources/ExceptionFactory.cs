@@ -289,6 +289,73 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException HomeOperatorNotProvisioned(params object?[] args) =>
             new(2710, ExceptionMessages.HomeOperatorNotProvisioned, args) { HttpStatus = 500 };
 
+        // P2 commercial pricing: 2750-2799
+        public static BusinessException PricingAmountMustBeNonNegative() =>
+            new(2750, ExceptionMessages.PricingAmountMustBeNonNegative) { HttpStatus = 422 };
+
+        public static BusinessException TaxCannotBeSettlementOnly() =>
+            new(2751, ExceptionMessages.TaxCannotBeSettlementOnly) { HttpStatus = 422 };
+
+        public static BusinessException CommissionCannotAffectCustomerBalance() =>
+            new(2752, ExceptionMessages.CommissionCannotAffectCustomerBalance) { HttpStatus = 422 };
+
+        public static BusinessException PricingComponentNotPermitted(params object?[] args) =>
+            new(2753, ExceptionMessages.PricingComponentNotPermitted, args) { HttpStatus = 422 };
+
+        public static BusinessException PricingDirectionNotPermitted(params object?[] args) =>
+            new(2754, ExceptionMessages.PricingDirectionNotPermitted, args) { HttpStatus = 422 };
+
+        public static BusinessException PricingComponentRequiresCode(params object?[] args) =>
+            new(2755, ExceptionMessages.PricingComponentRequiresCode, args) { HttpStatus = 422 };
+
+        public static BusinessException SettlementLineRequiresParty() =>
+            new(2756, ExceptionMessages.SettlementLineRequiresParty) { HttpStatus = 422 };
+
+        public static BusinessException ReversalRequiresOriginalLine() =>
+            new(2757, ExceptionMessages.ReversalRequiresOriginalLine) { HttpStatus = 422 };
+
+        public static BusinessException ReversalMustOpposeOriginal(params object?[] args) =>
+            new(2758, ExceptionMessages.ReversalMustOpposeOriginal, args) { HttpStatus = 422 };
+
+        public static BusinessException ReversalExceedsOutstandingValue(params object?[] args) =>
+            new(2759, ExceptionMessages.ReversalExceedsOutstandingValue, args) { HttpStatus = 422 };
+
+        public static BusinessException OriginalPricingLineNotFound(params object?[] args) =>
+            new(2760, ExceptionMessages.OriginalPricingLineNotFound, args) { HttpStatus = 422 };
+
+        public static BusinessException AllocationSetDoesNotReconcile(params object?[] args) =>
+            new(2761, ExceptionMessages.AllocationSetDoesNotReconcile, args) { HttpStatus = 422 };
+
+        public static BusinessException AllocationSetExceedsParent(params object?[] args) =>
+            new(2762, ExceptionMessages.AllocationSetExceedsParent, args) { HttpStatus = 422 };
+
+        public static BusinessException UnavailableAllocationSetMustBeEmpty() =>
+            new(2763, ExceptionMessages.UnavailableAllocationSetMustBeEmpty) { HttpStatus = 422 };
+
+        public static BusinessException AllocationCurrencyMismatch() =>
+            new(2764, ExceptionMessages.AllocationCurrencyMismatch) { HttpStatus = 422 };
+
+        public static BusinessException AllocationSetVersionAlreadyExists(params object?[] args) =>
+            new(2765, ExceptionMessages.AllocationSetVersionAlreadyExists, args) { HttpStatus = 409 };
+
+        public static BusinessException DerivedAllocationRequiresMethodEvidence(params object?[] args) =>
+            new(2766, ExceptionMessages.DerivedAllocationRequiresMethodEvidence, args) { HttpStatus = 422 };
+
+        public static BusinessException PriceChangeSetAlreadyCommitted() =>
+            new(2767, ExceptionMessages.PriceChangeSetAlreadyCommitted) { HttpStatus = 409 };
+
+        public static BusinessException PriceChangeSetRequiresLines() =>
+            new(2768, ExceptionMessages.PriceChangeSetRequiresLines) { HttpStatus = 422 };
+
+        public static BusinessException DuplicateSourceLineReference(params object?[] args) =>
+            new(2769, ExceptionMessages.DuplicateSourceLineReference, args) { HttpStatus = 409 };
+
+        public static BusinessException CustomerBalanceCurrencyMismatch(params object?[] args) =>
+            new(2770, ExceptionMessages.CustomerBalanceCurrencyMismatch, args) { HttpStatus = 422 };
+
+        public static BusinessException OwnerAirlineIdRequired() =>
+            new(2771, ExceptionMessages.OwnerAirlineIdRequired) { HttpStatus = 500 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

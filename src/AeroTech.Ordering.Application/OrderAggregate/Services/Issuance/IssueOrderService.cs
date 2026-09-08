@@ -490,15 +490,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
         {
             var segment = order.Segments.Single(candidate => candidate.Id == service.OrderSegmentId);
 
-            var allocations = order.PricingLines
-                .SelectMany(line => line.Allocations
-                    .Where(allocation => allocation.OrderServiceId == service.Id)
-                    .Select(allocation => new
-                    {
-                        PricingLineId = line.Id,
-                        AllocationId = allocation.Id,
-                        allocation.EquivalentAmount
-                    }))
+            var allocations = order.ServiceValueAttributions(service.Id)
+                .Select(attribution => new
+                {
+                    PricingLineId = attribution.PricingLineId,
+                    AllocationId = attribution.AllocationId,
+                    EquivalentAmount = attribution.SignedSaleAmount
+                })
                 .ToList();
 
             return new TicketCouponIssuance(

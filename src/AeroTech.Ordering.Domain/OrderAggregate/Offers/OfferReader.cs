@@ -8,6 +8,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Offers
 
         public OfferReader(OfferDetail offer) => _offer = offer;
 
+        public string SourceOfferId => _offer.OfferId;
+
         public int CurrencyId => _offer.CurrencyId;
 
         public DateTimeOffset? LastTicketingDate => _offer.LastTicketingDate;

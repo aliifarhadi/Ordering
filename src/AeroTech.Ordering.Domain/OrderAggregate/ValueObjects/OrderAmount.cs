@@ -15,6 +15,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.ValueObjects
             decimal surchargeTotal,
             decimal discountTotal,
             decimal penaltyTotal,
+            decimal ancillaryTotal,
             decimal grandTotal)
         {
             BaseFareTotal = baseFareTotal;
@@ -23,6 +24,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.ValueObjects
             SurchargeTotal = surchargeTotal;
             DiscountTotal = discountTotal;
             PenaltyTotal = penaltyTotal;
+            AncillaryTotal = ancillaryTotal;
             GrandTotal = grandTotal;
         }
 
@@ -38,9 +40,11 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.ValueObjects
 
         public decimal PenaltyTotal { get; private set; }
 
+        public decimal AncillaryTotal { get; private set; }
+
         public decimal GrandTotal { get; private set; }
 
-        public static OrderAmount Zero() => new(0m, 0m, 0m, 0m, 0m, 0m, 0m);
+        public static OrderAmount Zero() => new(0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m);
 
         protected override IEnumerable<object?> GetEqualityComponents()
         {
@@ -50,6 +54,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.ValueObjects
             yield return SurchargeTotal;
             yield return DiscountTotal;
             yield return PenaltyTotal;
+            yield return AncillaryTotal;
             yield return GrandTotal;
         }
     }

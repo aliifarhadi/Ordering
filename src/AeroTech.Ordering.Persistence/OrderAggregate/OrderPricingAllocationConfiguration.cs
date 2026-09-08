@@ -4,13 +4,16 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace AeroTech.Ordering.Persistence.OrderAggregate
 {
-    public sealed class OrderPricingLineAllocationConfiguration : IEntityTypeConfiguration<OrderPricingLineAllocation>
+    public sealed class OrderPricingAllocationConfiguration : IEntityTypeConfiguration<OrderPricingAllocation>
     {
-        public void Configure(EntityTypeBuilder<OrderPricingLineAllocation> builder)
+        public void Configure(EntityTypeBuilder<OrderPricingAllocation> builder)
         {
-            builder.ToTable("OrderPricingLineAllocations");
+            builder.ToTable("OrderPricingAllocations");
             builder.HasKey(allocation => allocation.Id);
             builder.Property(allocation => allocation.Id).ValueGeneratedNever();
+            builder.Property(allocation => allocation.CoveragePortionRef).HasMaxLength(256);
+
+            builder.HasIndex(allocation => allocation.OrderServiceId);
 
             builder.OwnsOne(allocation => allocation.ExchangeRate, rate =>
             {

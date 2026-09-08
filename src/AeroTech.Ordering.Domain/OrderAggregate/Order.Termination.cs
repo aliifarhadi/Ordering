@@ -2,7 +2,7 @@ using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
-using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
+using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate
@@ -24,17 +24,14 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             RollUpCancelledItems(serviceIds);
 
-            var reversals = AppendServiceReversalLines(serviceIds, OrderPricingReason.Void, idGenerator);
+            var changeSet = ReverseServiceValue(serviceIds, OrderChangeType.Cancel, PriceChangeReason.Void, voidedAt, idGenerator);
 
             if (Status == OrderStatus.Ticketed && _orderServices.All(service => service.DocumentStatus != OrderServiceDocumentStatus.Issued))
                 TransitionTo(OrderStatus.Cancelled);
 
             IncrementCommercialVersion();
 
-            var reversedLineIds = reversals.Select(line => line.Id).ToHashSet();
-            var reversedLines = BuildPricingLines()
-                .Where(line => reversedLineIds.Contains(line.LineId))
-                .ToList();
+            var reversedLines = changeSet is null ? [] : BuildPricingLines(changeSet.Id);
 
             Causes(new OrderDocumentVoided(
                 idGenerator.NewId().ToString(),
@@ -61,7 +58,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 reversedLines));
         }
 
-        private void CancelAllServices(IIdGenerator idGenerator)
+        private OrderPriceChangeSet? CancelAllServices(DateTimeOffset cancelledAt, IIdGenerator idGenerator)
         {
             var serviceIds = _orderServices.Select(service => service.Id).ToList();
 
@@ -69,7 +66,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 service.MarkCancelled();
 
             RollUpCancelledItems(serviceIds);
-            ReverseAllPricingLines(OrderPricingReason.Cancel, idGenerator);
+
+            return ReverseOutstandingValue(OrderChangeType.Cancel, PriceChangeReason.Cancellation, cancelledAt, idGenerator);
         }
 
         private void RollUpCancelledItems(IReadOnlyCollection<long> serviceIds)
@@ -91,139 +89,126 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             }
         }
 
-        private void ReverseAllPricingLines(OrderPricingReason reason, IIdGenerator idGenerator)
-        {
-            var reversals = new List<OrderPricingLine>();
-
-            foreach (var line in _pricingLines)
-            {
-                if (IsReversalLine(line))
-                    continue;
-
-                if (line.Allocations.Count == 0)
-                {
-                    if (IsLineReversed(line.Id))
-                        continue;
-
-                    reversals.Add(NewReversalLine(line, reason, line.Amount, line.CurrencyId, line.EquivalentAmount, line.EquivalentCurrencyId, line.ExchangeRate, idGenerator));
-                    continue;
-                }
-
-                var pending = line.Allocations.Where(allocation => !IsAllocationReversed(allocation.Id)).ToList();
-                if (pending.Count == 0)
-                    continue;
-
-                var reversalLine = NewReversalLine(
-                    line,
-                    reason,
-                    pending.Sum(allocation => allocation.Amount),
-                    line.CurrencyId,
-                    pending.Sum(allocation => allocation.EquivalentAmount),
-                    line.EquivalentCurrencyId,
-                    line.ExchangeRate,
-                    idGenerator);
-
-                foreach (var allocation in pending)
-                    reversalLine.AllocateTo(CopyAllocation(allocation, idGenerator));
-
-                reversals.Add(reversalLine);
-            }
-
-            CommitReversals(reversals);
-        }
-
-        private bool IsLineReversed(long pricingLineId)
-            => _pricingLines.Any(line => line.OriginalPricingLineId == pricingLineId);
-
-        private bool IsAllocationReversed(long allocationId)
-            => _pricingLines.Any(line => line.Allocations.Any(allocation => allocation.OriginalAllocationId == allocationId));
-
-        private IReadOnlyList<OrderPricingLine> AppendServiceReversalLines(IReadOnlyCollection<long> serviceIds, OrderPricingReason reason, IIdGenerator idGenerator)
-        {
-            var reversals = new List<OrderPricingLine>();
-
-            foreach (var line in _pricingLines)
-            {
-                if (IsReversalLine(line))
-                    continue;
-
-                foreach (var allocation in line.Allocations)
-                {
-                    if (allocation.OrderServiceId is not { } serviceId || !serviceIds.Contains(serviceId))
-                        continue;
-
-                    if (IsAllocationReversed(allocation.Id))
-                        continue;
-
-                    var reversalLine = NewReversalLine(line, reason, allocation.Amount, allocation.CurrencyId, allocation.EquivalentAmount, allocation.EquivalentCurrencyId, allocation.ExchangeRate, idGenerator);
-                    reversalLine.AllocateTo(CopyAllocation(allocation, idGenerator));
-                    reversals.Add(reversalLine);
-                }
-            }
-
-            CommitReversals(reversals);
-
-            return reversals;
-        }
-
-        private static bool IsReversalLine(OrderPricingLine line)
-            => line.LineReason is OrderPricingReason.Void or OrderPricingReason.Cancel;
-
-        private OrderPricingLine NewReversalLine(
-            OrderPricingLine line,
-            OrderPricingReason reason,
-            decimal amount,
-            int currencyId,
-            decimal equivalentAmount,
-            int equivalentCurrencyId,
-            ExchangeRate? exchangeRate,
+        private OrderPriceChangeSet? ReverseOutstandingValue(
+            OrderChangeType changeType,
+            PriceChangeReason reason,
+            DateTimeOffset occurredAt,
             IIdGenerator idGenerator)
         {
-            var reversalDirection = line.LineDirection == OrderPricingLineDirection.Credit
-                ? OrderPricingLineDirection.Debit
-                : OrderPricingLineDirection.Credit;
+            var reversals = new List<AcceptedPricingLineArgs>();
 
-            return new OrderPricingLine(new CreateOrderPricingLineArgs(
-                idGenerator.NewId(),
-                Id,
-                reason,
-                line.LineScope,
-                line.LineCategory,
-                line.LineSubCategory,
-                reversalDirection,
-                line.Code,
-                line.Description,
-                line.Reference,
-                amount,
-                currencyId,
-                false,
-                equivalentAmount,
-                equivalentCurrencyId,
-                exchangeRate?.Copy(),
-                line.Refundability,
-                line.Id));
+            foreach (var line in ReversibleLines())
+            {
+                var outstandingSale = OutstandingSaleOf(line);
+
+                if (outstandingSale <= 0m)
+                    continue;
+
+                reversals.Add(ReversalOf(line, outstandingSale, OutstandingOriginalOf(line), null));
+            }
+
+            return CommitReversals(reversals, changeType, reason, occurredAt, idGenerator);
         }
 
-        private static CreateOrderPricingLineAllocationArgs CopyAllocation(OrderPricingLineAllocation allocation, IIdGenerator idGenerator)
-            => new(
-                idGenerator.NewId(),
-                allocation.OrderItemId,
-                allocation.OrderServiceId,
-                allocation.TargetType,
-                allocation.TargetId,
-                allocation.Amount,
-                allocation.CurrencyId,
-                allocation.EquivalentAmount,
-                allocation.EquivalentCurrencyId,
-                allocation.ExchangeRate?.Copy(),
-                allocation.Id);
-
-        private void CommitReversals(List<OrderPricingLine> reversals)
+        private OrderPriceChangeSet? ReverseServiceValue(
+            IReadOnlyCollection<long> serviceIds,
+            OrderChangeType changeType,
+            PriceChangeReason reason,
+            DateTimeOffset occurredAt,
+            IIdGenerator idGenerator)
         {
-            foreach (var reversal in reversals)
-                _pricingLines.Add(reversal);
+            var reversals = new List<AcceptedPricingLineArgs>();
 
-            RecalculateTotal();
+            foreach (var line in ReversibleLines())
+            {
+                var outstandingSale = OutstandingSaleOf(line);
+
+                if (outstandingSale <= 0m)
+                    continue;
+
+                var allocations = line.CommercialAllocations()
+                    .Where(allocation => allocation.OrderServiceId is { } serviceId && serviceIds.Contains(serviceId))
+                    .ToList();
+
+                decimal saleAmount;
+                decimal originalAmount;
+                long? originalAllocationId = null;
+
+                if (allocations.Count > 0)
+                {
+                    saleAmount = allocations.Sum(allocation => allocation.SaleAmount);
+                    originalAmount = allocations.Sum(allocation => allocation.OriginalAmount ?? 0m);
+                    originalAllocationId = allocations.Count == 1 ? allocations[0].Id : null;
+                }
+                else if (line.BasisType == PricingBasisType.OrderService
+                         && line.BasisReferenceId is { } basisServiceId
+                         && serviceIds.Contains(basisServiceId))
+                {
+                    saleAmount = outstandingSale;
+                    originalAmount = OutstandingOriginalOf(line);
+                }
+                else
+                {
+                    continue;
+                }
+
+                saleAmount = Math.Min(saleAmount, outstandingSale);
+                originalAmount = Math.Min(originalAmount, OutstandingOriginalOf(line));
+
+                if (saleAmount <= 0m)
+                    continue;
+
+                reversals.Add(ReversalOf(line, saleAmount, originalAmount, originalAllocationId));
+            }
+
+            return CommitReversals(reversals, changeType, reason, occurredAt, idGenerator);
         }
+
+        private IEnumerable<OrderPricingLine> ReversibleLines()
+            => _pricingLines.Where(line => line.LineRole == PricingLineRole.Original).ToList();
+
+        private decimal OutstandingSaleOf(OrderPricingLine line) => line.SaleAmount - ReversedSaleAmount(line.Id);
+
+        private decimal OutstandingOriginalOf(OrderPricingLine line) => line.OriginalAmount - ReversedOriginalAmount(line.Id);
+
+        private static AcceptedPricingLineArgs ReversalOf(
+            OrderPricingLine line,
+            decimal saleAmount,
+            decimal originalAmount,
+            long? originalAllocationId)
+            => new(
+                line.ComponentType,
+                line.Effect,
+                PricingComponentPolicy.Opposite(line.Direction),
+                PricingLineRole.Reversal,
+                originalAmount,
+                line.OriginalCurrencyId,
+                saleAmount,
+                line.SaleCurrencyId,
+                line.BasisType,
+                line.Refundability,
+                OrderItemId: line.OrderItemId,
+                Code: line.Code,
+                Description: line.Description,
+                ExchangeRate: line.ExchangeRate?.Copy(),
+                ApplicationLevel: line.ApplicationLevel,
+                BasisReferenceId: line.BasisReferenceId,
+                OriginalPricingLineId: line.Id,
+                OriginalAllocationId: originalAllocationId,
+                SettlementPartyRef: line.SettlementPartyRef,
+                SettlementCategory: line.SettlementCategory);
+
+        private OrderPriceChangeSet? CommitReversals(
+            IReadOnlyList<AcceptedPricingLineArgs> reversals,
+            OrderChangeType changeType,
+            PriceChangeReason reason,
+            DateTimeOffset occurredAt,
+            IIdGenerator idGenerator)
+            => reversals.Count == 0
+                ? null
+                : CommitPriceChange(
+                    new AcceptedPriceChangeArgs(changeType, reason, PricingSource.PricingEngine, reversals),
+                    idGenerator,
+                    occurredAt);
     }
 }

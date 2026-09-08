@@ -90,7 +90,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             Reserve = new ReserveOrderService(Orders, reservations, Reservation, coordinator, unitOfWork, Ids, frameworkClock, projector);
             Issue = new IssueOrderService(Orders, reservations, tickets, stocks, Funding, Documents, coordinator, operationStore, receipts, homeOperator, unitOfWork, Ids, frameworkClock, projector, options);
-            Create = new CreateOrderService(Orders, receipts, coordinator, unitOfWork, Ids, frameworkClock, projector);
+            Create = new CreateOrderService(Orders, receipts, coordinator, unitOfWork, Ids, frameworkClock, projector, homeOperator);
             Withdraw = new WithdrawOrderService(Orders, reservations, tickets, Reservation, Funding, coordinator, new StubIdentity(), unitOfWork, Ids, frameworkClock, projector);
         }
 

@@ -1,4 +1,5 @@
 using AeroTech.Ordering.Domain._Shared.Resources;
+using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Dto;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
@@ -24,6 +25,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             var newOrder = new Order(
                 idGenerator.NewId(),
                 Guid.NewGuid(),
+                OwnerAirlineId,
                 CustomerId,
                 CreatorUserId,
                 AirlineOfficeId,
@@ -112,25 +114,31 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             }
 
             var movedPricingLines = _pricingLines
-                .Where(line => line.Allocations.Any(allocation =>
-                    (allocation.OrderServiceId.HasValue && serviceMap.ContainsKey(allocation.OrderServiceId.Value))
-                    || (allocation.OrderItemId.HasValue && itemMap.ContainsKey(allocation.OrderItemId.Value))))
+                .Where(line => MovesWith(line, serviceMap, itemMap))
                 .ToList();
-            var pricingLineMap = new Dictionary<long, long>();
-            foreach (var line in movedPricingLines)
-            {
-                var newLineId = idGenerator.NewId();
-                pricingLineMap[newLineId] = line.Id;
-                newOrder.AddPricingLine(line.CopyTo(newLineId, newOrder.Id, serviceMap, itemMap, idGenerator));
-            }
+
+            var transferGroupId = idGenerator.NewId().ToString();
+
+            var transferLines = movedPricingLines
+                .Select(line => TransferLine(line, newOrder.Id, transferGroupId, serviceMap, itemMap, travellerMap, segmentMap, itineraryMap))
+                .ToList();
 
             _orderServices.RemoveAll(service => serviceMap.ContainsKey(service.Id));
             _pricingLines.RemoveAll(line => movedPricingLines.Contains(line));
             _items.RemoveAll(item => itemMap.ContainsKey(item.Id));
             _travellers.RemoveAll(traveller => movingIds.Contains(traveller.Id));
 
-            RecalculateTotal();
-            newOrder.RecalculateTotal();
+            if (transferLines.Count > 0)
+                newOrder.CommitPriceChange(
+                    new AcceptedPriceChangeArgs(
+                        OrderChangeType.Split,
+                        PriceChangeReason.SplitTransfer,
+                        PricingSource.PricingEngine,
+                        transferLines),
+                    idGenerator,
+                    clock);
+
+            RecomputeAmountCache();
             Pax = _travellers.Count;
 
             if (PaymentSummary is not null)
@@ -156,9 +164,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             var splitAt = clock.GetDateTime();
 
-            var newOrderLines = newOrder.BuildPricingLines()
-                .Select(line => line with { OriginalLineId = pricingLineMap[line.LineId] })
-                .ToList();
+            var newOrderLines = newOrder.BuildPricingLines();
 
             IncrementCommercialVersion();
 
@@ -214,5 +220,127 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 if (traveller.ParentTravellerId is { } parentId && movingIds.Contains(traveller.Id) != movingIds.Contains(parentId))
                     throw ExceptionFactory.InfantAndParentMustBeSplitTogether();
         }
+
+        private static bool MovesWith(
+            OrderPricingLine line,
+            IReadOnlyDictionary<long, long> serviceMap,
+            IReadOnlyDictionary<long, long> itemMap)
+        {
+            if (line.CommercialAllocations().Any(allocation =>
+                    (allocation.OrderServiceId is { } serviceId && serviceMap.ContainsKey(serviceId))
+                    || (allocation.OrderItemIdAtAllocation is { } allocatedItemId && itemMap.ContainsKey(allocatedItemId))))
+                return true;
+
+            if (line.BasisType == PricingBasisType.OrderService && line.BasisReferenceId is { } basisServiceId)
+                return serviceMap.ContainsKey(basisServiceId);
+
+            if (line.BasisType == PricingBasisType.OrderItem && line.BasisReferenceId is { } basisItemId)
+                return itemMap.ContainsKey(basisItemId);
+
+            return line.OrderItemId is { } ownerItemId && itemMap.ContainsKey(ownerItemId);
+        }
+
+        private static AcceptedPricingLineArgs TransferLine(
+            OrderPricingLine line,
+            long newOrderId,
+            string transferGroupId,
+            IReadOnlyDictionary<long, long> serviceMap,
+            IReadOnlyDictionary<long, long> itemMap,
+            IReadOnlyDictionary<long, long> travellerMap,
+            IReadOnlyDictionary<long, long> segmentMap,
+            IReadOnlyDictionary<long, long> itineraryMap)
+            => new(
+                line.ComponentType,
+                line.Effect,
+                line.Direction,
+                PricingLineRole.Transfer,
+                line.OriginalAmount,
+                line.OriginalCurrencyId,
+                line.SaleAmount,
+                line.SaleCurrencyId,
+                line.BasisType,
+                line.Refundability,
+                OrderItemId: Mapped(line.OrderItemId, itemMap),
+                Code: line.Code,
+                Description: line.Description,
+                ExchangeRate: line.ExchangeRate?.Copy(),
+                ApplicationLevel: line.ApplicationLevel,
+                Quantity: line.Quantity,
+                UnitOfMeasure: line.UnitOfMeasure,
+                UnitPrice: line.UnitPrice,
+                BasisReferenceId: TransferredBasisReference(line, newOrderId, serviceMap, itemMap),
+                SourceLineRef: line.SourceLineRef,
+                OriginalPricingLineId: line.Id,
+                TransferGroupId: transferGroupId,
+                SettlementPartyRef: line.SettlementPartyRef,
+                SettlementCategory: line.SettlementCategory,
+                AllocationSets: TransferredAllocationSets(line, newOrderId, serviceMap, itemMap, travellerMap, segmentMap, itineraryMap));
+
+        private static long? TransferredBasisReference(
+            OrderPricingLine line,
+            long newOrderId,
+            IReadOnlyDictionary<long, long> serviceMap,
+            IReadOnlyDictionary<long, long> itemMap)
+            => line.BasisType switch
+            {
+                PricingBasisType.Order => newOrderId,
+                PricingBasisType.OrderService => Mapped(line.BasisReferenceId, serviceMap),
+                PricingBasisType.OrderItem => Mapped(line.BasisReferenceId, itemMap),
+                _ => null
+            };
+
+        private static IReadOnlyList<AcceptedPricingAllocationSetArgs>? TransferredAllocationSets(
+            OrderPricingLine line,
+            long newOrderId,
+            IReadOnlyDictionary<long, long> serviceMap,
+            IReadOnlyDictionary<long, long> itemMap,
+            IReadOnlyDictionary<long, long> travellerMap,
+            IReadOnlyDictionary<long, long> segmentMap,
+            IReadOnlyDictionary<long, long> itineraryMap)
+        {
+            var source = line.ActiveAllocationSet(PricingAllocationPurpose.CommercialValue);
+
+            if (source is null || source.Allocations.Count == 0)
+                return null;
+
+            var moved = source.Allocations
+                .Where(allocation => allocation.OrderServiceId is not { } serviceId || serviceMap.ContainsKey(serviceId))
+                .Select(allocation => new AcceptedPricingAllocationArgs(
+                    allocation.SaleAmount,
+                    allocation.SaleCurrencyId,
+                    Mapped(allocation.OrderItemIdAtAllocation, itemMap),
+                    Mapped(allocation.OrderServiceId, serviceMap),
+                    Mapped(allocation.TravellerId, travellerMap),
+                    Mapped(allocation.ItineraryIdAtAllocation, itineraryMap),
+                    Mapped(allocation.SegmentIdAtAllocation, segmentMap),
+                    allocation.CoveragePortionRef,
+                    allocation.OriginalAmount,
+                    allocation.OriginalCurrencyId,
+                    allocation.ExchangeRate?.Copy(),
+                    allocation.Id))
+                .ToList();
+
+            if (moved.Count == 0)
+                return null;
+
+            var completeness = moved.Sum(allocation => allocation.SaleAmount) == line.SaleAmount
+                ? PricingAllocationCompleteness.Complete
+                : PricingAllocationCompleteness.Partial;
+
+            return
+            [
+                new AcceptedPricingAllocationSetArgs(
+                    PricingAllocationPurpose.CommercialValue,
+                    source.Source,
+                    source.Method,
+                    completeness,
+                    moved,
+                    source.PricingContextRef,
+                    source.PolicyVersion)
+            ];
+        }
+
+        private static long? Mapped(long? id, IReadOnlyDictionary<long, long> map)
+            => id is { } value && map.TryGetValue(value, out var mapped) ? mapped : null;
     }
 }

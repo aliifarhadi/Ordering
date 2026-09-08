@@ -15,6 +15,7 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
 
             builder.HasIndex(order => new { order.Status, order.TimeToLive });
             builder.HasIndex(order => order.CommercialSummary);
+            builder.HasIndex(order => new { order.OwnerAirlineId, order.Id });
 
             builder.OwnsOne(order => order.Lineage, lineage =>
             {
@@ -33,6 +34,7 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
                 amount.Property(value => value.SurchargeTotal).HasColumnName("SurchargeTotal");
                 amount.Property(value => value.DiscountTotal).HasColumnName("DiscountTotal");
                 amount.Property(value => value.PenaltyTotal).HasColumnName("PenaltyTotal");
+                amount.Property(value => value.AncillaryTotal).HasColumnName("AncillaryTotal");
                 amount.Property(value => value.GrandTotal).HasColumnName("GrandTotal");
             });
             builder.Navigation(order => order.Amount).IsRequired();
@@ -59,6 +61,8 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.HasOne(order => order.Contact).WithOne().HasForeignKey<OrderContact>(contact => contact.OrderId).OnDelete(DeleteBehavior.Cascade);
 
             builder.HasMany(order => order.Items).WithOne().HasForeignKey(item => item.OrderId).OnDelete(DeleteBehavior.Cascade);
+            builder.HasMany(order => order.Changes).WithOne().HasForeignKey(change => change.OrderId).OnDelete(DeleteBehavior.Cascade);
+            builder.HasMany(order => order.PriceChangeSets).WithOne().HasForeignKey(set => set.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.PricingLines).WithOne().HasForeignKey(line => line.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.Travellers).WithOne().HasForeignKey(traveller => traveller.OrderId).OnDelete(DeleteBehavior.Cascade);
             builder.HasMany(order => order.Segments).WithOne().HasForeignKey(segment => segment.OrderId).OnDelete(DeleteBehavior.Cascade);
@@ -69,6 +73,8 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.HasMany(order => order.ExternalReferences).WithOne().HasForeignKey(reference => reference.OrderId).OnDelete(DeleteBehavior.Cascade);
 
             builder.Navigation(order => order.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
+            builder.Navigation(order => order.Changes).UsePropertyAccessMode(PropertyAccessMode.Field);
+            builder.Navigation(order => order.PriceChangeSets).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.PricingLines).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.Travellers).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(order => order.Segments).UsePropertyAccessMode(PropertyAccessMode.Field);

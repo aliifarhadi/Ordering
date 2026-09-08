@@ -13,7 +13,18 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
             builder.Property(line => line.Id).ValueGeneratedNever();
             builder.Property(line => line.Code).HasMaxLength(256);
             builder.Property(line => line.Description).HasMaxLength(256);
-            builder.Property(line => line.Reference).HasMaxLength(256);
+            builder.Property(line => line.UnitOfMeasure).HasMaxLength(32);
+            builder.Property(line => line.SourceLineRef).HasMaxLength(512);
+            builder.Property(line => line.TransferGroupId).HasMaxLength(64);
+            builder.Property(line => line.SettlementPartyRef).HasMaxLength(256);
+            builder.Property(line => line.SettlementCategory).HasMaxLength(128);
+            builder.Property(line => line.UnitPrice).HasPrecision(28, 12);
+
+            builder.HasIndex(line => line.PriceChangeSetId);
+            builder.HasIndex(line => line.OriginalPricingLineId);
+            builder.HasIndex(line => new { line.OrderId, line.SourceLineRef })
+                .IsUnique()
+                .HasFilter("[SourceLineRef] IS NOT NULL");
 
             builder.OwnsOne(line => line.ExchangeRate, rate =>
             {
@@ -23,8 +34,12 @@ namespace AeroTech.Ordering.Persistence.OrderAggregate
                 rate.Property(value => value.RoundingFactor).HasColumnName("RoundingFactor");
             });
 
-            builder.HasMany(line => line.Allocations).WithOne().HasForeignKey(allocation => allocation.OrderPricingLineId).OnDelete(DeleteBehavior.Cascade);
-            builder.Navigation(line => line.Allocations).UsePropertyAccessMode(PropertyAccessMode.Field);
+            builder.HasMany(line => line.AllocationSets)
+                .WithOne()
+                .HasForeignKey(set => set.OrderPricingLineId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Navigation(line => line.AllocationSets).UsePropertyAccessMode(PropertyAccessMode.Field);
         }
     }
 }

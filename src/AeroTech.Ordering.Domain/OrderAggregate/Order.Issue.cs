@@ -103,28 +103,23 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
         private TicketAmountBreakdown ComputeServiceAmounts(long serviceId)
         {
-            var allocations = _pricingLines
-                .SelectMany(line => line.Allocations
-                    .Where(allocation => allocation.OrderServiceId == serviceId)
-                    .Select(allocation => new { line.LineCategory, line.LineDirection, allocation.EquivalentAmount, allocation.EquivalentCurrencyId }))
-                .ToList();
+            var attributions = ServiceValueAttributions(serviceId);
 
-            decimal Net(params OrderPricingLineCategory[] categories)
+            decimal Net(params PricingComponentType[] components)
             {
-                var scope = categories.Length == 0
-                    ? allocations
-                    : allocations.Where(entry => categories.Contains(entry.LineCategory)).ToList();
+                var scope = components.Length == 0
+                    ? attributions
+                    : attributions.Where(entry => components.Contains(entry.ComponentType)).ToList();
 
-                return scope.Where(entry => entry.LineDirection == OrderPricingLineDirection.Credit).Sum(entry => entry.EquivalentAmount)
-                     - scope.Where(entry => entry.LineDirection == OrderPricingLineDirection.Debit).Sum(entry => entry.EquivalentAmount);
+                return scope.Sum(entry => entry.SignedSaleAmount);
             }
 
-            var currencyId = allocations.Select(entry => entry.EquivalentCurrencyId).DefaultIfEmpty(CurrencyId).First();
+            var currencyId = attributions.Select(entry => entry.SaleCurrencyId).DefaultIfEmpty(CurrencyId).First();
 
             return new TicketAmountBreakdown(
-                Net(OrderPricingLineCategory.Fare),
-                Net(OrderPricingLineCategory.Tax),
-                Net(OrderPricingLineCategory.Fee),
+                Net(PricingComponentType.Fare),
+                Net(PricingComponentType.Tax),
+                Net(PricingComponentType.Fee, PricingComponentType.CarrierSurcharge),
                 0m,
                 Net(),
                 currencyId);

@@ -8,10 +8,10 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.ValueObjects
         {
         }
 
-        public Commission(decimal commissionRate, decimal totalAmount)
+        public Commission(decimal commissionRate, decimal commissionAmount)
         {
             CommissionRate = commissionRate;
-            CommissionAmount = commissionRate <= 0 ? 0m : totalAmount * commissionRate / 100m;
+            CommissionAmount = commissionAmount;
         }
 
         public decimal CommissionRate { get; private set; }

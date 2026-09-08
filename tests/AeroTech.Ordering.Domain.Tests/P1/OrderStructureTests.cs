@@ -105,7 +105,7 @@ namespace AeroTech.Ordering.Domain.Tests.P1
             Assert.All(order.OrderServices, service =>
                 Assert.Equal(OrderServiceType.AirTransportation, service.ServiceType));
 
-            Assert.Contains(order.PricingLines, line => line.LineCategory == OrderPricingLineCategory.Tax);
+            Assert.Contains(order.PricingLines, line => line.ComponentType == PricingComponentType.Tax);
         }
 
         [Fact]

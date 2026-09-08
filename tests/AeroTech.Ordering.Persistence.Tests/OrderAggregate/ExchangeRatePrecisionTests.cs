@@ -9,7 +9,7 @@ namespace AeroTech.Ordering.Persistence.Tests.OrderAggregate
     {
         [Theory]
         [InlineData("OrderPricingLines")]
-        [InlineData("OrderPricingLineAllocations")]
+        [InlineData("OrderPricingAllocations")]
         public async Task The_accepted_rate_of_exchange_keeps_the_owners_precision(string table)
         {
             await using var connection = new SqlConnection(OrderingDatabaseFixture.ConnectionString);

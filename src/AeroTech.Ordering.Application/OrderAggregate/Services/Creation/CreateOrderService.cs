@@ -6,6 +6,7 @@ using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Offers;
+using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
@@ -36,6 +37,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Creation
         private readonly IIdGenerator _idGenerator;
         private readonly IClock _clock;
         private readonly IOrderProjector _projector;
+        private readonly IHomeOperatorProvider _homeOperator;
 
         public CreateOrderService(
             IOrderRepository orders,
@@ -44,7 +46,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Creation
             IUnitOfWork unitOfWork,
             IIdGenerator idGenerator,
             IClock clock,
-            IOrderProjector projector)
+            IOrderProjector projector,
+            IHomeOperatorProvider homeOperator)
         {
             _orders = orders;
             _receipts = receipts;
@@ -53,6 +56,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Creation
             _idGenerator = idGenerator;
             _clock = clock;
             _projector = projector;
+            _homeOperator = homeOperator;
         }
 
         public async Task<CreateOrderOutcome> CreateAsync(
@@ -91,7 +95,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Creation
                     IsReplay: true);
             }
 
-            var order = Order.Create(args, offer, _idGenerator, _clock);
+            var ownerAirlineId = await _homeOperator.GetOwnerAirlineIdAsync(cancellationToken);
+            var order = Order.Create(args, offer, ownerAirlineId, _idGenerator, _clock);
 
             await _orders.AddAsync(order, cancellationToken);
             await _receipts.AttachOrderAsync(receipt.ReceiptId, order.Id, cancellationToken);

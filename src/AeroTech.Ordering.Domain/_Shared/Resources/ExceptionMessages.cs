@@ -124,5 +124,29 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
 
         // Home operator identity
         public const string HomeOperatorNotProvisioned = "The trusted home operator identity ('{0}') has not been synchronized from Core; the operation cannot establish its owning airline.";
+
+        // P2 commercial pricing
+        public const string PricingAmountMustBeNonNegative = "A pricing magnitude must be non-negative; direction is the only source of sign.";
+        public const string TaxCannotBeSettlementOnly = "A tax component cannot be settlement-only; customer-collected tax remains part of the customer balance.";
+        public const string CommissionCannotAffectCustomerBalance = "Commission cannot affect the customer balance; a customer concession is a discount.";
+        public const string PricingComponentNotPermitted = "Component type {0} is not permitted with effect {1}.";
+        public const string PricingDirectionNotPermitted = "Component type {0} does not permit direction {1} for this line role.";
+        public const string PricingComponentRequiresCode = "Component type {0} requires an explicit code.";
+        public const string SettlementLineRequiresParty = "A settlement-only line requires an explicit settlement party and category.";
+        public const string ReversalRequiresOriginalLine = "A reversal line requires the pricing line it reverses.";
+        public const string ReversalMustOpposeOriginal = "Reversal of pricing line {0} must use the opposing direction and the same component and effect.";
+        public const string ReversalExceedsOutstandingValue = "Reversing {0} against pricing line {1} exceeds its outstanding value of {2}.";
+        public const string OriginalPricingLineNotFound = "Pricing line {0} referenced as the original does not belong to this order.";
+        public const string AllocationSetDoesNotReconcile = "A complete allocation set totalling {0} does not reconcile to its parent line value of {1}.";
+        public const string AllocationSetExceedsParent = "A partial allocation set totalling {0} exceeds its parent line value of {1}.";
+        public const string UnavailableAllocationSetMustBeEmpty = "An allocation set marked unavailable cannot contain allocations; an invented split is not permitted.";
+        public const string AllocationCurrencyMismatch = "An allocation must use the sale currency of its parent pricing line.";
+        public const string AllocationSetVersionAlreadyExists = "An allocation set for purpose {0} version {1} already exists on this pricing line.";
+        public const string DerivedAllocationRequiresMethodEvidence = "Allocation method {0} is derived and requires an explicit policy version.";
+        public const string PriceChangeSetAlreadyCommitted = "A price change set is immutable once committed.";
+        public const string PriceChangeSetRequiresLines = "A price change set must carry at least one pricing line.";
+        public const string DuplicateSourceLineReference = "Source pricing line reference '{0}' has already been accepted for this order.";
+        public const string CustomerBalanceCurrencyMismatch = "Customer-effective pricing line currency {0} does not match the order sale currency {1}.";
+        public const string OwnerAirlineIdRequired = "An order requires a trusted owning airline identity.";
     }
 }

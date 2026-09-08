@@ -14,12 +14,13 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public const long InboundAirFareId = 901;
         public const long OutboundFlightId = 5001;
         public const long InboundFlightId = 5002;
+        public const long OwnerAirlineId = 77;
 
         public static Order Create(SequentialIdGenerator ids, TestClock clock)
-            => Order.Create(Args(), Offer(clock), ids, clock);
+            => Order.Create(Args(), Offer(clock), OwnerAirlineId, ids, clock);
 
         public static Order CreateWithThroughFare(SequentialIdGenerator ids, TestClock clock)
-            => Order.Create(Args(), Offer(clock, throughFare: true), ids, clock);
+            => Order.Create(Args(), Offer(clock, throughFare: true), OwnerAirlineId, ids, clock);
 
         public static CreateOrderArgs Args() => new(
             CustomerId: 42,

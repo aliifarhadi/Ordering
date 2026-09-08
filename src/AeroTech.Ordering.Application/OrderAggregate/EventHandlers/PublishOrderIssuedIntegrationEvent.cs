@@ -34,18 +34,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.EventHandlers
                 @event.PricingLines
                     .Select(line => new IntegrationPricingLine(
                         line.LineId,
-                        line.Amount,
-                        line.CurrencyId,
-                        line.EquivalentAmount,
+                        line.OriginalAmount,
+                        line.OriginalCurrencyId,
+                        line.SaleAmount,
                         line.RateOfExchange,
                         line.NumberOfDecimalPlaces,
                         line.RateOfExchangeId,
                         line.RoundingFactor,
-                        line.Category,
-                        line.Direction,
+                        LegacyPricingLineTranslation.Category(line.ComponentType),
+                        LegacyPricingLineTranslation.Direction(line.Direction),
                         line.Code,
                         line.Description,
-                        line.Reference,
+                        line.SourceLineRef,
                         line.TrafficDocumentId,
                         line.DocumentCouponId))
                     .ToList()), @event, cancellationToken);

@@ -12,9 +12,10 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public const int CurrencyId = 1;
         public const long AirFareId = 900;
         public const long FlightId = 5001;
+        public const long OwnerAirlineId = 77;
 
         public static Order CreatedOrder(SequentialIdGenerator ids, TestClock clock)
-            => Order.Create(Args(), Offer(clock), ids, clock);
+            => Order.Create(Args(), Offer(clock), OwnerAirlineId, ids, clock);
 
         public static CreateOrderArgs Args() => new(
             CustomerId: 42,

@@ -583,6 +583,54 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("FulfillmentTasks", "Fulfillment");
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderChange", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ActorId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ActorScope")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<int>("ChangeType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ExternalReference")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("OperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "OccurredAt");
+
+                    b.ToTable("OrderChanges", "Order");
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderContact", b =>
                 {
                     b.Property<long>("Id")
@@ -857,95 +905,73 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("OrderItineraries", "Order");
                 });
 
-            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingLine", b =>
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPriceChangeSet", b =>
                 {
                     b.Property<long>("Id")
                         .HasColumnType("bigint");
 
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
+                    b.Property<long>("ChangeId")
+                        .HasColumnType("bigint");
 
-                    b.Property<string>("Code")
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
+                    b.Property<DateTimeOffset?>("CommittedAt")
+                        .HasColumnType("datetimeoffset");
 
-                    b.Property<int>("CurrencyId")
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("ExpectedCommercialVersion")
                         .HasColumnType("int");
 
-                    b.Property<string>("Description")
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.Property<decimal>("EquivalentAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<int>("EquivalentCurrencyId")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("IsPercentage")
-                        .HasColumnType("bit");
+                    b.Property<long>("FinancialSequence")
+                        .HasColumnType("bigint");
 
                     b.Property<DateTimeOffset>("LastUpdateTime")
                         .HasColumnType("datetimeoffset");
 
                     b.Property<long?>("LastUpdatedBy")
                         .HasColumnType("bigint");
-
-                    b.Property<int>("LineCategory")
-                        .HasColumnType("int");
-
-                    b.Property<int>("LineDirection")
-                        .HasColumnType("int");
-
-                    b.Property<int>("LineReason")
-                        .HasColumnType("int");
-
-                    b.Property<int>("LineScope")
-                        .HasColumnType("int");
-
-                    b.Property<int>("LineSubCategory")
-                        .HasColumnType("int");
 
                     b.Property<long>("OrderId")
                         .HasColumnType("bigint");
 
-                    b.Property<long?>("OriginalPricingLineId")
-                        .HasColumnType("bigint");
+                    b.Property<int>("Reason")
+                        .HasColumnType("int");
 
-                    b.Property<string>("Reference")
+                    b.Property<int>("Source")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceOfferId")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("SourcePricingRef")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
-                    b.Property<int>("Refundability")
-                        .HasColumnType("int");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("OrderId");
+                    b.HasIndex("ChangeId");
 
-                    b.ToTable("OrderPricingLines", "Order");
+                    b.HasIndex("OrderId", "FinancialSequence")
+                        .IsUnique();
+
+                    b.ToTable("OrderPriceChangeSets", "Order");
                 });
 
-            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingLineAllocation", b =>
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingAllocation", b =>
                 {
                     b.Property<long>("Id")
                         .HasColumnType("bigint");
 
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
+                    b.Property<long>("AllocationSetId")
+                        .HasColumnType("bigint");
 
-                    b.Property<int>("CurrencyId")
-                        .HasColumnType("int");
+                    b.Property<string>("CoveragePortionRef")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
-                    b.Property<decimal>("EquivalentAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<int>("EquivalentCurrencyId")
-                        .HasColumnType("int");
+                    b.Property<long?>("ItineraryIdAtAllocation")
+                        .HasColumnType("bigint");
 
                     b.Property<DateTimeOffset>("LastUpdateTime")
                         .HasColumnType("datetimeoffset");
@@ -953,10 +979,7 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long?>("LastUpdatedBy")
                         .HasColumnType("bigint");
 
-                    b.Property<long?>("OrderItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("OrderPricingLineId")
+                    b.Property<long?>("OrderItemIdAtAllocation")
                         .HasColumnType("bigint");
 
                     b.Property<long?>("OrderServiceId")
@@ -965,17 +988,214 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long?>("OriginalAllocationId")
                         .HasColumnType("bigint");
 
-                    b.Property<long?>("TargetId")
+                    b.Property<decimal?>("OriginalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("OriginalCurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("SaleAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("SaleCurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("SegmentIdAtAllocation")
                         .HasColumnType("bigint");
 
-                    b.Property<int?>("TargetType")
+                    b.Property<long?>("TravellerId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AllocationSetId");
+
+                    b.HasIndex("OrderServiceId");
+
+                    b.ToTable("OrderPricingAllocations", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingAllocationSet", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Completeness")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Method")
+                        .HasColumnType("int");
+
+                    b.Property<long>("OrderIdAtCreation")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OrderPricingLineId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PolicyVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("PricingContextRef")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Purpose")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("SupersedesAllocationSetId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Version")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OrderPricingLineId");
+                    b.HasIndex("OrderPricingLineId", "Purpose", "Version")
+                        .IsUnique();
 
-                    b.ToTable("OrderPricingLineAllocations", "Order");
+                    b.ToTable("OrderPricingAllocationSets", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingLine", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("ApplicationLevel")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("BasisReferenceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("BasisType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CalculationSnapshot")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Code")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("ComponentType")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Direction")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Effect")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("LineRole")
+                        .HasColumnType("int");
+
+                    b.Property<long>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("OrderItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("OriginalAllocationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("OriginalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("OriginalCurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("OriginalPricingLineId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("PriceChangeSetId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal?>("Quantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("Refundability")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("RelatedOperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("SaleAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("SaleCurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SettlementCategory")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("SettlementPartyRef")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("SourceLineRef")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("TaxDetails")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("TransferGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("UnitOfMeasure")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<decimal?>("UnitPrice")
+                        .HasPrecision(28, 12)
+                        .HasColumnType("decimal(28,12)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OriginalPricingLineId");
+
+                    b.HasIndex("PriceChangeSetId");
+
+                    b.HasIndex("OrderId", "SourceLineRef")
+                        .IsUnique()
+                        .HasFilter("[SourceLineRef] IS NOT NULL");
+
+                    b.ToTable("OrderPricingLines", "Order");
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderRemark", b =>
@@ -1453,6 +1673,9 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long>("CustomerId")
                         .HasColumnType("bigint");
 
+                    b.Property<long>("FinancialSequence")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTimeOffset>("LastUpdateTime")
                         .HasColumnType("datetimeoffset");
 
@@ -1467,6 +1690,9 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .HasColumnType("nvarchar(256)");
 
                     b.Property<long>("ObligationVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OwnerAirlineId")
                         .HasColumnType("bigint");
 
                     b.Property<int>("Pax")
@@ -1496,6 +1722,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CommercialSummary");
+
+                    b.HasIndex("OwnerAirlineId", "Id");
 
                     b.HasIndex("Status", "TimeToLive");
 
@@ -2222,6 +2450,15 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderChange", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Order", null)
+                        .WithMany("Changes")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderContact", b =>
                 {
                     b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Order", null)
@@ -2276,6 +2513,66 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPriceChangeSet", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Order", null)
+                        .WithMany("PriceChangeSets")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingAllocation", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingAllocationSet", null)
+                        .WithMany("Allocations")
+                        .HasForeignKey("AllocationSetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.OwnsOne("AeroTech.Ordering.Domain.OrderAggregate.ValueObjects.ExchangeRate", "ExchangeRate", b1 =>
+                        {
+                            b1.Property<long>("OrderPricingAllocationId")
+                                .HasColumnType("bigint");
+
+                            b1.Property<int>("NumberOfDecimalPlaces")
+                                .HasColumnType("int")
+                                .HasColumnName("NumberOfDecimalPlaces");
+
+                            b1.Property<decimal>("RateOfExchange")
+                                .HasPrecision(28, 12)
+                                .HasColumnType("decimal(28,12)")
+                                .HasColumnName("RateOfExchange");
+
+                            b1.Property<string>("RateOfExchangeId")
+                                .HasMaxLength(256)
+                                .HasColumnType("nvarchar(256)")
+                                .HasColumnName("RateOfExchangeId");
+
+                            b1.Property<int>("RoundingFactor")
+                                .HasColumnType("int")
+                                .HasColumnName("RoundingFactor");
+
+                            b1.HasKey("OrderPricingAllocationId");
+
+                            b1.ToTable("OrderPricingAllocations", "Order");
+
+                            b1.WithOwner()
+                                .HasForeignKey("OrderPricingAllocationId");
+                        });
+
+                    b.Navigation("ExchangeRate");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingAllocationSet", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingLine", null)
+                        .WithMany("AllocationSets")
+                        .HasForeignKey("OrderPricingLineId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingLine", b =>
                 {
                     b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Order", null)
@@ -2313,48 +2610,6 @@ namespace AeroTech.Ordering.Persistence.Migrations
 
                             b1.WithOwner()
                                 .HasForeignKey("OrderPricingLineId");
-                        });
-
-                    b.Navigation("ExchangeRate");
-                });
-
-            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingLineAllocation", b =>
-                {
-                    b.HasOne("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingLine", null)
-                        .WithMany("Allocations")
-                        .HasForeignKey("OrderPricingLineId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.OwnsOne("AeroTech.Ordering.Domain.OrderAggregate.ValueObjects.ExchangeRate", "ExchangeRate", b1 =>
-                        {
-                            b1.Property<long>("OrderPricingLineAllocationId")
-                                .HasColumnType("bigint");
-
-                            b1.Property<int>("NumberOfDecimalPlaces")
-                                .HasColumnType("int")
-                                .HasColumnName("NumberOfDecimalPlaces");
-
-                            b1.Property<decimal>("RateOfExchange")
-                                .HasPrecision(28, 12)
-                                .HasColumnType("decimal(28,12)")
-                                .HasColumnName("RateOfExchange");
-
-                            b1.Property<string>("RateOfExchangeId")
-                                .HasMaxLength(256)
-                                .HasColumnType("nvarchar(256)")
-                                .HasColumnName("RateOfExchangeId");
-
-                            b1.Property<int>("RoundingFactor")
-                                .HasColumnType("int")
-                                .HasColumnName("RoundingFactor");
-
-                            b1.HasKey("OrderPricingLineAllocationId");
-
-                            b1.ToTable("OrderPricingLineAllocations", "Order");
-
-                            b1.WithOwner()
-                                .HasForeignKey("OrderPricingLineAllocationId");
                         });
 
                     b.Navigation("ExchangeRate");
@@ -2483,6 +2738,11 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         {
                             b1.Property<long>("OrderId")
                                 .HasColumnType("bigint");
+
+                            b1.Property<decimal>("AncillaryTotal")
+                                .HasPrecision(18, 2)
+                                .HasColumnType("decimal(18,2)")
+                                .HasColumnName("AncillaryTotal");
 
                             b1.Property<decimal>("BaseFareTotal")
                                 .HasPrecision(18, 2)
@@ -2728,9 +2988,14 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingLine", b =>
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingAllocationSet", b =>
                 {
                     b.Navigation("Allocations");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderPricingLine", b =>
+                {
+                    b.Navigation("AllocationSets");
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Entities.OrderSegment", b =>
@@ -2745,6 +3010,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.OrderAggregate.Order", b =>
                 {
+                    b.Navigation("Changes");
+
                     b.Navigation("Contact");
 
                     b.Navigation("ExternalReferences");
@@ -2754,6 +3021,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Navigation("Itineraries");
 
                     b.Navigation("OrderServices");
+
+                    b.Navigation("PriceChangeSets");
 
                     b.Navigation("PricingLines");
 

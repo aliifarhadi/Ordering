@@ -4,6 +4,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
+using AeroTech.Ordering.Domain._Shared.Contracts;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer
 {
@@ -15,6 +16,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromO
         private readonly IUnitOfWork _unitOfWork;
         private readonly IIdGenerator _idGenerator;
         private readonly IClock _clock;
+        private readonly IHomeOperatorProvider _homeOperator;
 
         public CreateOrderFromOfferService(
             IOfferProvider offerProvider,
@@ -22,7 +24,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromO
             IInlineReservationService inlineReservation,
             IUnitOfWork unitOfWork,
             IIdGenerator idGenerator,
-            IClock clock)
+            IClock clock,
+            IHomeOperatorProvider homeOperator)
         {
             _offerProvider = offerProvider;
             _orderRepository = orderRepository;
@@ -30,6 +33,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromO
             _unitOfWork = unitOfWork;
             _idGenerator = idGenerator;
             _clock = clock;
+            _homeOperator = homeOperator;
         }
 
         public async Task<CreateOrderFromOfferResult> ExecuteAsync(
@@ -38,7 +42,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromO
         {
             var offer = await _offerProvider.GetByOfferIdAsync(args.OfferId, cancellationToken);
 
-            var order = Order.Create(args, offer, _idGenerator, _clock);
+            var order = Order.Create(args, offer, await _homeOperator.GetOwnerAirlineIdAsync(cancellationToken), _idGenerator, _clock);
             await _orderRepository.AddAsync(order, cancellationToken);
 
             var reservationKey = $"reserve:{order.Id}";

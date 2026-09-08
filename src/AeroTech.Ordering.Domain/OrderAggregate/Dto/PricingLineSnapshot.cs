@@ -4,19 +4,23 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Dto
 {
     public sealed record PricingLineSnapshot(
         long LineId,
+        long PriceChangeSetId,
         long? OriginalLineId,
-        decimal Amount,
-        int CurrencyId,
-        decimal EquivalentAmount,
+        decimal OriginalAmount,
+        int OriginalCurrencyId,
+        decimal SaleAmount,
+        int SaleCurrencyId,
         decimal? RateOfExchange,
         int? NumberOfDecimalPlaces,
         string? RateOfExchangeId,
         int? RoundingFactor,
-        OrderPricingLineCategory Category,
+        PricingComponentType ComponentType,
+        PricingEffect Effect,
         OrderPricingLineDirection Direction,
+        PricingLineRole LineRole,
         string Code,
         string? Description,
-        string? Reference,
+        string? SourceLineRef,
         long? TrafficDocumentId,
         long? DocumentCouponId);
 }

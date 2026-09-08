@@ -13,13 +13,19 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 {
     public sealed partial class Order
     {
-        public static Order Create(CreateOrderArgs args, OfferDetail offer, IIdGenerator idGenerator, IClock clock)
+        public static Order Create(
+            CreateOrderArgs args,
+            OfferDetail offer,
+            long ownerAirlineId,
+            IIdGenerator idGenerator,
+            IClock clock)
         {
             var reader = new OfferReader(offer);
 
             var order = new Order(
                 idGenerator.NewId(),
                 Guid.NewGuid(),
+                ownerAirlineId,
                 args.CustomerId,
                 args.CreatorUserId,
                 args.AirlineOfficeId,
@@ -35,11 +41,25 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             order.EnsureValidComposition();
             order.BuildItineraries(reader, idGenerator);
             order.BuildSegments(reader, idGenerator);
-            order.BuildItemsServicesAndPricing(args, reader, idGenerator, clock);
-            order.BuildOrderCharges(reader, idGenerator, clock);
+            var acceptedLines = new List<AcceptedPricingLineArgs>();
+            var sourceLineRefs = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            order.BuildItemsServicesAndPricing(args, reader, acceptedLines, sourceLineRefs, idGenerator, clock);
+            order.BuildOrderCharges(reader, acceptedLines, sourceLineRefs);
             order.AssignInfantParents(args);
-            order.RecalculateTotal();
-            order.ApplyCommission(args.CommissionRate);
+            order.SetCommission(new Commission(args.CommissionRate, 0m));
+
+            order.CommitPriceChange(
+                new AcceptedPriceChangeArgs(
+                    OrderChangeType.Create,
+                    PriceChangeReason.OriginalSale,
+                    PricingSource.OfferProvider,
+                    acceptedLines,
+                    SourceOfferId: offer.OfferId,
+                    ActorId: args.CreatorUserId),
+                idGenerator,
+                clock);
+
             order.AcceptCommercially();
             order.RaiseCreated(idGenerator, clock);
 
@@ -197,7 +217,13 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             }
         }
 
-        private void BuildItemsServicesAndPricing(CreateOrderArgs args, OfferReader reader, IIdGenerator idGenerator, IClock clock)
+        private void BuildItemsServicesAndPricing(
+            CreateOrderArgs args,
+            OfferReader reader,
+            List<AcceptedPricingLineArgs> acceptedLines,
+            Dictionary<string, int> sourceLineRefs,
+            IIdGenerator idGenerator,
+            IClock clock)
         {
             foreach (var traveller in _travellers)
             {
@@ -260,108 +286,138 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                     }
 
                     foreach (var line in baseLines)
-                    {
-                        var refundable = (fareComponent?.IsRefundable ?? false) ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable;
-                        var pricingLine = new OrderPricingLine(new CreateOrderPricingLineArgs(
-                            idGenerator.NewId(),
-                            Id,
-                            OrderPricingReason.InitialSale,
-                            OrderPricingLineScope.OrderService,
-                            OrderPricingLineCategory.Fare,
-                            OrderPricingLineSubCategory.BaseFare,
-                            OrderPricingLineDirection.Credit,
+                        acceptedLines.Add(AcceptedLine(
+                            reader,
+                            line,
+                            PricingComponentType.Fare,
                             fareComponent?.FareBasis,
                             null,
-                            airFareId.ToString(),
-                            line.Amount,
-                            reader.SourceCurrencyId(line),
-                            false,
-                            line.EquivalentAmount,
-                            reader.EquivalentCurrencyId(line),
-                            BuildExchangeRate(reader, line),
-                            refundable));
-
-                        AllocateToCoupon(pricingLine, couponServices, fareItem.Id, line, reader, idGenerator);
-                        AddPricingLine(pricingLine);
-                    }
+                            (fareComponent?.IsRefundable ?? false) ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable,
+                            fareItem.Id,
+                            couponServices,
+                            sourceLineRefs,
+                            reader.SourceOfferId,
+                            travellerRef));
                 }
 
                 foreach (var line in reader.ChargeLines(travellerRef))
                 {
                     var charge = reader.Charge(line.AirChargeId);
-                    var isTax = charge?.Kind == AirChargeKind.Tax;
                     var firstItem = itemsByProduct.Values.FirstOrDefault();
-                    var refundable = (charge?.IsRefundable ?? false) ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable;
 
-                    var pricingLine = new OrderPricingLine(new CreateOrderPricingLineArgs(
-                        idGenerator.NewId(),
-                        Id,
-                        OrderPricingReason.InitialSale,
-                        line.FlightId.HasValue ? OrderPricingLineScope.OrderService : OrderPricingLineScope.Order,
-                        isTax ? OrderPricingLineCategory.Tax : OrderPricingLineCategory.Fee,
-                        isTax ? OrderPricingLineSubCategory.Tax : OrderPricingLineSubCategory.ServiceFee,
-                        OrderPricingLineDirection.Credit,
+                    acceptedLines.Add(AcceptedLine(
+                        reader,
+                        line,
+                        ComponentTypeOf(charge?.Kind),
                         charge?.Code ?? line.Code,
                         charge?.Name,
-                        line.AirChargeId,
-                        line.Amount,
-                        reader.SourceCurrencyId(line),
-                        false,
-                        line.EquivalentAmount,
-                        reader.EquivalentCurrencyId(line),
-                        BuildExchangeRate(reader, line),
-                        refundable));
-
-                    AllocateToCoupon(pricingLine, couponServices, firstItem?.Id, line, reader, idGenerator);
-                    AddPricingLine(pricingLine);
+                        (charge?.IsRefundable ?? false) ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable,
+                        firstItem?.Id,
+                        couponServices,
+                        sourceLineRefs,
+                        reader.SourceOfferId,
+                        travellerRef));
                 }
             }
         }
 
-        private void BuildOrderCharges(OfferReader reader, IIdGenerator idGenerator, IClock clock)
+        private void BuildOrderCharges(
+            OfferReader reader,
+            List<AcceptedPricingLineArgs> acceptedLines,
+            Dictionary<string, int> sourceLineRefs)
         {
             foreach (var line in reader.OrderChargeLines())
             {
                 var charge = reader.Charge(line.AirChargeId);
 
-                var chargeItem = new OrderItem(
-                    new CreateOrderItemArgs(idGenerator.NewId(), Id, ProductType.ServiceFee, line.AirChargeId ?? string.Empty, charge?.Name ?? "Service fee", 1m, OrderItemUnitOfMeasure.Each, clock.GetDateTime()),
-                    OrderChargePolicy(idGenerator, clock));
-                AddItem(chargeItem);
-
-                var pricingLine = new OrderPricingLine(new CreateOrderPricingLineArgs(
-                    idGenerator.NewId(),
-                    Id,
-                    OrderPricingReason.InitialSale,
-                    OrderPricingLineScope.OrderItem,
-                    OrderPricingLineCategory.Fee,
-                    OrderPricingLineSubCategory.ServiceFee,
-                    OrderPricingLineDirection.Credit,
-                    charge?.Code ?? line.Code,
-                    charge?.Name,
-                    line.AirChargeId,
-                    line.Amount,
-                    reader.SourceCurrencyId(line),
-                    false,
-                    line.EquivalentAmount,
-                    reader.EquivalentCurrencyId(line),
-                    BuildExchangeRate(reader, line),
-                    (charge?.IsRefundable ?? false) ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable));
-
-                pricingLine.AllocateTo(new CreateOrderPricingLineAllocationArgs(
-                    idGenerator.NewId(),
-                    chargeItem.Id,
-                    null,
-                    null,
-                    null,
+                acceptedLines.Add(new AcceptedPricingLineArgs(
+                    ComponentTypeOf(charge?.Kind),
+                    PricingEffect.CustomerBalance,
+                    OrderPricingLineDirection.Debit,
+                    PricingLineRole.Original,
                     line.Amount,
                     reader.SourceCurrencyId(line),
                     line.EquivalentAmount,
                     reader.EquivalentCurrencyId(line),
-                    BuildExchangeRate(reader, line)));
-
-                AddPricingLine(pricingLine);
+                    PricingBasisType.Order,
+                    (charge?.IsRefundable ?? false) ? RefundabilityRule.Refundable : RefundabilityRule.NonRefundable,
+                    Code: charge?.Code ?? line.Code,
+                    Description: charge?.Name,
+                    ExchangeRate: BuildExchangeRate(reader, line),
+                    ApplicationLevel: PricingApplicationLevel.PerOrder,
+                    BasisReferenceId: Id,
+                    SourceLineRef: NextSourceLineRef(
+                        sourceLineRefs,
+                        reader.SourceOfferId,
+                        "ORDER",
+                        line.BoundId,
+                        line.FlightId,
+                        line.AirChargeId ?? line.Code)));
             }
+        }
+
+        private AcceptedPricingLineArgs AcceptedLine(
+            OfferReader reader,
+            OfferPriceLine line,
+            PricingComponentType componentType,
+            string? code,
+            string? description,
+            RefundabilityRule refundability,
+            long? orderItemId,
+            IReadOnlyDictionary<long, long> couponServices,
+            Dictionary<string, int> sourceLineRefs,
+            string sourceOfferId,
+            string travellerRef)
+        {
+            var hasService = line.FlightId.HasValue && couponServices.TryGetValue(line.FlightId.Value, out var serviceId);
+
+            return new AcceptedPricingLineArgs(
+                componentType,
+                PricingEffect.CustomerBalance,
+                OrderPricingLineDirection.Debit,
+                PricingLineRole.Original,
+                line.Amount,
+                reader.SourceCurrencyId(line),
+                line.EquivalentAmount,
+                reader.EquivalentCurrencyId(line),
+                hasService ? PricingBasisType.OrderService : PricingBasisType.OrderItem,
+                refundability,
+                OrderItemId: orderItemId,
+                Code: code,
+                Description: description,
+                ExchangeRate: BuildExchangeRate(reader, line),
+                ApplicationLevel: hasService ? PricingApplicationLevel.PerSegment : PricingApplicationLevel.PerTraveler,
+                BasisReferenceId: hasService ? couponServices[line.FlightId!.Value] : orderItemId,
+                SourceLineRef: NextSourceLineRef(
+                    sourceLineRefs,
+                    sourceOfferId,
+                    travellerRef,
+                    line.BoundId,
+                    line.FlightId,
+                    line.AirChargeId ?? line.AirFareId?.ToString() ?? line.Code));
+        }
+
+        private static PricingComponentType ComponentTypeOf(AirChargeKind? kind)
+            => kind switch
+            {
+                AirChargeKind.Tax => PricingComponentType.Tax,
+                AirChargeKind.Surcharge => PricingComponentType.CarrierSurcharge,
+                _ => PricingComponentType.Fee
+            };
+
+        private static string NextSourceLineRef(
+            Dictionary<string, int> sourceLineRefs,
+            string sourceOfferId,
+            string travellerRef,
+            string? boundId,
+            long? flightId,
+            string? code)
+        {
+            var key = string.Join(':', sourceOfferId, travellerRef, boundId ?? "-", flightId?.ToString() ?? "-", code ?? "-");
+            var occurrence = sourceLineRefs.TryGetValue(key, out var previous) ? previous + 1 : 1;
+            sourceLineRefs[key] = occurrence;
+
+            return $"{key}:{occurrence}";
         }
 
         private void AssignInfantParents(CreateOrderArgs args)
@@ -376,56 +432,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             }
         }
 
-        private void RecalculateTotal()
-        {
-            decimal NetPricingTotal(params OrderPricingLineCategory[] categories)
-            {
-                var lines = categories.Length == 0
-                    ? _pricingLines
-                    : _pricingLines.Where(line => categories.Contains(line.LineCategory));
-
-                return lines.Where(line => line.LineDirection == OrderPricingLineDirection.Credit).Sum(line => line.EquivalentAmount)
-                     - lines.Where(line => line.LineDirection == OrderPricingLineDirection.Debit).Sum(line => line.EquivalentAmount);
-            }
-
-            SetAmount(new OrderAmount(
-                NetPricingTotal(OrderPricingLineCategory.Fare),
-                NetPricingTotal(OrderPricingLineCategory.Tax),
-                NetPricingTotal(OrderPricingLineCategory.Fee),
-                NetPricingTotal(OrderPricingLineCategory.CarrierImposedSurcharge),
-                NetPricingTotal(OrderPricingLineCategory.Discount),
-                NetPricingTotal(OrderPricingLineCategory.Penalty),
-                NetPricingTotal()));
-        }
-
-        private void ApplyCommission(decimal commissionRate) => SetCommission(new Commission(commissionRate, Amount.GrandTotal));
-
         private long ItineraryIdFor(string boundId)
             => _itineraries.First(itinerary => string.Equals(itinerary.BoundId, boundId, StringComparison.OrdinalIgnoreCase)).Id;
-
-        private void AllocateToCoupon(
-            OrderPricingLine pricingLine,
-            IReadOnlyDictionary<long, long> couponServices,
-            long? orderItemId,
-            OfferPriceLine line,
-            OfferReader reader,
-            IIdGenerator idGenerator)
-        {
-            if (!line.FlightId.HasValue || !couponServices.TryGetValue(line.FlightId.Value, out var serviceId))
-                return;
-
-            pricingLine.AllocateTo(new CreateOrderPricingLineAllocationArgs(
-                idGenerator.NewId(),
-                orderItemId,
-                serviceId,
-                OrderPricingLineAllocationTargetType.OrderAirTransportService,
-                serviceId,
-                line.Amount,
-                reader.SourceCurrencyId(line),
-                line.EquivalentAmount,
-                reader.EquivalentCurrencyId(line),
-                BuildExchangeRate(reader, line)));
-        }
 
         private static ExchangeRate? BuildExchangeRate(OfferReader reader, OfferPriceLine line)
         {
@@ -446,26 +454,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 RequiresDocument: true,
                 RequiresFulfillment: true,
                 CanBeUnassignedAtPurchase: false,
-                CanBeTransferred: false,
-                CanBePartiallyConsumed: false,
-                RefundRuleRef: null,
-                ChangeRuleRef: null,
-                CancellationRuleRef: null,
-                SupplierPolicyRef: null,
-                clock.GetDateTime(),
-                "1"));
-
-        private static OrderItemPolicySnapshot OrderChargePolicy(IIdGenerator idGenerator, IClock clock)
-            => new(idGenerator.NewId(), 0, new CreateOrderItemPolicySnapshotArgs(
-                DeliveryModel.NoFulfillmentRequired,
-                AccountingGranularity.Order,
-                AssignmentMode.None,
-                RequiresPassenger: false,
-                RequiresSegment: false,
-                RequiresSupplierConfirmation: false,
-                RequiresDocument: false,
-                RequiresFulfillment: false,
-                CanBeUnassignedAtPurchase: true,
                 CanBeTransferred: false,
                 CanBePartiallyConsumed: false,
                 RefundRuleRef: null,
