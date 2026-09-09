@@ -30,6 +30,10 @@ namespace AeroTech.Ordering.Persistence.Operations
 
         public string AcceptedPlan { get; set; } = null!;
 
+        public DocumentChangeEligibilityOutcome? EligibilityOutcome { get; set; }
+
+        public string? EligibilityDetail { get; set; }
+
         public ProviderOperationOutcome ReservationOutcome { get; set; }
 
         public string? ReservationExternalRef { get; set; }

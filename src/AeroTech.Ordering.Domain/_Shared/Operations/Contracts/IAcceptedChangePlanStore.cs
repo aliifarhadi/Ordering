@@ -8,6 +8,12 @@ namespace AeroTech.Ordering.Domain._Shared.Operations.Contracts
 
         Task SaveAsync(AcceptedChangePlan plan, CancellationToken cancellationToken = default);
 
+        Task RecordEligibilityOutcomeAsync(
+            long operationId,
+            DocumentChangeEligibilityOutcome outcome,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
         Task RecordReservationOutcomeAsync(
             long operationId,
             ProviderOperationOutcome outcome,

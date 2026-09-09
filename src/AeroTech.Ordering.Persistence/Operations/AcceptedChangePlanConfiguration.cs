@@ -15,6 +15,7 @@ namespace AeroTech.Ordering.Persistence.Operations
             builder.Property(plan => plan.TargetSelectionRef).HasMaxLength(128).IsRequired();
             builder.Property(plan => plan.AcceptedPlan).HasColumnType("nvarchar(max)").IsRequired();
             builder.Property(plan => plan.ReservationExternalRef).HasMaxLength(128);
+            builder.Property(plan => plan.EligibilityDetail).HasMaxLength(512);
 
             builder.HasIndex(plan => plan.OrderId);
         }

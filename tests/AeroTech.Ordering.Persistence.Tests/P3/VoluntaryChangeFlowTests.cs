@@ -447,6 +447,180 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             }
         }
 
+        [Fact]
+        public async Task Pending_evidence_persists_the_canonical_accepted_plan()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+
+            harness.DocumentChangeEligibilities.Outcome = DocumentChangeEligibilityOutcome.PendingEvidence;
+
+            var outcome = await harness.VoluntaryChange.ChangeAsync(Execution(order.Id, target, before));
+
+            var plan = await harness.ChangePlans.FindAsync(outcome.OperationId);
+
+            Assert.NotNull(plan);
+            Assert.Equal(QuoteId, plan!.QuotedChangeId);
+            Assert.Equal(TargetRef, plan.TargetSelectionRef);
+            Assert.Equal(target.ServiceId, plan.ReplacedOrderServiceId);
+            Assert.Equal(target.CouponId, plan.TicketCouponId);
+            Assert.NotEqual(0, plan.ReplacementOrderServiceId);
+            Assert.NotEqual(0, plan.ReplacementOrderSegmentId);
+            Assert.Equal(DocumentChangeEligibilityOutcome.PendingEvidence, plan.EligibilityOutcome);
+            Assert.False(plan.IsRevalidationEstablished);
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, outcome.OperationStatus);
+            Assert.Empty(harness.ReservationChanges.ObservedApplies);
+            Assert.Empty(harness.ReservationChanges.ObservedRecoveryKeys);
+        }
+
+        [Fact]
+        public async Task A_pending_evidence_replay_reuses_the_plan_without_re_accepting()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+            var key = NewKey();
+
+            harness.DocumentChangeEligibilities.Outcome = DocumentChangeEligibilityOutcome.PendingEvidence;
+
+            var first = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            var firstPlan = await harness.ChangePlans.FindAsync(first.OperationId);
+            var acceptCalls = harness.ChangeQuotes.ObservedSelections.Count;
+
+            var second = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            var secondPlan = await harness.ChangePlans.FindAsync(second.OperationId);
+
+            Assert.Equal(first.OperationId, second.OperationId);
+            Assert.Equal(acceptCalls, harness.ChangeQuotes.ObservedSelections.Count);
+            Assert.Equal(1, acceptCalls);
+
+            Assert.Equal(firstPlan!.ReplacementOrderServiceId, secondPlan!.ReplacementOrderServiceId);
+            Assert.Equal(firstPlan.ReplacementOrderSegmentId, secondPlan.ReplacementOrderSegmentId);
+
+            Assert.Equal(2, harness.DocumentChangeEligibilities.ObservedRequests.Count);
+            Assert.Equal(
+                harness.DocumentChangeEligibilities.ObservedRequests[0].OperationKey,
+                harness.DocumentChangeEligibilities.ObservedRequests[1].OperationKey);
+            Assert.All(harness.DocumentChangeEligibilities.ObservedRequests, request =>
+                Assert.Equal(TargetRef, request.TargetSelectionRef));
+
+            Assert.Empty(harness.ReservationChanges.ObservedApplies);
+            Assert.Empty(harness.ReservationChanges.ObservedRecoveryKeys);
+            Assert.Equal(ChangeDocumentOutcome.Pending, second.DocumentOutcome);
+        }
+
+        [Fact]
+        public async Task Pending_evidence_turning_revalidate_persists_eligibility_before_inventory()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+            var key = NewKey();
+
+            harness.DocumentChangeEligibilities.Outcome = DocumentChangeEligibilityOutcome.PendingEvidence;
+
+            var first = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            var pendingPlan = await harness.ChangePlans.FindAsync(first.OperationId);
+
+            harness.DocumentChangeEligibilities.Outcome = DocumentChangeEligibilityOutcome.Revalidate;
+
+            var resumed = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            var plan = await harness.ChangePlans.FindAsync(first.OperationId);
+            var applied = Assert.Single(harness.ReservationChanges.ObservedApplies);
+
+            Assert.Equal(DocumentChangeEligibilityOutcome.Revalidate, plan!.EligibilityOutcome);
+            Assert.True(plan.IsRevalidationEstablished);
+
+            Assert.Equal(pendingPlan!.ReplacementOrderServiceId, applied.ReplacementOrderServiceId);
+            Assert.Equal(pendingPlan.ReplacementOrderSegmentId, applied.ReplacementOrderSegmentId);
+            Assert.Equal(pendingPlan.ReplacementOrderServiceId, resumed.ReplacementOrderServiceId);
+
+            Assert.Equal(1, harness.ChangeQuotes.ObservedSelections.Count);
+            Assert.Empty(harness.ReservationChanges.ObservedRecoveryKeys);
+            Assert.Equal(ChangeDocumentOutcome.Revalidated, resumed.DocumentOutcome);
+            Assert.Equal(before.CommercialVersion + 1, (await ReloadAsync(order.Id)).CommercialVersion);
+        }
+
+        [Fact]
+        public async Task A_durable_revalidate_recovers_inventory_without_re_evaluating_eligibility()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+            var key = NewKey();
+
+            harness.ReservationChanges.ApplyOutcome = ProviderOperationOutcome.Unknown;
+
+            var first = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            Assert.Equal(
+                DocumentChangeEligibilityOutcome.Revalidate,
+                (await harness.ChangePlans.FindAsync(first.OperationId))!.EligibilityOutcome);
+
+            var eligibilityCalls = harness.DocumentChangeEligibilities.ObservedRequests.Count;
+
+            harness.ReservationChanges.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+            var recovered = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            Assert.Equal(eligibilityCalls, harness.DocumentChangeEligibilities.ObservedRequests.Count);
+            Assert.Equal(1, harness.ChangeQuotes.ObservedSelections.Count);
+            Assert.Single(harness.ReservationChanges.ObservedApplies);
+            Assert.Single(harness.ReservationChanges.ObservedRecoveryKeys);
+            Assert.Equal(first.ReplacementOrderServiceId, recovered.ReplacementOrderServiceId);
+            Assert.Equal(ChangeDocumentOutcome.Revalidated, recovered.DocumentOutcome);
+        }
+
+        [Theory]
+        [InlineData(DocumentChangeEligibilityOutcome.ReissueRequired)]
+        [InlineData(DocumentChangeEligibilityOutcome.Denied)]
+        public async Task A_terminal_eligibility_persists_and_never_reaches_inventory(
+            DocumentChangeEligibilityOutcome terminal)
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+            var key = NewKey();
+
+            harness.DocumentChangeEligibilities.Outcome = terminal;
+
+            var first = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            var plan = await harness.ChangePlans.FindAsync(first.OperationId);
+
+            Assert.Equal(terminal, plan!.EligibilityOutcome);
+            Assert.True(plan.IsEligibilityTerminal);
+
+            var replay = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            Assert.Equal(first.DocumentOutcome, replay.DocumentOutcome);
+            Assert.Equal(1, harness.ChangeQuotes.ObservedSelections.Count);
+            Assert.Single(harness.DocumentChangeEligibilities.ObservedRequests);
+            Assert.Empty(harness.ReservationChanges.ObservedApplies);
+            Assert.Empty(harness.ReservationChanges.ObservedRecoveryKeys);
+
+            await AssertNothingHappenedAsync(harness, before, target);
+        }
+
         private const long ReplacementCapacityReference = 987_654L;
         private const string ReplacementBookingClass = "Q";
 
@@ -459,6 +633,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var ticket = await TicketAsync(before.Id, target.TicketId);
 
             Assert.Empty(harness.ReservationChanges.ObservedApplies);
+            Assert.Empty(harness.ReservationChanges.ObservedRecoveryKeys);
             Assert.Empty(harness.DocumentRevalidations.ObservedRequests);
             Assert.Empty(ticket.Revalidations);
 

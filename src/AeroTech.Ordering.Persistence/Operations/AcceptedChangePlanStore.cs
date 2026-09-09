@@ -54,7 +54,9 @@ namespace AeroTech.Ordering.Persistence.Operations
                 row.MonetaryOutcome,
                 accepted,
                 row.ReservationOutcome,
-                row.ReservationExternalRef);
+                row.ReservationExternalRef,
+                row.EligibilityOutcome,
+                row.EligibilityDetail);
         }
 
         public async Task SaveAsync(AcceptedChangePlan plan, CancellationToken cancellationToken = default)
@@ -85,10 +87,25 @@ namespace AeroTech.Ordering.Persistence.Operations
                     AcceptedPlan = JsonSerializer.Serialize(plan.Accepted, PlanOptions),
                     ReservationOutcome = plan.ReservationOutcome,
                     ReservationExternalRef = plan.ReservationExternalRef,
+                    EligibilityOutcome = plan.EligibilityOutcome,
+                    EligibilityDetail = plan.EligibilityDetail,
                     CreatedAt = now,
                     UpdatedAt = now
                 },
                 cancellationToken);
+        }
+
+        public async Task RecordEligibilityOutcomeAsync(
+            long operationId,
+            DocumentChangeEligibilityOutcome outcome,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireAsync(operationId, cancellationToken);
+
+            row.EligibilityOutcome = outcome;
+            row.EligibilityDetail = detail ?? row.EligibilityDetail;
+            row.UpdatedAt = _clock.GetDateTime();
         }
 
         public async Task RecordReservationOutcomeAsync(
@@ -97,13 +114,18 @@ namespace AeroTech.Ordering.Persistence.Operations
             string? externalReservationRef,
             CancellationToken cancellationToken = default)
         {
-            var row = await _dbContext.Set<AcceptedChangePlanRow>()
-                          .FirstOrDefaultAsync(plan => plan.OperationId == operationId, cancellationToken)
-                      ?? throw ExceptionFactory.AcceptedChangePlanNotFound(operationId);
+            var row = await RequireAsync(operationId, cancellationToken);
 
             row.ReservationOutcome = outcome;
             row.ReservationExternalRef = externalReservationRef ?? row.ReservationExternalRef;
             row.UpdatedAt = _clock.GetDateTime();
         }
+
+        private async Task<AcceptedChangePlanRow> RequireAsync(
+            long operationId,
+            CancellationToken cancellationToken)
+            => await _dbContext.Set<AcceptedChangePlanRow>()
+                   .FirstOrDefaultAsync(plan => plan.OperationId == operationId, cancellationToken)
+               ?? throw ExceptionFactory.AcceptedChangePlanNotFound(operationId);
     }
 }

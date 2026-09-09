@@ -159,13 +159,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange
 
             var plan = await _plans.FindAsync(operation.OperationId, cancellationToken);
 
-            if (operation.IsReplay && plan is not null)
-            {
-                var unfinished = await ReplayUnfinishedAsync(order, operation, plan, cancellationToken);
-
-                if (unfinished is not null)
-                    return unfinished;
-            }
+            if (plan is not null)
+                return await ResumeAsync(order, operation, plan, cancellationToken);
 
             return await ExecuteFreshAsync(order, operation, execution, cancellationToken);
         }
@@ -247,21 +242,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange
 
                 order.PrepareVoluntaryChange(ToArgs(plan), _idGenerator, _clock);
 
-                var eligibility = await _eligibility.EvaluateAsync(
-                    new DocumentChangeEligibilityRequest(
-                        _operations.ProviderOperationKey(operation, EligibilityStep),
-                        order.Id,
-                        operation.OperationId,
-                        ticket.DocumentNumber,
-                        resolved.Coupon.Id,
-                        resolved.Coupon.CouponNumber,
-                        accepted.TargetSelectionRef,
-                        accepted.MonetaryOutcome),
-                    cancellationToken);
-
-                if (eligibility.Outcome != DocumentChangeEligibilityOutcome.Revalidate)
-                    return await SettleEligibilityAsync(order, operation, ticket, eligibility, cancellationToken);
-
                 await _plans.SaveAsync(plan, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
@@ -271,8 +251,118 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange
                 throw;
             }
 
-            return await ApplyReservationChangeAsync(order, operation, ticket, plan, false, cancellationToken);
+            return await AdvanceAsync(order, operation, ticket, plan, false, cancellationToken);
         }
+
+        private async Task<VoluntaryChangeOutcome> ResumeAsync(
+            Order order,
+            OrderOperation operation,
+            AcceptedChangePlan plan,
+            CancellationToken cancellationToken)
+        {
+            var tickets = await _tickets.ListByOrderAsync(order.Id, cancellationToken);
+            var ticket = tickets.Single(candidate => candidate.Id == plan.ElectronicTicketId);
+
+            return await AdvanceAsync(order, operation, ticket, plan, true, cancellationToken);
+        }
+
+        private async Task<VoluntaryChangeOutcome> AdvanceAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket ticket,
+            AcceptedChangePlan plan,
+            bool isReplay,
+            CancellationToken cancellationToken)
+        {
+            if (plan.IsRevalidationEstablished)
+                return await EnterReservationAsync(
+                    order, operation, ticket, plan, dispatchFresh: false, isReplay, cancellationToken);
+
+            if (plan.IsEligibilityTerminal)
+                return TerminalEligibilityOutcome(order, operation, ticket, plan);
+
+            DocumentChangeEligibility eligibility;
+
+            try
+            {
+                eligibility = await _eligibility.EvaluateAsync(
+                    new DocumentChangeEligibilityRequest(
+                        _operations.ProviderOperationKey(operation, EligibilityStep),
+                        order.Id,
+                        operation.OperationId,
+                        ticket.DocumentNumber,
+                        plan.TicketCouponId,
+                        ticket.CouponFor(plan.TicketCouponId).CouponNumber,
+                        plan.TargetSelectionRef,
+                        plan.MonetaryOutcome),
+                    cancellationToken);
+            }
+            catch
+            {
+                await TryReleaseRejectedAsync(order.Id, operation, cancellationToken);
+                throw;
+            }
+
+            await _plans.RecordEligibilityOutcomeAsync(
+                operation.OperationId, eligibility.Outcome, eligibility.Detail, cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (eligibility.Outcome != DocumentChangeEligibilityOutcome.Revalidate)
+                return await SettleEligibilityAsync(order, operation, ticket, eligibility, isReplay, cancellationToken);
+
+            return await EnterReservationAsync(
+                order, operation, ticket, plan, dispatchFresh: true, isReplay, cancellationToken);
+        }
+
+        private async Task<VoluntaryChangeOutcome> EnterReservationAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket ticket,
+            AcceptedChangePlan plan,
+            bool dispatchFresh,
+            bool isReplay,
+            CancellationToken cancellationToken)
+        {
+            if (plan.ReservationOutcome == ProviderOperationOutcome.Confirmed)
+                return await RevalidateAsync(order, operation, ticket, plan, true, isReplay, cancellationToken);
+
+            if (dispatchFresh)
+                return await ApplyReservationChangeAsync(
+                    order, operation, ticket, plan, isReplay, cancellationToken);
+
+            ReservationChangeResult recovered;
+
+            try
+            {
+                recovered = await _reservations.RecoverAsync(
+                    new ReservationChangeRecoveryRequest(
+                        ReservationKey(operation, plan), order.Id, operation.OperationId),
+                    cancellationToken);
+            }
+            catch
+            {
+                await TryReleaseRejectedAsync(order.Id, operation, cancellationToken);
+                throw;
+            }
+
+            return await AfterReservationAsync(
+                order, operation, ticket, plan, recovered, isReplay, cancellationToken);
+        }
+
+        private VoluntaryChangeOutcome TerminalEligibilityOutcome(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket ticket,
+            AcceptedChangePlan plan)
+            => Outcome(
+                order, operation, ticket, plan, null,
+                ProviderOperationOutcome.Rejected, ProviderOperationOutcome.Pending,
+                ServicingOperationStatus.Rejected,
+                plan.EligibilityOutcome == DocumentChangeEligibilityOutcome.ReissueRequired
+                    ? ChangeDocumentOutcome.ReissueRequired
+                    : ChangeDocumentOutcome.Denied,
+                true);
 
         private async Task<VoluntaryChangeOutcome> ApplyReservationChangeAsync(
             Order order,
@@ -475,6 +565,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange
             OrderOperation operation,
             ElectronicTicket ticket,
             DocumentChangeEligibility eligibility,
+            bool isReplay,
             CancellationToken cancellationToken)
         {
             var status = eligibility.Outcome == DocumentChangeEligibilityOutcome.PendingEvidence
@@ -506,7 +597,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange
                     DocumentChangeEligibilityOutcome.PendingEvidence => ChangeDocumentOutcome.Pending,
                     _ => ChangeDocumentOutcome.Denied
                 },
-                false);
+                isReplay);
         }
 
         private async Task<VoluntaryChangeOutcome> SettleAsync(
@@ -536,36 +627,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange
             return Outcome(
                 order, operation, ticket, plan, null,
                 reservationOutcome, revalidationOutcome, operationStatus, documentOutcome, isReplay);
-        }
-
-        private async Task<VoluntaryChangeOutcome?> ReplayUnfinishedAsync(
-            Order order,
-            OrderOperation operation,
-            AcceptedChangePlan plan,
-            CancellationToken cancellationToken)
-        {
-            var prior = await _operationStore.FindAsync(operation.OperationId, cancellationToken);
-
-            if (prior is null)
-                return null;
-
-            if (prior.Status is not (ServicingOperationStatus.Executing
-                or ServicingOperationStatus.AwaitingExternal
-                or ServicingOperationStatus.NeedsReconciliation))
-                return null;
-
-            var tickets = await _tickets.ListByOrderAsync(order.Id, cancellationToken);
-            var ticket = tickets.Single(candidate => candidate.Id == plan.ElectronicTicketId);
-
-            if (plan.ReservationOutcome == ProviderOperationOutcome.Confirmed)
-                return await RevalidateAsync(order, operation, ticket, plan, true, true, cancellationToken);
-
-            var recovered = await _reservations.RecoverAsync(
-                new ReservationChangeRecoveryRequest(
-                    ReservationKey(operation, plan), order.Id, operation.OperationId),
-                cancellationToken);
-
-            return await AfterReservationAsync(order, operation, ticket, plan, recovered, true, cancellationToken);
         }
 
         private async Task<VoluntaryChangeOutcome> ReplayFinalizedAsync(

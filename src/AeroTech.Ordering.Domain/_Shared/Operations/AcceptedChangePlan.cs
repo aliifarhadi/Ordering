@@ -18,5 +18,15 @@ namespace AeroTech.Ordering.Domain._Shared.Operations
         ChangeMonetaryOutcome MonetaryOutcome,
         AcceptedVoluntaryChange Accepted,
         ProviderOperationOutcome ReservationOutcome = ProviderOperationOutcome.Pending,
-        string? ReservationExternalRef = null);
+        string? ReservationExternalRef = null,
+        DocumentChangeEligibilityOutcome? EligibilityOutcome = null,
+        string? EligibilityDetail = null)
+    {
+        public bool IsRevalidationEstablished
+            => EligibilityOutcome == DocumentChangeEligibilityOutcome.Revalidate;
+
+        public bool IsEligibilityTerminal
+            => EligibilityOutcome is DocumentChangeEligibilityOutcome.ReissueRequired
+                or DocumentChangeEligibilityOutcome.Denied;
+    }
 }
