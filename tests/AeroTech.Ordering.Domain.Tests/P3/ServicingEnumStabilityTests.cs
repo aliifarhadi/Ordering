@@ -85,7 +85,6 @@ namespace AeroTech.Ordering.Domain.Tests.P3
                 .Select(method => method.Name)
                 .ToList();
 
-            Assert.DoesNotContain("Revalidate", implemented);
             Assert.DoesNotContain("RemoveService", implemented);
         }
     }

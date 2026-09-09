@@ -9,6 +9,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
+using AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.DocumentStockAggregate;
@@ -133,6 +134,15 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var refundValueCoordinator = new RefundValueMovementCoordinator(RefundValues, coordinator, frameworkClock);
             ManualRefundAuthorizations = new DeterministicManualRefundAuthorizationAdapter();
             var manualRefundAuthorizer = new ManualRefundAuthorizer(ManualRefundAuthorizations, caller);
+            ChangeQuotes = new DeterministicChangeQuoteAdapter();
+            ReservationChanges = new DeterministicReservationChangeAdapter();
+            DocumentChangeEligibilities = new DeterministicDocumentChangeEligibilityAdapter();
+            DocumentRevalidations = new DeterministicDocumentRevalidationAdapter();
+            ChangePlans = new AcceptedChangePlanStore(_command, frameworkClock);
+            VoluntaryChange = new VoluntaryChangeService(
+                Orders, tickets, ChangeQuotes, ReservationChanges, DocumentChangeEligibilities,
+                DocumentRevalidations, ChangePlans, coordinator, operationStore, receipts, caller,
+                unitOfWork, Ids, frameworkClock, projector);
             DocumentRefundCorrections = new DeterministicDocumentRefundCorrectionAdapter();
             RefundValueCorrections = new DeterministicRefundValueCorrectionAdapter();
             CancelRefundAuthorizations = new DeterministicCancelRefundAuthorizationAdapter();
@@ -212,6 +222,18 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicManualRefundAuthorizationAdapter ManualRefundAuthorizations { get; }
 
         public DeterministicDocumentRefundCorrectionAdapter DocumentRefundCorrections { get; }
+
+        public DeterministicChangeQuoteAdapter ChangeQuotes { get; }
+
+        public DeterministicReservationChangeAdapter ReservationChanges { get; }
+
+        public DeterministicDocumentChangeEligibilityAdapter DocumentChangeEligibilities { get; }
+
+        public DeterministicDocumentRevalidationAdapter DocumentRevalidations { get; }
+
+        public AcceptedChangePlanStore ChangePlans { get; }
+
+        public IVoluntaryChangeService VoluntaryChange { get; }
 
         public DeterministicRefundValueCorrectionAdapter RefundValueCorrections { get; }
 

@@ -54,6 +54,7 @@ namespace AeroTech.Ordering.Persistence
             services.AddScoped<IOperationClaimStore, OperationClaimStore>();
             services.AddScoped<ICommandReceiptStore, CommandReceiptStore>();
             services.AddScoped<IServicingOperationStore, ServicingOperationStore>();
+            services.AddScoped<IAcceptedChangePlanStore, AcceptedChangePlanStore>();
 
             services.AddHealthChecks().AddDbContextReadinessCheck<OrderingDbContext>("sql-server-command");
 

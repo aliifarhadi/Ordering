@@ -73,6 +73,18 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<Domain.Ports.DocumentRefund.IDocumentRefundPort>(provider => provider.GetRequiredService<DeterministicDocumentRefundAdapter>());
                 services.AddSingleton<DeterministicRefundValueAdapter>();
                 services.AddScoped<Domain.Ports.RefundValue.IRefundValuePort>(provider => provider.GetRequiredService<DeterministicRefundValueAdapter>());
+                services.AddSingleton<DeterministicChangeQuoteAdapter>();
+                services.AddScoped<Domain.Ports.ChangeQuote.IChangeQuotePort>(
+                    provider => provider.GetRequiredService<DeterministicChangeQuoteAdapter>());
+                services.AddSingleton<DeterministicReservationChangeAdapter>();
+                services.AddScoped<Domain.Ports.ReservationChange.IReservationChangePort>(
+                    provider => provider.GetRequiredService<DeterministicReservationChangeAdapter>());
+                services.AddSingleton<DeterministicDocumentChangeEligibilityAdapter>();
+                services.AddScoped<Domain.Ports.DocumentChangeEligibility.IDocumentChangeEligibilityPort>(
+                    provider => provider.GetRequiredService<DeterministicDocumentChangeEligibilityAdapter>());
+                services.AddSingleton<DeterministicDocumentRevalidationAdapter>();
+                services.AddScoped<Domain.Ports.DocumentRevalidation.IDocumentRevalidationPort>(
+                    provider => provider.GetRequiredService<DeterministicDocumentRevalidationAdapter>());
                 services.AddSingleton<DeterministicDocumentRefundCorrectionAdapter>();
                 services.AddScoped<Domain.Ports.DocumentRefundCorrection.IDocumentRefundCorrectionPort>(
                     provider => provider.GetRequiredService<DeterministicDocumentRefundCorrectionAdapter>());
@@ -103,6 +115,14 @@ namespace AeroTech.Ordering.Providers
                     RefundValueCorrection.Services.UnconfiguredRefundValueCorrectionProvider>();
                 services.AddScoped<Domain.Ports.CancelRefundAuthorization.ICancelRefundAuthorizationPort,
                     CancelRefundAuthorization.Services.UnconfiguredCancelRefundAuthorizationProvider>();
+                services.AddScoped<Domain.Ports.ChangeQuote.IChangeQuotePort,
+                    VoluntaryChange.Services.UnconfiguredChangeQuoteProvider>();
+                services.AddScoped<Domain.Ports.ReservationChange.IReservationChangePort,
+                    ReservationChange.Services.UnconfiguredReservationChangeProvider>();
+                services.AddScoped<Domain.Ports.DocumentChangeEligibility.IDocumentChangeEligibilityPort,
+                    DocumentChange.Services.UnconfiguredDocumentChangeEligibilityProvider>();
+                services.AddScoped<Domain.Ports.DocumentRevalidation.IDocumentRevalidationPort,
+                    DocumentRevalidation.Services.UnconfiguredDocumentRevalidationProvider>();
             }
 
             return services;

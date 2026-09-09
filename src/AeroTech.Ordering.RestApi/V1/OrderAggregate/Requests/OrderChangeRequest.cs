@@ -8,7 +8,14 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests
         int? ExpectedCommercialVersion,
         IReadOnlyList<AcceptSelectedQuotedOffer>? AcceptSelectedQuotedOfferList = null,
         CancelOrderItem? CancelOrderItem = null,
-        RemoveOrderServices? RemoveOrderServices = null);
+        RemoveOrderServices? RemoveOrderServices = null,
+        AcceptQuotedChange? AcceptQuotedChange = null);
+
+    public sealed record AcceptQuotedChange(
+        long OrderServiceId,
+        [property: Required] string QuotedChangeId);
+
+    public sealed record ChangeQuoteRequestBody(long OrderServiceId);
 
     public sealed record AcceptSelectedQuotedOffer(
         [property: Required] string QuotedOfferId,
@@ -28,7 +35,8 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests
     {
         AddService = 1,
         CancelOrderItem = 2,
-        RemoveOrderServices = 3
+        RemoveOrderServices = 3,
+        AcceptQuotedChange = 4
     }
 
     public static class OrderChangeRequestMapper
@@ -50,6 +58,9 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests
 
             if (request.RemoveOrderServices is not null)
                 variants.Add(OrderChangeVariant.RemoveOrderServices);
+
+            if (request.AcceptQuotedChange is not null)
+                variants.Add(OrderChangeVariant.AcceptQuotedChange);
 
             return variants.Count == 1
                 ? variants[0]

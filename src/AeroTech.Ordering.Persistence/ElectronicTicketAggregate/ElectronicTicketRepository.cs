@@ -29,6 +29,7 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
                 .Include(ticket => ticket.Refunds)
                 .ThenInclude(record => record.Coupons)
                 .Include(ticket => ticket.RefundCorrections)
-                .ThenInclude(record => record.Coupons);
+                .ThenInclude(record => record.Coupons)
+                .Include(ticket => ticket.Revalidations);
     }
 }

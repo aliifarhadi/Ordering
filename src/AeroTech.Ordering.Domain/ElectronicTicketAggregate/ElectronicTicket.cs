@@ -15,6 +15,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
         private readonly List<DocumentPriceLink> _priceLinks = new();
         private readonly List<DocumentRefundRecord> _refunds = new();
         private readonly List<DocumentRefundCorrectionRecord> _refundCorrections = new();
+        private readonly List<DocumentRevalidationRecord> _revalidations = new();
 
         private ElectronicTicket()
         {
@@ -331,6 +332,72 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
             => _refunds.FirstOrDefault(record => record.OperationId == operationId);
 
         public IReadOnlyCollection<DocumentRefundCorrectionRecord> RefundCorrections => _refundCorrections.AsReadOnly();
+
+        public IReadOnlyCollection<DocumentRevalidationRecord> Revalidations => _revalidations.AsReadOnly();
+
+        public DocumentRevalidationRecord? RevalidationOf(long operationId)
+            => _revalidations.FirstOrDefault(record => record.OperationId == operationId);
+
+        public TicketCoupon CouponFor(long ticketCouponId)
+            => _coupons.FirstOrDefault(coupon => coupon.Id == ticketCouponId)
+               ?? throw ExceptionFactory.RefundScopeCouponNotOnDocument(ticketCouponId, DocumentNumber);
+
+        public void EnsureCouponCanBeRevalidated(long ticketCouponId, long currentOrderServiceId)
+        {
+            if (StatusSummary is not (ElectronicTicketStatus.Issued or ElectronicTicketStatus.PartiallyUsed))
+                throw ExceptionFactory.DocumentChangeNotPermitted(DocumentNumber);
+
+            var coupon = CouponFor(ticketCouponId);
+
+            if (coupon.CurrentOrderServiceId != currentOrderServiceId)
+                throw ExceptionFactory.ChangeCouponDoesNotCoverTheService(coupon.CouponNumber, currentOrderServiceId);
+
+            if (coupon.FinancialStatus != TicketCouponFinancialStatus.Open)
+                throw ExceptionFactory.CouponStateForbidsChange(coupon.CouponNumber, coupon.FinancialStatus);
+
+            if (coupon.ControlStatus != TicketCouponControlStatus.Local)
+                throw ExceptionFactory.CouponControlForbidsRefund(coupon.CouponNumber, coupon.ControlStatus);
+        }
+
+        public DocumentRevalidationRecord Revalidate(
+            long operationId,
+            long ticketCouponId,
+            long replacementOrderServiceId,
+            string quotedChangeId,
+            string targetSelectionRef,
+            string? providerReference,
+            long? revalidatedBy,
+            string? actorScope,
+            IIdGenerator idGenerator,
+            IClock clock)
+        {
+            var coupon = CouponFor(ticketCouponId);
+
+            EnsureCouponCanBeRevalidated(ticketCouponId, coupon.CurrentOrderServiceId);
+
+            var record = new DocumentRevalidationRecord(
+                idGenerator.NewId(),
+                Id,
+                operationId,
+                quotedChangeId,
+                targetSelectionRef,
+                coupon.Id,
+                coupon.CouponNumber,
+                coupon.CurrentOrderServiceId,
+                replacementOrderServiceId,
+                providerReference,
+                revalidatedBy,
+                actorScope,
+                clock.GetDateTime());
+
+            coupon.RebindToService(replacementOrderServiceId);
+
+            _revalidations.Add(record);
+
+            DocumentVersion++;
+
+            return record;
+        }
 
         public DocumentRefundCorrectionRecord? RefundCorrectionOf(long operationId)
             => _refundCorrections.FirstOrDefault(record => record.OperationId == operationId);

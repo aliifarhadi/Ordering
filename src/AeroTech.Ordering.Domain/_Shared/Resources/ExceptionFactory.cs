@@ -778,6 +778,57 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException RefundCorrectionNotAvailable(params object?[] args) =>
             new(2957, ExceptionMessages.RefundCorrectionNotAvailable, args) { HttpStatus = 409 };
 
+        public static BusinessException AcceptedChangeDoesNotMatchTheRequest(params object?[] args) =>
+            new(2958, ExceptionMessages.AcceptedChangeDoesNotMatchTheRequest, args) { HttpStatus = 409 };
+
+        public static BusinessException ChangeQuoteExpired(params object?[] args) =>
+            new(2959, ExceptionMessages.ChangeQuoteExpired, args) { HttpStatus = 409 };
+
+        public static BusinessException ChangeMonetaryOutcomeNotSupported(params object?[] args) =>
+            new(2960, ExceptionMessages.ChangeMonetaryOutcomeNotSupported, args) { HttpStatus = 422 };
+
+        public static BusinessException ChangeScopeServiceNotInOrder(params object?[] args) =>
+            new(2961, ExceptionMessages.ChangeScopeServiceNotInOrder, args) { HttpStatus = 422 };
+
+        public static BusinessException ChangeScopeServiceNotChangeable(params object?[] args) =>
+            new(2962, ExceptionMessages.ChangeScopeServiceNotChangeable, args) { HttpStatus = 409 };
+
+        public static BusinessException ChangeCouponDoesNotCoverTheService(params object?[] args) =>
+            new(2963, ExceptionMessages.ChangeCouponDoesNotCoverTheService, args) { HttpStatus = 409 };
+
+        public static BusinessException CouponStateForbidsChange(params object?[] args) =>
+            new(2964, ExceptionMessages.CouponStateForbidsChange, args) { HttpStatus = 409 };
+
+        public static BusinessException ChangeWouldOrphanDependentService(params object?[] args) =>
+            new(2965, ExceptionMessages.ChangeWouldOrphanDependentService, args) { HttpStatus = 409 };
+
+        public static BusinessException ChangeRequiresReissue(params object?[] args) =>
+            new(2966, ExceptionMessages.ChangeRequiresReissue, args) { HttpStatus = 409 };
+
+        public static BusinessException DocumentChangeNotPermitted(params object?[] args) =>
+            new(2967, ExceptionMessages.DocumentChangeNotPermitted, args) { HttpStatus = 409 };
+
+        public static BusinessException ChangeQuoteSourceNotConfigured() =>
+            new(2968, ExceptionMessages.ChangeQuoteSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException ReservationChangeSourceNotConfigured() =>
+            new(2969, ExceptionMessages.ReservationChangeSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException DocumentChangeEligibilitySourceNotConfigured() =>
+            new(2970, ExceptionMessages.DocumentChangeEligibilitySourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException DocumentRevalidationSourceNotConfigured() =>
+            new(2971, ExceptionMessages.DocumentRevalidationSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException ChangeReplacementTravellerNotInOrder(params object?[] args) =>
+            new(2972, ExceptionMessages.ChangeReplacementTravellerNotInOrder, args) { HttpStatus = 422 };
+
+        public static BusinessException OrderChangeRequiresQuote(params object?[] args) =>
+            new(2973, ExceptionMessages.OrderChangeRequiresQuote, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedChangePlanNotFound(params object?[] args) =>
+            new(2974, ExceptionMessages.AcceptedChangePlanNotFound, args) { HttpStatus = 500 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

@@ -6,6 +6,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
+using AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
 using AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrderDetails;
 using AeroTech.Ordering.RestApi._Shared;
@@ -31,6 +32,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
         private readonly IOrderScopeCancellationService _scopeCancellationService;
         private readonly IRefundService _refundService;
         private readonly ICancelRefundService _cancelRefundService;
+        private readonly IVoluntaryChangeService _voluntaryChangeService;
 
         public BackofficeOrderLifecycleController(
             IMediator mediator,
@@ -40,7 +42,8 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             IOrderChangeService orderChangeService,
             IOrderScopeCancellationService scopeCancellationService,
             IRefundService refundService,
-            ICancelRefundService cancelRefundService)
+            ICancelRefundService cancelRefundService,
+            IVoluntaryChangeService voluntaryChangeService)
         {
             _mediator = mediator;
             _reserveOrderService = reserveOrderService;
@@ -50,6 +53,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             _scopeCancellationService = scopeCancellationService;
             _refundService = refundService;
             _cancelRefundService = cancelRefundService;
+            _voluntaryChangeService = voluntaryChangeService;
         }
 
         [HttpGet("{orderId:long}/Details")]
@@ -95,6 +99,8 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
                 OrderChangeVariant.CancelOrderItem => await CancelOrderItemAsync(
                     orderId, request, idempotencyKey, cancellationToken),
                 OrderChangeVariant.RemoveOrderServices => await RemoveOrderServicesAsync(
+                    orderId, request, idempotencyKey, cancellationToken),
+                OrderChangeVariant.AcceptQuotedChange => await AcceptQuotedChangeAsync(
                     orderId, request, idempotencyKey, cancellationToken),
                 _ => await AddServiceAsync(orderId, request, idempotencyKey, cancellationToken)
             };
@@ -175,6 +181,31 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
                     request,
                     IdempotencyKey.Require(Request)),
                 cancellationToken));
+
+        [HttpPost("{orderId:long}/Change/Quote")]
+        public async Task<IActionResult> ChangeQuote(
+            [FromRoute] long orderId,
+            [FromBody] ChangeQuoteRequestBody request,
+            CancellationToken cancellationToken)
+            => Ok(await _voluntaryChangeService.QuoteAsync(orderId, request.OrderServiceId, cancellationToken));
+
+        private async Task<(long OperationId, int CommercialVersion)> AcceptQuotedChangeAsync(
+            long orderId,
+            OrderChangeRequest request,
+            string idempotencyKey,
+            CancellationToken cancellationToken)
+        {
+            var outcome = await _voluntaryChangeService.ChangeAsync(
+                new VoluntaryChangeExecution(
+                    orderId,
+                    request.AcceptQuotedChange!.OrderServiceId,
+                    request.AcceptQuotedChange.QuotedChangeId,
+                    idempotencyKey,
+                    request.ExpectedCommercialVersion),
+                cancellationToken);
+
+            return (outcome.OperationId, outcome.CommercialVersion);
+        }
 
         [HttpPost("{orderId:long}/Documents/{documentId:long}/Refunds/{refundRecordId:long}/Cancel")]
         public async Task<IActionResult> CancelRefund(

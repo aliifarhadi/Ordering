@@ -331,6 +331,40 @@
 
         public const string RefundCorrectionNotAvailable = "The issuer reports the refund of document {0} cannot be cancelled now.";
 
+        public const string AcceptedChangeDoesNotMatchTheRequest = "The accepted change does not match the requested {0}.";
+
+        public const string ChangeQuoteExpired = "Change quote {0} expired at {1}.";
+
+        public const string ChangeMonetaryOutcomeNotSupported = "Change quote {0} carries a {1} monetary outcome; only an even change is supported in this phase.";
+
+        public const string ChangeScopeServiceNotInOrder = "Order service {0} does not belong to order {1}.";
+
+        public const string ChangeScopeServiceNotChangeable = "Order service {0} is {1} and cannot be voluntarily changed.";
+
+        public const string ChangeCouponDoesNotCoverTheService = "Coupon {0} does not currently cover order service {1}.";
+
+        public const string CouponStateForbidsChange = "Coupon {0} is {1} and is not eligible for a voluntary change.";
+
+        public const string ChangeWouldOrphanDependentService = "Order service {0} depends on {1} and cannot continue through this change.";
+
+        public const string ChangeRequiresReissue = "The accepted change of document {0} requires an exchange or reissue.";
+
+        public const string DocumentChangeNotPermitted = "The issuer reports document {0} may not be changed now.";
+
+        public const string ChangeQuoteSourceNotConfigured = "No voluntary change quote authority is configured for this deployment.";
+
+        public const string ReservationChangeSourceNotConfigured = "No reservation change provider is configured for this deployment.";
+
+        public const string DocumentChangeEligibilitySourceNotConfigured = "No document change eligibility authority is configured for this deployment.";
+
+        public const string DocumentRevalidationSourceNotConfigured = "No document revalidation provider is configured for this deployment.";
+
+        public const string ChangeReplacementTravellerNotInOrder = "Traveller {0} named by the accepted replacement does not belong to order {1}.";
+
+        public const string OrderChangeRequiresQuote = "A voluntary change of order {0} requires an accepted change quote.";
+
+        public const string AcceptedChangePlanNotFound = "No durable accepted change plan exists for operation {0}.";
+
         public const string RefundRequiresCouponScope = "A refund of an accountable document on order {0} requires an explicit coupon scope.";
     }
 }
