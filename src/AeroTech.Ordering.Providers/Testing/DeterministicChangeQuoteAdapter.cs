@@ -13,6 +13,8 @@ namespace AeroTech.Ordering.Providers.Testing
 
         public List<AcceptedQuotedChangeSelection> ObservedSelections { get; } = new();
 
+        public bool ThrowOnAccept { get; set; }
+
         public void Quote(ChangeQuote quote, AcceptedVoluntaryChange accepted)
         {
             _quotes.Add(quote);
@@ -36,6 +38,9 @@ namespace AeroTech.Ordering.Providers.Testing
             CancellationToken cancellationToken = default)
         {
             ObservedSelections.Add(selection);
+
+            if (ThrowOnAccept)
+                throw new InvalidOperationException("The change acceptance response never reached Ordering.");
 
             return _accepted.TryGetValue(selection.QuotedChangeId, out var accepted)
                 ? Task.FromResult(accepted)

@@ -14,6 +14,13 @@ namespace AeroTech.Ordering.Domain._Shared.Operations.Contracts
             string? detail,
             CancellationToken cancellationToken = default);
 
+        Task RecordRevalidationOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
         Task RecordReservationOutcomeAsync(
             long operationId,
             ProviderOperationOutcome outcome,

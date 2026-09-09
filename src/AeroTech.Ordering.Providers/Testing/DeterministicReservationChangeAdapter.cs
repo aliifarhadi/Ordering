@@ -11,7 +11,11 @@ namespace AeroTech.Ordering.Providers.Testing
 
         public ProviderOperationOutcome RecoveryOutcome { get; set; } = ProviderOperationOutcome.Unknown;
 
-        public bool ThrowOnApply { get; set; }
+        public bool ThrowBeforeDispatch { get; set; }
+
+        public bool ThrowAfterDispatch { get; set; }
+
+        public bool ThrowOnRecover { get; set; }
 
         public List<ReservationChangeRequest> ObservedApplies { get; } = new();
 
@@ -25,10 +29,13 @@ namespace AeroTech.Ordering.Providers.Testing
         {
             ObservedApplies.Add(request);
 
-            if (ThrowOnApply)
-                throw new InvalidOperationException("The reservation change provider was unreachable.");
+            if (ThrowBeforeDispatch)
+                throw new InvalidOperationException("The reservation change request never left Ordering.");
 
             _dispatched.Add(request.OperationKey);
+
+            if (ThrowAfterDispatch)
+                throw new InvalidOperationException("The reservation change response never reached Ordering.");
 
             return Task.FromResult(new ReservationChangeResult(
                 ApplyOutcome,
@@ -41,6 +48,9 @@ namespace AeroTech.Ordering.Providers.Testing
             CancellationToken cancellationToken = default)
         {
             ObservedRecoveryKeys.Add(request.OperationKey);
+
+            if (ThrowOnRecover)
+                throw new InvalidOperationException("The reservation change provider is unreachable.");
 
             if (!_dispatched.Contains(request.OperationKey))
                 return Task.FromResult(new ReservationChangeRecovery(

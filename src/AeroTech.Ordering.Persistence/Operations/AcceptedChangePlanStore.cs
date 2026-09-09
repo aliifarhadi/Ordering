@@ -56,7 +56,10 @@ namespace AeroTech.Ordering.Persistence.Operations
                 row.ReservationOutcome,
                 row.ReservationExternalRef,
                 row.EligibilityOutcome,
-                row.EligibilityDetail);
+                row.EligibilityDetail,
+                row.RevalidationOutcome,
+                row.RevalidationProviderReference,
+                row.RevalidationDetail);
         }
 
         public async Task SaveAsync(AcceptedChangePlan plan, CancellationToken cancellationToken = default)
@@ -89,6 +92,9 @@ namespace AeroTech.Ordering.Persistence.Operations
                     ReservationExternalRef = plan.ReservationExternalRef,
                     EligibilityOutcome = plan.EligibilityOutcome,
                     EligibilityDetail = plan.EligibilityDetail,
+                    RevalidationOutcome = plan.RevalidationOutcome,
+                    RevalidationProviderReference = plan.RevalidationProviderReference,
+                    RevalidationDetail = plan.RevalidationDetail,
                     CreatedAt = now,
                     UpdatedAt = now
                 },
@@ -105,6 +111,21 @@ namespace AeroTech.Ordering.Persistence.Operations
 
             row.EligibilityOutcome = outcome;
             row.EligibilityDetail = detail ?? row.EligibilityDetail;
+            row.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task RecordRevalidationOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireAsync(operationId, cancellationToken);
+
+            row.RevalidationOutcome = outcome;
+            row.RevalidationProviderReference = providerReference ?? row.RevalidationProviderReference;
+            row.RevalidationDetail = detail ?? row.RevalidationDetail;
             row.UpdatedAt = _clock.GetDateTime();
         }
 

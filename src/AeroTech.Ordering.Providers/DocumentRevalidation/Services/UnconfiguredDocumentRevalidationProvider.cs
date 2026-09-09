@@ -10,7 +10,7 @@ namespace AeroTech.Ordering.Providers.DocumentRevalidation.Services
             CancellationToken cancellationToken = default)
             => throw ExceptionFactory.DocumentRevalidationSourceNotConfigured();
 
-        public Task<DocumentRevalidationResult> RecoverAsync(
+        public Task<DocumentRevalidationRecovery> RecoverAsync(
             DocumentRevalidationRecoveryRequest request,
             CancellationToken cancellationToken = default)
             => throw ExceptionFactory.DocumentRevalidationSourceNotConfigured();

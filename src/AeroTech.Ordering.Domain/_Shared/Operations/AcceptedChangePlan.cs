@@ -20,8 +20,17 @@ namespace AeroTech.Ordering.Domain._Shared.Operations
         ProviderOperationOutcome ReservationOutcome = ProviderOperationOutcome.Pending,
         string? ReservationExternalRef = null,
         DocumentChangeEligibilityOutcome? EligibilityOutcome = null,
-        string? EligibilityDetail = null)
+        string? EligibilityDetail = null,
+        ProviderOperationOutcome? RevalidationOutcome = null,
+        string? RevalidationProviderReference = null,
+        string? RevalidationDetail = null)
     {
+        public bool IsReservationConfirmed
+            => ReservationOutcome == ProviderOperationOutcome.Confirmed;
+
+        public bool IsRevalidationConfirmed
+            => RevalidationOutcome == ProviderOperationOutcome.Confirmed;
+
         public bool IsRevalidationEstablished
             => EligibilityOutcome == DocumentChangeEligibilityOutcome.Revalidate;
 

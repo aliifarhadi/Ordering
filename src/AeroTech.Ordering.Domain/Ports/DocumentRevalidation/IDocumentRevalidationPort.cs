@@ -8,7 +8,7 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentRevalidation
             DocumentRevalidationRequest request,
             CancellationToken cancellationToken = default);
 
-        Task<DocumentRevalidationResult> RecoverAsync(
+        Task<DocumentRevalidationRecovery> RecoverAsync(
             DocumentRevalidationRecoveryRequest request,
             CancellationToken cancellationToken = default);
     }
@@ -32,4 +32,13 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentRevalidation
         ProviderOperationOutcome Outcome,
         string? ProviderReference = null,
         string? Detail = null);
+
+    public sealed record DocumentRevalidationRecovery(
+        bool WasDispatched,
+        ProviderOperationOutcome Outcome,
+        string? ProviderReference = null,
+        string? Detail = null)
+    {
+        public DocumentRevalidationResult AsResult() => new(Outcome, ProviderReference, Detail);
+    }
 }

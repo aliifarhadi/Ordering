@@ -36,6 +36,12 @@ namespace AeroTech.Ordering.Persistence.Operations
 
         public ProviderOperationOutcome ReservationOutcome { get; set; }
 
+        public ProviderOperationOutcome? RevalidationOutcome { get; set; }
+
+        public string? RevalidationProviderReference { get; set; }
+
+        public string? RevalidationDetail { get; set; }
+
         public string? ReservationExternalRef { get; set; }
 
         public DateTimeOffset CreatedAt { get; set; }

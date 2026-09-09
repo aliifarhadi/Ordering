@@ -630,7 +630,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var before = await ReloadAsync(order.Id);
             var key = NewKey();
 
-            harness.ReservationChanges.ThrowOnApply = true;
+            harness.ReservationChanges.ThrowBeforeDispatch = true;
 
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => harness.VoluntaryChange.ChangeAsync(
@@ -647,7 +647,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var eligibilityCalls = harness.DocumentChangeEligibilities.ObservedRequests.Count;
             var acceptCalls = harness.ChangeQuotes.ObservedSelections.Count;
 
-            harness.ReservationChanges.ThrowOnApply = false;
+            harness.ReservationChanges.ThrowBeforeDispatch = false;
 
             var recovered = await harness.VoluntaryChange.ChangeAsync(
                 new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
