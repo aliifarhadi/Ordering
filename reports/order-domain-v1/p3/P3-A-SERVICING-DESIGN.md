@@ -13,10 +13,11 @@ Every concept below carries a provenance marker: `IATA` · `ATPCO` · `Amadeus` 
 
 ---
 
-## 1. The six-layer separation (binding)
+## 1. Six servicing layers + external Ledger/accounting boundary (binding)
 
-Servicing is **not** one generic engine and **not** an extension of `OrderChange`. Six concerns stay separate and
-correlate only through a durable operation identity.
+Servicing is **not** one generic engine and **not** an extension of `OrderChange`. **Six servicing layers** stay
+separate and correlate only through a durable operation identity. Ledger/accounting is **not** a servicing layer:
+it is an external boundary that Ordering publishes commercial facts to and never calls at runtime.
 
 ```
  1  COMMERCIAL TRUTH                 owned by Ordering
@@ -42,15 +43,19 @@ correlate only through a durable operation identity.
  6  PAYMENT / REFUND / VALUE         owned by the payment/value owner (JetPay, StoredValue)
     authorization, capture, refund, release, voucher / credit-shell execution
 
- 7  LEDGER / ACCOUNTING              owned by Ledger
+--- external boundary, NOT a servicing layer ---------------------------------
+
+    LEDGER / ACCOUNTING              owned by Ledger
     Ordering publishes commercial facts. NO runtime Ledger dependency.
 ```
 
 **Provenance:** the 1/2/4/6 split is `IATA` — ONE Order defines order servicing as "re-shopping for an Offer,
 through to applying any changes to the Order, processing further payments or refunds, and modifying accountable
-documents" (S15). It is independently corroborated by `SITA`, whose `Horizon Ticketing` issues documents while
-`Airfare Price` "automates ticket repricing and refunding" (S11) — two different modules. Layer 3 is
-`AeroTech technical abstraction` (the frozen P0 foundation). Layer 7's non-dependency is a frozen P2 invariant.
+documents" (S15). It is corroborated by `Amadeus` and `Sabre`, where document issuance and refund calculation
+are separate responsibilities. `SITA` points the same way — `Horizon Ticketing` issues documents while `Airfare Price`
+"automates ticket repricing and refunding" — but that reading rests on **secondary** evidence (S11), so it is
+recorded as corroboration only and **no layer boundary depends on it**. Layer 3 is `AeroTech technical
+abstraction` (the frozen P0 foundation). The Ledger boundary's non-dependency is a frozen P2 invariant.
 
 ### 1.1 Correlation, not shared state
 
@@ -68,7 +73,9 @@ document void and payment reversal are distinct operations.)*
 
 | Operation | Precondition | Document effect | Money effect | Provenance |
 |---|---|---|---|---|
-| **Pre-ticket Cancel / Service Removal** | no accountable document for the scope | none | possible cancellation fee; release of unused authorization | `IATA` + `Common PSS practice` |
+| **Cancel — whole Order** | no accountable document for the scope | none | possible cancellation fee; release of unused authorization | `IATA` Order cancellation + `Common PSS practice` |
+| **Cancel — whole OrderItem** | no accountable document for the scope | none | possible cancellation fee; release of unused authorization | `IATA` — OrderItem cancellation is part of the **cancellation family** |
+| **OrderChange — Remove Service** (containing OrderItem survives) | no accountable document for the scope | none | possible cancellation fee; release of unused authorization | `IATA` **OrderChange** — explicitly *not* an independent cancellation operation |
 | **Void** | document exists, within issuer void eligibility, coupons unused, control local | whole document voided | release **or** refund depending on actual payment state | `Amadeus`, `Sabre` |
 | **Refund** | document exists, coupons refundable, source approves | affected coupons → Refunded | approved credit to an approved disposition | `ATPCO` Cat33 + `Amadeus` Refund Record |
 | **Revalidation** | accepted change + issuer permits | **same** document, coupon rebound, `DocumentVersion++` | usually none; penalty possible | `Amadeus` (S3) |
@@ -82,12 +89,25 @@ Split, Expire, AddService`. P3 requires, as a **single append-only** extension (
 renumbered):
 
 ```
-Refund          -- ATPCO Cat33 / Amadeus refund      [ATPCO, Amadeus]
-Exchange        -- reissue producing a successor doc [Amadeus ATC, Sabre]
-Revalidate      -- rebind without a new document     [Amadeus]
-VoidRefund      -- corrective reversal of a refund   [Sabre S9, Amadeus]
-ServiceRemoval  -- scoped pre-ticket cancel          [IATA OrderItem cancel]
+Refund         -- refund of an issued document           [ATPCO Cat33, Amadeus]
+Exchange       -- reissue producing a successor document [Amadeus ATC, Sabre]
+Revalidate     -- rebind without a new document          [Amadeus]
+CancelRefund   -- reverse a processed refund where the
+                  carrier/market permits it              [Amadeus + Sabre]
+RemoveService  -- internal discriminator for the IATA
+                  OrderChange service-removal flow,
+                  mirroring the existing AddService       [AeroTech technical abstraction]
 ```
+
+**Numeric values are deliberately not assigned in this document.** P3-B appends them after inspecting the live
+enum: append-only, with no existing value renumbered.
+
+`CancelRefund` carries the operational vocabulary both `Amadeus` and `Sabre` use for reversing a processed refund
+("cancel refund" / "refund cancellation"). It must **not** be generalized into a `ReverseTransaction`-style
+operation.
+
+`RemoveService` is an `AeroTech technical abstraction` — a discriminator for the existing operation coordinator,
+not a public business operation. The public/business semantic stays **`OrderChange — Remove Service`**.
 
 This is a **wire-contract change** to `Contracts/AeroTech.Messages` (frozen P2 rule: renaming or re-versioning a
 published event changes the MassTransit type name). It must happen **once**, in P3-B, coordinated through the
@@ -98,6 +118,29 @@ handoff ledger — not incrementally across phases.
 `TicketCouponFinancialStatus.{Exchanged,Refunded,Suspended}` and `EligibilityOutcome.PendingEvidence`
 **already exist** and require no change. `ElectronicMiscDocumentStatus` and `EmdCouponStatus` currently hold a
 single value each and must be extended in P3-C/P3-G.
+
+`PricingSource` needs exactly **one** append — `OrderingDerived` — for the provenance correction in §9.3.
+
+### 2.2 Cancellation family vs service removal — three distinct scopes
+
+IATA implementation guidance distinguishes cancelling an **OrderItem** from cancelling or removing **Services
+inside** an OrderItem. P3 keeps three scopes and never collapses them:
+
+| Scope | Business semantic | Provenance | Internal operation kind | `OrderChangeType` |
+|---|---|---|---|---|
+| Whole Order | **Cancel** | `IATA` | existing `Cancel` | `Cancel` |
+| Whole OrderItem | **Cancel** (cancellation family) | `IATA` | existing `Cancel`, item-scoped | `Cancel` |
+| One or more Services, containing OrderItem survives | **OrderChange — Remove Service** | `IATA` OrderChange | new `RemoveService` | `VoluntaryChange` |
+
+**Binding:** `RemoveService` is never described or exposed as an IATA cancellation operation, and no public
+`ServiceRemoval` business operation is created.
+
+**Recorded interaction with the pushed code.** `Order.RollUpCancelledItems` already marks an `OrderItem`
+`Cancelled` once *all* of its services are cancelled. The three scopes are therefore not fully separable at the
+*state* level: removing the last surviving service of an item will roll that item up to `Cancelled`. That derived
+transition is acceptable — item state follows its services. What must **not** follow the derived outcome is the
+recorded **intent**: `ServicingOperationKind` and `OrderChangeType` record what the caller asked for
+(`RemoveService` / `VoluntaryChange`), never what the roll-up happened to produce. P3-B must assert this.
 
 ---
 
@@ -218,6 +261,7 @@ penalty — the waiver reference, authority and actor are preserved as provenanc
 | Automatic (ATPCO-driven) | `PricingEngine` | source quote reference + version |
 | Source-supplied but non-automated | `Supplier` | supplier reference |
 | Manual / agency-priced servicing | **`Manual`** | `OrderChange.ActorId` + `ActorScope` + `ExternalReference` (authority) — all already on the P2 entity |
+| Mechanical reversal of Ordering's own accepted truth | **`OrderingDerived`** *(new — §9.3)* | the immutable pricing lines being reversed. **Never** used for any amount requiring pricing/ATPCO calculation |
 
 "**Guarantee / assurance provenance**" in the brief maps to this family — it is the industry **waiver / authority
 evidence** concept (`Amadeus` waiver code, `ATPCO` Cat31/33 waiver, `IATA` authority). **No new AeroTech business
@@ -313,11 +357,26 @@ economic or document action; the durable operation key and the allocated documen
 existing `ServicingOperationStatus` already carries `AwaitingExternal`, `Compensating` and `NeedsReconciliation` —
 no new status vocabulary is required.
 
-Corrective operations (`VoidRefund`, reverse-void, reverse-exchange) **append** evidence under their own operation
-identity and provider confirmation. They never delete history and never restore state by flipping a local status.
-*(Provenance: `Sabre` same-day cancel-refund S9; `Amadeus` refund cancellation.)*
+### 9.1 Corrective operations — history is append-only, current state may move
 
-### 9.1 Conflict with the frozen P2 code — `ReverseServiceValue`
+`CancelRefund` is the **only** corrective operation reserved in the P3 taxonomy. Other corrective document
+operations (reversing a void, reversing an exchange) are added **only** in their relevant phase, and only with
+explicit Tier-1 operational evidence for that exact operation. No generic local command — `ReverseVoid`,
+`ReverseExchange`, `RestorePreviousState` — is created.
+
+Binding rules:
+
+1. A corrective operation **appends** immutable historical evidence under its own operation identity.
+2. Previous operations and their history are **never deleted or edited**.
+3. **After affirmative provider confirmation, the aggregate's current state MAY transition to the
+   provider-confirmed current state.** History is append-only; current state is not immutable.
+
+Rule 3 matches real host behaviour: `Amadeus` Cancel Refund can restore e-ticket coupon state to
+Open/Airport-Control where permitted, and `Sabre` has reactivation semantics — a coupon returning to `OPEN` after
+a cancelled refund, and `REAC` after a voided exchange (S9). What remains forbidden is moving current state
+**without** that affirmative provider confirmation: never a local status flip on optimism.
+
+### 9.2 Conflict with the frozen P2 code — `ReverseServiceValue`
 
 `Order.Termination.cs::ReverseServiceValue` derives scoped reversal amounts from
 `line.CommercialAllocations()` filtered by service id, and stamps the result `PricingSource.PricingEngine`.
@@ -330,10 +389,47 @@ call. It is **not** a refund entitlement, and it must never become one.
 
 1. **P3-D Refund must not reuse `ReverseServiceValue`.** Refund lines come only from an accepted
    `IRefundQuotePort` result. This is the single most important boundary in P3.
-2. `PricingSource` must be stamped honestly. Locally derived reversals are Ordering-derived, not
-   `PricingEngine` output. P3-B should correct this provenance (a value-level correction, not a schema change).
+2. `PricingSource` must be stamped honestly, and that **requires a new enum value** — the four existing values
+   (`OfferProvider`, `PricingEngine`, `Supplier`, `Manual`) contain nothing that honestly describes an
+   Ordering-derived mechanical reversal. P3-B appends **`PricingSource.OrderingDerived`** (§9.3).
 3. Where a cancellation *fee* or *penalty* exists, it comes from the pricing owner — never from
-   `ReverseServiceValue`.
+   `ReverseServiceValue`, and never stamped `OrderingDerived`.
+
+### 9.3 `PricingSource.OrderingDerived` (new value, appended in P3-B)
+
+An `AeroTech technical provenance value` — **not** an airline business concept. Narrow definition:
+
+> A deterministic reversal/correction mechanically derived from already accepted immutable Ordering monetary
+> truth, without performing new pricing or determining refund entitlement.
+
+**MAY be used for**
+
+- pre-ticket reversal of an already accepted sale value;
+- other exact mechanical reversals **only** where the amount is already authoritative inside Ordering.
+
+**MUST NOT be used for**
+
+- Refund; FareUsed; refundable fare; tax refundability;
+- penalties; cancellation fees;
+- exchange / repricing; residual value;
+- any amount requiring ATPCO or provider calculation.
+
+All of those continue to require an authoritative external pricing/refund result.
+
+**Scope note — void-time reversal.** `Order.MarkDocumentVoided` calls `ReverseServiceValue` *after* a document was
+issued, so it is not literally "pre-ticket". It still qualifies under the second clause above: a void reverses an
+already-accepted sale value mechanically, from amounts that are already authoritative in Ordering, and determines
+no entitlement. `OrderingDerived` therefore covers pre-ticket cancel (P3-B) **and** void-time reversal (P3-C),
+and stops there.
+
+**Open decision for P3-B — not decided here.** Historical rows written by P2 through `ReverseServiceValue` carry
+`PricingSource.PricingEngine`. Correcting them repairs a known-wrong provenance value rather than fabricating
+missing semantics, so the frozen "no historical backfill" rule does not automatically forbid it — but it does not
+authorize it either. P3-B must decide explicitly and record the decision.
+
+**Contract note.** `PricingSource` is published on `OrderPricingChanged` and is persisted. The append is safe
+(append-only, nothing renumbered), but consumers must tolerate an unknown value. P3-B coordinates this through the
+handoff ledger together with the `ServicingOperationKind` extension.
 
 ---
 
@@ -380,7 +476,7 @@ build a parallel audit subsystem.
 |---|---|
 | PricingLine is monetary truth | Retained. All servicing money becomes pricing lines |
 | PricingAllocation is attribution only | Retained and reinforced (§5.4) |
-| Refund entitlement not inferred from allocations | Retained. **Conflict found in existing cancel/void code — recorded in §9.1, must not propagate** |
+| Refund entitlement not inferred from allocations | Retained. **Conflict found in existing cancel/void code — recorded in §9.2, must not propagate** |
 | Ordering implements no ATPCO formula | Retained (§5) |
 | Tax remains source-owned | Retained; per-occurrence identity preserved |
 | No local Money/Currency/ROE subsystem | Retained |
@@ -401,10 +497,18 @@ build a parallel audit subsystem.
 **None.**
 
 Every business concept in this design traces to `IATA`, `ATPCO`, `Amadeus`, `Sabre`, `SITA`, `Navitaire` or
-`Common PSS practice`. The only AeroTech-specific elements are technical, and all of them already exist and are
-frozen: `ServicingOperation`, `CommandReceipt`, `OperationOrderClaim`, provider operation keys, ports,
+`Common PSS practice`. The AeroTech-specific elements are all technical. Most already exist and are frozen:
+`ServicingOperation`, `CommandReceipt`, `OperationOrderClaim`, provider operation keys, ports,
 `CommercialVersion` / `FinancialSequence` / `ObligationVersion` / `ProjectionRevision`, the transactional outbox,
 and the typed `OrderView`.
+
+P3 adds exactly two new technical elements. Both are explicitly marked `AeroTech technical abstraction`, and
+neither is a business operation:
+
+| New element | What it is | What it is **not** |
+|---|---|---|
+| `ServicingOperationKind.RemoveService` | internal discriminator for the IATA OrderChange service-removal flow, mirroring the existing `AddService` | not an IATA cancellation operation; not a public `ServiceRemoval` business operation |
+| `PricingSource.OrderingDerived` | technical provenance for a mechanical reversal of Ordering's own accepted truth (§9.3) | not a pricing capability; never used for refund, penalty, fee, tax or repricing amounts |
 
 Two candidates were examined and rejected as new concepts:
 

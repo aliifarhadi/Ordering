@@ -114,8 +114,8 @@ Read directly from `fb090eb`. This is authoritative over every design document, 
 
 | # | Finding | Consequence |
 |---|---|---|
-| **B-1** | `Order.ReverseServiceValue` derives reversal amounts from `line.CommercialAllocations()` filtered by service id. | Directly collides with the frozen rule *"refund entitlement must not be inferred from allocations."* This path is a **pre-ticket / void-time commercial reversal of unconsumed sale value**, not a refund entitlement — but it must **not** be extended into P3-D Refund. See design §9.1. |
-| **B-2** | Those locally computed reversals are stamped `PricingSource.PricingEngine`. | Provenance is inaccurate: Ordering computed them. P3 should stamp locally derived reversals honestly and reserve `PricingEngine` for results actually returned by the pricing owner. |
+| **B-1** | `Order.ReverseServiceValue` derives reversal amounts from `line.CommercialAllocations()` filtered by service id. | Directly collides with the frozen rule *"refund entitlement must not be inferred from allocations."* This path is a **pre-ticket / void-time commercial reversal of unconsumed sale value**, not a refund entitlement — but it must **not** be extended into P3-D Refund. See design §9.2. |
+| **B-2** | Those locally computed reversals are stamped `PricingSource.PricingEngine`. | Provenance is inaccurate: Ordering computed them, and none of the four existing `PricingSource` values honestly describes that. P3-B appends **`PricingSource.OrderingDerived`** and reserves `PricingEngine` for results actually returned by the pricing owner — design §9.3. |
 | **B-3** | Two parallel servicing rails exist (legacy `FulfillmentTask` + `TrafficDocument` vs P0 `OrderOperationCoordinator` + P2 `ElectronicTicket`). The **live** `{id}/Cancel` and `{id}/Documents/{documentId}/Void` endpoints run on the legacy rail. | P3-B and P3-C must unify onto the P0 rail before Refund/Exchange are built, otherwise servicing splits permanently. |
 | **B-4** | `ElectronicTicket.Void()` has no caller; `ElectronicMiscDocument` has no lifecycle method at all. | The P2 accountable-document foundation is sound but **inert**. P3-C is the phase that activates it. |
 | **B-5** | `ElectronicTicket` has no successor/predecessor document link. | P3-F must add explicit lineage (`ExchangedFrom` / `SupersededBy`) — required by Amadeus/Sabre/IATA reissue semantics. |
@@ -139,7 +139,8 @@ Read directly from `fb090eb`. This is authoritative over every design document, 
 | Revalidation **does not create a replacement document** | Yes (S3) | Yes | Yes | n/a | Revalidation is a document outcome, not an exchange |
 | Reissue creates a **successor document with lineage** | Yes (S5) | Yes | Yes | n/a | Never overwrite the original document |
 | A processed refund record is **redisplayable and non-editable** | Refund Record (S6) | Yes | Yes | n/a | Immutable servicing record |
-| Corrective reversal of a refund is a **new operation with its own provider evidence** | Yes | Same-day cancel-refund (S9) | Yes | n/a | Never delete servicing history |
+| Corrective reversal of a refund is a **new operation with its own provider evidence** — both call it **Cancel Refund** | Cancel Refund (S6) | Same-day cancel-refund (S9) | Yes | n/a | `CancelRefund`; never delete servicing history |
+| A confirmed corrective operation **may move current state back** (coupon to Open/Airport-Control; `REAC`) | Yes | Yes (S9) | Yes | n/a | History append-only; current state is not immutable |
 
 ### 3.2 Disagreement / variance (must stay configurable, never hard-coded)
 
@@ -165,11 +166,12 @@ normalization of a common PSS behaviour · `[TECH]` explicitly documented AeroTe
 | Concern | IATA/ATPCO semantic | Amadeus | Sabre | SITA | Navitaire | AeroTech decision | Deviation? |
 |---|---|---|---|---|---|---|---|
 | Nature of the operation | Order/OrderItem cancellation before fulfilment; no accountable document exists | Cancel booking / cancel TST before ticketing | Cancel segments / Offers & Orders order cancel | `Horizon Reservations` cancel | Cancel booking; ticketless throughout | `[ADOPT]` Commercial cancellation distinct from refund; already implemented as `Order.WithdrawBeforeTicketing` under `ServicingOperationKind.Cancel` | No |
-| Partial scope | OrderItem/Service level cancel is standard | Yes | Yes (fulfilled vs unfulfilled ancillary, S10) | Yes | Yes | `[ADOPT]` Cancel takes an explicit service/item scope. P2 already passes `serviceIds` | No |
+| Partial scope — whole OrderItem | IATA: OrderItem cancellation belongs to the **cancellation family** | Yes | Yes (fulfilled vs unfulfilled ancillary, S10) | Yes | Yes | `[ADOPT]` Cancel with an item scope. P2 already passes `serviceIds` | No |
+| Partial scope — Services while the OrderItem survives | IATA distinguishes this from OrderItem cancellation: it is an **OrderChange**, not a cancellation operation | Yes | Yes (S10) | Yes | Yes | `[ADOPT]` public semantic **`OrderChange — Remove Service`**; internally the `RemoveService` discriminator, marked `AeroTech technical abstraction`. **No public `ServiceRemoval` business operation** | No |
 | Capacity release | Inventory release is a separate provider action | Yes | Yes | Yes | Yes | `[ADOPT]` `IReservationPort.ReleaseAsync` under a stable provider operation key — already implemented | No |
 | Cancellation fee | ATPCO Cat16/Cat33 may levy a fee even pre-ticket | Yes | Yes | `Airfare Price` | Yes (LCC cancel fee is routine) | `[ADOPT]` Fee is a source-returned `PricingComponentType.Fee`/`Penalty` line; Ordering never computes it | No |
 | Money already captured | Refund is a payment-owner action correlated to the cancelled obligation | Yes | Yes | Yes | Credit shell (S14) | `[ADOPT]` Payment/value execution is out of Ordering; Ordering records the approved disposition reference | No |
-| Value reversal of unconsumed sale | Not an industry "refund"; an order-value correction | Yes | Yes | Yes | Yes | `[TECH]` `Order.ReverseOutstandingValue` — but see finding **B-1**/**B-2**: scoped reversal must stop deriving amounts from allocations | **Yes — documented, see design §9.1** |
+| Value reversal of unconsumed sale | Not an industry "refund"; an order-value correction | Yes | Yes | Yes | Yes | `[TECH]` `Order.ReverseOutstandingValue`, stamped `PricingSource.OrderingDerived` from P3-B — but see findings **B-1**/**B-2**: scoped reversal must stop deriving amounts from allocations | **Yes — documented, see design §9.2** |
 
 ### 4.2 Void (ETKT and EMD)
 
@@ -201,7 +203,7 @@ normalization of a common PSS behaviour · `[TECH]` explicitly documented AeroTe
 | Partially used | Cat33 may **reprice the flown portion** to derive unused value | Refund Record separates *fare used* from *fare refund* (S6) | Partial refund supported | `Airfare Price` repricing | n/a | `[ADOPT]` `refund ≠ original total − allocations of delivered services`. Ordering stores the source's used/unused valuation | No |
 | Tax-only refund | Non-refundable fare can still carry refundable taxes | Yes | Yes | Yes | Government-tax refund | `[ADOPT]` Each tax occurrence keeps its own accepted treatment. P2 already preserves per-occurrence tax identity (`SourceLineRef` + `OccurrenceKey`) | No |
 | Coupon consequence | Refunded coupons move to a refunded status | `RFND` | `RFND`; refund reversal returns coupon to `OPEN` (S9) | Yes | n/a | `[ADOPT]` `TicketCouponFinancialStatus.Refunded` (already declared) | No |
-| Corrective reversal | Allowed under limited provider conditions | Refund cancellation | Same-day, same PCC, coupon in `RFND` (S9) | Yes | n/a | `[ADOPT]` A **new** corrective operation with its own provider evidence; never a status flip | No |
+| Corrective reversal | Allowed under limited provider conditions | **Cancel Refund** / refund cancellation; can restore coupon state to Open/Airport-Control where permitted | Same-day, same PCC, coupon in `RFND`; coupon returns to `OPEN`, voided exchange → `REAC` (S9) | Yes | n/a | `[ADOPT]` **`CancelRefund`** — a new operation with its own provider evidence. History append-only; current state moves **only** on affirmative provider confirmation | No |
 
 ### 4.5 Penalty, commission, waiver, manual override
 
@@ -372,6 +374,11 @@ Unknown   -> NeedsReconciliation; query provider state before ANY further action
 ## 6. Evidence gaps
 
 Recorded honestly, per the P3-A brief.
+
+**Standing evidence-quality rule for every P3 phase.** If primary SITA Horizon or Navitaire New Skies operational
+documentation is unavailable for a question, that gap is stated explicitly. A workflow is never inferred from
+secondary evidence and then labelled Tier-1 confirmed behaviour, and **no design decision may rest solely on weak
+or secondary vendor evidence**.
 
 | Gap | Impact | Mitigation |
 |---|---|---|
