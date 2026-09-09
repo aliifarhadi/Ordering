@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Entities;
+﻿using AeroTech.Framework.Core.Domain.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using AeroTech.Messages.Ordering.Enums;
@@ -272,6 +272,18 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             DocumentStatus = OrderServiceDocumentStatus.Issued;
             TrafficDocumentId = trafficDocumentId;
             DocumentCouponId = documentCouponId;
+        }
+
+        internal void MarkDocumentVoided()
+        {
+            if (DocumentStatus != OrderServiceDocumentStatus.Issued)
+                return;
+
+            DocumentStatus = OrderServiceDocumentStatus.Voided;
+            ElectronicTicketId = null;
+            TicketCouponId = null;
+            ElectronicMiscDocumentId = null;
+            EmdCouponId = null;
         }
 
         internal void MarkVoided()

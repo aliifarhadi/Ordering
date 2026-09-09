@@ -119,6 +119,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var releaseCoordinator = new ReservationReleaseCoordinator(reservations, Reservation, coordinator, frameworkClock);
 
             CancellationQuotes = new DeterministicOrderCancellationQuoteAdapter();
+            DocumentVoids = new DeterministicDocumentVoidAdapter();
+            VoidDocument = new Application.OrderAggregate.Services.DocumentVoid.DocumentVoidService(
+                Orders, tickets, miscDocuments, DocumentVoids, coordinator, operationStore, receipts, unitOfWork, frameworkClock, projector);
             Cancel = new OrderCancelService(Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
             ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
         }
@@ -168,6 +171,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public IOrderScopeCancellationService ScopeCancel { get; }
 
         public DeterministicOrderCancellationQuoteAdapter CancellationQuotes { get; }
+
+        public DeterministicDocumentVoidAdapter DocumentVoids { get; }
+
+        public Application.OrderAggregate.Services.DocumentVoid.IDocumentVoidService VoidDocument { get; }
 
         public ICreateOrderService Create { get; }
 

@@ -65,11 +65,14 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<IOrderChangeQuoteProvider>(provider => provider.GetRequiredService<DeterministicOrderChangeQuoteAdapter>());
                 services.AddSingleton<DeterministicOrderCancellationQuoteAdapter>();
                 services.AddScoped<IOrderCancellationQuoteProvider>(provider => provider.GetRequiredService<DeterministicOrderCancellationQuoteAdapter>());
+                services.AddSingleton<DeterministicDocumentVoidAdapter>();
+                services.AddScoped<Domain.Ports.DocumentVoid.IDocumentVoidPort>(provider => provider.GetRequiredService<DeterministicDocumentVoidAdapter>());
             }
             else
             {
                 services.AddScoped<IOrderChangeQuoteProvider, UnconfiguredOrderChangeQuoteProvider>();
                 services.AddScoped<IOrderCancellationQuoteProvider, UnconfiguredOrderCancellationQuoteProvider>();
+                services.AddScoped<Domain.Ports.DocumentVoid.IDocumentVoidPort, DocumentVoid.Services.UnconfiguredDocumentVoidProvider>();
                 services.AddScoped<IEmdIssuancePort, UnconfiguredEmdIssuanceProvider>();
             }
 

@@ -89,7 +89,12 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
         public async Task<IActionResult> VoidDocument(long id, long documentId, [FromBody] VoidTrafficDocumentRequest request, CancellationToken cancellationToken)
         {
             var result = await _mediator.Send(
-                new VoidTrafficDocumentCommand(id, documentId, request.Reason, request.ReasonDetail),
+                new VoidTrafficDocumentCommand(
+                    id,
+                    documentId,
+                    request.Reason,
+                    request.ReasonDetail,
+                    IdempotencyKey.Require(Request)),
                 cancellationToken);
 
             return Ok(result);

@@ -637,6 +637,27 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException AcceptedCancellationScopeMismatch() =>
             new(2909, ExceptionMessages.AcceptedCancellationScopeMismatch) { HttpStatus = 409 };
 
+        public static BusinessException CouponFinancialStateForbidsVoid(params object?[] args) =>
+            new(2910, ExceptionMessages.CouponFinancialStateForbidsVoid, args) { HttpStatus = 409 };
+
+        public static BusinessException CouponControlForbidsVoid(params object?[] args) =>
+            new(2911, ExceptionMessages.CouponControlForbidsVoid, args) { HttpStatus = 409 };
+
+        public static BusinessException DocumentVoidWindowElapsed(params object?[] args) =>
+            new(2912, ExceptionMessages.DocumentVoidWindowElapsed, args) { HttpStatus = 409 };
+
+        public static BusinessException EmdCouponStateForbidsVoid(params object?[] args) =>
+            new(2913, ExceptionMessages.EmdCouponStateForbidsVoid, args) { HttpStatus = 409 };
+
+        public static BusinessException DocumentVoidNotAvailable(params object?[] args) =>
+            new(2914, ExceptionMessages.DocumentVoidNotAvailable, args) { HttpStatus = 409 };
+
+        public static BusinessException AccountableDocumentNotFound(params object?[] args) =>
+            new(2915, ExceptionMessages.AccountableDocumentNotFound, args) { HttpStatus = 404 };
+
+        public static BusinessException DocumentVoidSourceNotConfigured() =>
+            new(2916, ExceptionMessages.DocumentVoidSourceNotConfigured) { HttpStatus = 501 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

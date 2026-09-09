@@ -7,5 +7,6 @@ namespace AeroTech.Ordering.Application.TrafficDocumentAggregate.Commands.VoidTr
         long OrderId,
         long DocumentId,
         VoidReason Reason,
-        string? ReasonDetail) : IRequest<VoidTrafficDocumentResult>;
+        string? ReasonDetail,
+        string IdempotencyKey) : IRequest<VoidTrafficDocumentResult>;
 }

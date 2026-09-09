@@ -8,6 +8,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Access;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer.Ota;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
+using AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Expiry;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
@@ -87,6 +88,7 @@ namespace AeroTech.Ordering.Application
             services.AddScoped<IOrderCustomerAccessGuard, OrderCustomerAccessGuard>();
             services.AddScoped<IReservationReleaseCoordinator, ReservationReleaseCoordinator>();
             services.AddScoped<IOrderScopeCancellationService, OrderScopeCancellationService>();
+            services.AddScoped<IDocumentVoidService, DocumentVoidService>();
 
             return services;
         }

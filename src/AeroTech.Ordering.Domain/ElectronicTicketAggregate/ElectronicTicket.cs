@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Aggregates;
+﻿using AeroTech.Framework.Core.Domain.Aggregates;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
@@ -154,18 +154,39 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
 
         public string? ProviderReference { get; private set; }
 
-        public void Void(IClock clock)
+        public void EnsureCanBeVoided(DateTimeOffset now)
         {
             if (StatusSummary != ElectronicTicketStatus.Issued)
                 throw ExceptionFactory.OnlyIssuedDocumentCanBeVoided();
+
+            foreach (var coupon in _coupons)
+            {
+                if (coupon.FinancialStatus != TicketCouponFinancialStatus.Open)
+                    throw ExceptionFactory.CouponFinancialStateForbidsVoid(coupon.CouponNumber, coupon.FinancialStatus);
+
+                if (coupon.ControlStatus != TicketCouponControlStatus.Local)
+                    throw ExceptionFactory.CouponControlForbidsVoid(coupon.CouponNumber, coupon.ControlStatus);
+            }
+
+            if (VoidDeadline is { } deadline && now > deadline)
+                throw ExceptionFactory.DocumentVoidWindowElapsed(DocumentNumber);
+        }
+
+        public void Void(IClock clock)
+        {
+            var now = clock.GetDateTime();
+
+            EnsureCanBeVoided(now);
 
             foreach (var coupon in _coupons)
                 coupon.Void();
 
             StatusSummary = ElectronicTicketStatus.Voided;
             DocumentVersion++;
-            _ = clock;
         }
+
+        public IReadOnlyCollection<long> VoidedServiceIds()
+            => _coupons.Select(coupon => coupon.CurrentOrderServiceId).Distinct().ToList();
 
         public bool CoversService(long orderServiceId)
             => _coupons.Any(coupon => coupon.CurrentOrderServiceId == orderServiceId);

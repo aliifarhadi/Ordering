@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Aggregates;
+﻿using AeroTech.Framework.Core.Domain.Aggregates;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities;
@@ -165,6 +165,34 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
             ProviderReference = providerReference;
             DocumentVersion++;
         }
+
+        public void EnsureCanBeVoided()
+        {
+            if (StatusSummary != ElectronicMiscDocumentStatus.Issued)
+                throw ExceptionFactory.OnlyIssuedDocumentCanBeVoided();
+
+            foreach (var coupon in _coupons.Where(coupon => coupon.Status != EmdCouponStatus.OpenForUse))
+                throw ExceptionFactory.EmdCouponStateForbidsVoid(coupon.CouponNumber, coupon.Status);
+        }
+
+        public void Void(IClock clock)
+        {
+            EnsureCanBeVoided();
+
+            foreach (var coupon in _coupons)
+                coupon.Void();
+
+            StatusSummary = ElectronicMiscDocumentStatus.Voided;
+            DocumentVersion++;
+            _ = clock;
+        }
+
+        public IReadOnlyCollection<long> VoidedServiceIds()
+            => _coupons
+                .Where(coupon => coupon.OrderServiceId is not null)
+                .Select(coupon => coupon.OrderServiceId!.Value)
+                .Distinct()
+                .ToList();
 
         public bool DocumentsService(long orderServiceId)
             => _coupons.Any(coupon => coupon.OrderServiceId == orderServiceId);

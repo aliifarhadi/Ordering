@@ -4,8 +4,14 @@ namespace AeroTech.Ordering.Application.TrafficDocumentAggregate.Commands.VoidTr
 {
     public sealed record VoidTrafficDocumentResult(
         long OrderId,
+        long OperationId,
+        AccountableDocumentKind DocumentKind,
         long DocumentId,
-        TrafficDocumentStatus DocumentStatus,
-        FulfillmentFailureReason? FailureReason,
-        long VoidTaskId);
+        string DocumentNumber,
+        int DocumentVersion,
+        IReadOnlyList<long> AffectedOrderServiceIds,
+        ProviderOperationOutcome ProviderOutcome,
+        ServicingOperationStatus OperationStatus,
+        bool RefundRequiredInstead,
+        bool IsReplay);
 }

@@ -245,5 +245,12 @@
         public const string OrderChangeVariantIsAmbiguous = "An order change must request exactly one of add service, cancel order item or remove services; {0} were supplied.";
         public const string AcceptedCancellationDoesNotMatchTheRequest = "The accepted cancellation quote does not match the request: {0}.";
         public const string AcceptedCancellationScopeMismatch = "The accepted cancellation covers a different service scope than the one requested.";
+        public const string CouponFinancialStateForbidsVoid = "Coupon {0} is {1} and the document can no longer be voided.";
+        public const string CouponControlForbidsVoid = "Coupon {0} is under {1} control; document control must be local before a void.";
+        public const string DocumentVoidWindowElapsed = "The void window for document {0} has elapsed; this document requires a refund instead.";
+        public const string EmdCouponStateForbidsVoid = "Electronic miscellaneous document coupon {0} is {1} and can no longer be voided.";
+        public const string DocumentVoidNotAvailable = "The issuer reports document {0} is not voidable; this document requires a refund instead.";
+        public const string AccountableDocumentNotFound = "No accountable document {0} was found on order {1}.";
+        public const string DocumentVoidSourceNotConfigured = "No accountable document void provider is configured for this deployment.";
     }
 }

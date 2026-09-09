@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Entities;
+﻿using AeroTech.Framework.Core.Domain.Entities;
 using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
@@ -57,5 +57,7 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
         public int CurrencyId { get; private set; }
 
         public EmdCouponStatus Status { get; private set; }
+
+        internal void Void() => Status = EmdCouponStatus.Void;
     }
 }
