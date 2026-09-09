@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Entities;
+﻿using AeroTech.Framework.Core.Domain.Entities;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects;
 
@@ -60,6 +60,8 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
         public string? ProviderCouponStatusCode { get; private set; }
 
         internal void Void() => FinancialStatus = TicketCouponFinancialStatus.Void;
+
+        internal void Refund() => FinancialStatus = TicketCouponFinancialStatus.Refunded;
 
         internal void RecordProviderStatus(string? providerCouponStatusCode, TicketCouponControlStatus controlStatus)
         {

@@ -31,7 +31,7 @@ namespace AeroTech.Ordering.Domain.Tests.P3
         }
 
         [Fact]
-        public void The_order_change_types_keep_their_frozen_values_and_append_remove_service()
+        public void The_order_change_types_keep_their_frozen_values_and_append_the_servicing_intents()
         {
             Assert.Equal(1, (int)OrderChangeType.Create);
             Assert.Equal(2, (int)OrderChangeType.AddProduct);
@@ -45,7 +45,8 @@ namespace AeroTech.Ordering.Domain.Tests.P3
             Assert.Equal(10, (int)OrderChangeType.ManualAdjustment);
             Assert.Equal(11, (int)OrderChangeType.Close);
             Assert.Equal(12, (int)OrderChangeType.RemoveService);
-            Assert.Equal(12, Enum.GetValues<OrderChangeType>().Length);
+            Assert.Equal(13, (int)OrderChangeType.Refund);
+            Assert.Equal(13, Enum.GetValues<OrderChangeType>().Length);
         }
 
         [Fact]
@@ -60,7 +61,21 @@ namespace AeroTech.Ordering.Domain.Tests.P3
         }
 
         [Fact]
-        public void The_reserved_p3_kinds_carry_no_implementation_yet()
+        public void The_service_document_statuses_keep_their_frozen_values_and_append_refunded()
+        {
+            Assert.Equal(0, (int)OrderServiceDocumentStatus.NotRequired);
+            Assert.Equal(1, (int)OrderServiceDocumentStatus.Pending);
+            Assert.Equal(2, (int)OrderServiceDocumentStatus.Issued);
+            Assert.Equal(3, (int)OrderServiceDocumentStatus.Voided);
+            Assert.Equal(4, (int)OrderServiceDocumentStatus.Exchanged);
+            Assert.Equal(5, (int)OrderServiceDocumentStatus.Failed);
+            Assert.Equal(6, (int)OrderServiceDocumentStatus.Cancelled);
+            Assert.Equal(7, (int)OrderServiceDocumentStatus.Refunded);
+            Assert.Equal(8, Enum.GetValues<OrderServiceDocumentStatus>().Length);
+        }
+
+        [Fact]
+        public void The_still_reserved_p3_kinds_carry_no_implementation_yet()
         {
             var implemented = typeof(Domain.OrderAggregate.Order).Assembly
                 .GetTypes()
@@ -69,7 +84,6 @@ namespace AeroTech.Ordering.Domain.Tests.P3
                 .Select(method => method.Name)
                 .ToList();
 
-            Assert.DoesNotContain("Refund", implemented);
             Assert.DoesNotContain("Revalidate", implemented);
             Assert.DoesNotContain("CancelRefund", implemented);
             Assert.DoesNotContain("RemoveService", implemented);

@@ -67,6 +67,12 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<IOrderCancellationQuoteProvider>(provider => provider.GetRequiredService<DeterministicOrderCancellationQuoteAdapter>());
                 services.AddSingleton<DeterministicDocumentVoidAdapter>();
                 services.AddScoped<Domain.Ports.DocumentVoid.IDocumentVoidPort>(provider => provider.GetRequiredService<DeterministicDocumentVoidAdapter>());
+                services.AddSingleton<DeterministicRefundQuoteAdapter>();
+                services.AddScoped<Domain.Ports.Refund.IRefundQuotePort>(provider => provider.GetRequiredService<DeterministicRefundQuoteAdapter>());
+                services.AddSingleton<DeterministicDocumentRefundAdapter>();
+                services.AddScoped<Domain.Ports.DocumentRefund.IDocumentRefundPort>(provider => provider.GetRequiredService<DeterministicDocumentRefundAdapter>());
+                services.AddSingleton<DeterministicRefundValueAdapter>();
+                services.AddScoped<Domain.Ports.RefundValue.IRefundValuePort>(provider => provider.GetRequiredService<DeterministicRefundValueAdapter>());
             }
             else
             {
@@ -74,6 +80,9 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<IOrderCancellationQuoteProvider, UnconfiguredOrderCancellationQuoteProvider>();
                 services.AddScoped<Domain.Ports.DocumentVoid.IDocumentVoidPort, DocumentVoid.Services.UnconfiguredDocumentVoidProvider>();
                 services.AddScoped<IEmdIssuancePort, UnconfiguredEmdIssuanceProvider>();
+                services.AddScoped<Domain.Ports.Refund.IRefundQuotePort, Refund.Services.UnconfiguredRefundQuoteProvider>();
+                services.AddScoped<Domain.Ports.DocumentRefund.IDocumentRefundPort, DocumentRefund.Services.UnconfiguredDocumentRefundProvider>();
+                services.AddScoped<Domain.Ports.RefundValue.IRefundValuePort, RefundValue.Services.UnconfiguredRefundValueProvider>();
             }
 
             return services;

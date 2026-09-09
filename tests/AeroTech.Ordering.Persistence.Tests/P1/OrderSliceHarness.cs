@@ -6,6 +6,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
 using AeroTech.Messages.Ordering.Enums;
@@ -124,6 +125,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 Orders, tickets, miscDocuments, DocumentVoids, coordinator, operationStore, receipts, unitOfWork, frameworkClock, projector);
             Cancel = new OrderCancelService(Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
             ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
+
+            RefundQuotes = new DeterministicRefundQuoteAdapter();
+            DocumentRefunds = new DeterministicDocumentRefundAdapter();
+            RefundValues = new DeterministicRefundValueAdapter();
+            var refundValueCoordinator = new RefundValueMovementCoordinator(RefundValues, coordinator, frameworkClock);
+            Refund = new RefundService(Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
         }
 
         public SequentialIdGenerator Ids { get; }
@@ -175,6 +182,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicDocumentVoidAdapter DocumentVoids { get; }
 
         public Application.OrderAggregate.Services.DocumentVoid.IDocumentVoidService VoidDocument { get; }
+
+        public DeterministicRefundQuoteAdapter RefundQuotes { get; }
+
+        public DeterministicDocumentRefundAdapter DocumentRefunds { get; }
+
+        public DeterministicRefundValueAdapter RefundValues { get; }
+
+        public IRefundService Refund { get; }
 
         public ICreateOrderService Create { get; }
 

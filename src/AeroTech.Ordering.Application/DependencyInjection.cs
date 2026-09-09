@@ -89,6 +89,8 @@ namespace AeroTech.Ordering.Application
             services.AddScoped<IReservationReleaseCoordinator, ReservationReleaseCoordinator>();
             services.AddScoped<IOrderScopeCancellationService, OrderScopeCancellationService>();
             services.AddScoped<IDocumentVoidService, DocumentVoidService>();
+            services.AddScoped<OrderAggregate.Services.Refund.IRefundValueMovementCoordinator, OrderAggregate.Services.Refund.RefundValueMovementCoordinator>();
+            services.AddScoped<OrderAggregate.Services.Refund.IRefundService, OrderAggregate.Services.Refund.RefundService>();
 
             return services;
         }

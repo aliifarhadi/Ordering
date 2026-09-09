@@ -12,6 +12,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
     {
         private readonly List<TicketCoupon> _coupons = new();
         private readonly List<DocumentPriceLink> _priceLinks = new();
+        private readonly List<DocumentRefundRecord> _refunds = new();
 
         private ElectronicTicket()
         {
@@ -200,6 +201,102 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
 
         public bool CoversService(long orderServiceId)
             => _coupons.Any(coupon => coupon.CurrentOrderServiceId == orderServiceId);
+
+        public IReadOnlyCollection<DocumentRefundRecord> Refunds => _refunds.AsReadOnly();
+
+        public bool IsFullyUnused => _coupons.All(coupon => coupon.FinancialStatus == TicketCouponFinancialStatus.Open);
+
+        public void EnsureFullUnusedRefundIsSupported(IReadOnlyCollection<long> couponIds)
+        {
+            if (StatusSummary is ElectronicTicketStatus.Refunded
+                or ElectronicTicketStatus.Voided
+                or ElectronicTicketStatus.Exchanged)
+                throw ExceptionFactory.DocumentNotRefundable(DocumentNumber, StatusSummary);
+
+            if (StatusSummary != ElectronicTicketStatus.Issued)
+                throw ExceptionFactory.PartialRefundNotSupported(DocumentNumber, StatusSummary);
+
+            foreach (var coupon in _coupons)
+            {
+                if (coupon.FinancialStatus != TicketCouponFinancialStatus.Open)
+                    throw ExceptionFactory.PartialRefundNotSupported(DocumentNumber, coupon.FinancialStatus);
+
+                if (coupon.ControlStatus != TicketCouponControlStatus.Local)
+                    throw ExceptionFactory.CouponControlForbidsRefund(coupon.CouponNumber, coupon.ControlStatus);
+            }
+
+            if (!_coupons.Select(coupon => coupon.Id).ToHashSet().SetEquals(couponIds))
+                throw ExceptionFactory.RefundScopeMustCoverTheWholeDocument(DocumentNumber);
+        }
+
+        public DocumentRefundRecord Refund(
+            long operationId,
+            IReadOnlyCollection<long> couponIds,
+            string quotedRefundId,
+            string? sourcePricingReference,
+            decimal approvedAmount,
+            string approvedDisposition,
+            string? dispositionReference,
+            string? providerReference,
+            long? refundedBy,
+            string? actorScope,
+            IIdGenerator idGenerator,
+            IClock clock)
+        {
+            EnsureFullUnusedRefundIsSupported(couponIds);
+
+            if (approvedAmount < 0m)
+                throw ExceptionFactory.RefundAmountMustBeNonNegative(approvedAmount);
+
+            var record = new DocumentRefundRecord(
+                idGenerator.NewId(),
+                Id,
+                operationId,
+                quotedRefundId,
+                sourcePricingReference,
+                approvedAmount,
+                CurrencyId,
+                approvedDisposition,
+                dispositionReference,
+                providerReference,
+                refundedBy,
+                actorScope,
+                clock.GetDateTime());
+
+            foreach (var coupon in _coupons)
+            {
+                coupon.Refund();
+                record.AddCoupon(idGenerator.NewId(), coupon.Id, coupon.CouponNumber, coupon.CurrentOrderServiceId);
+            }
+
+            _refunds.Add(record);
+
+            StatusSummary = ElectronicTicketStatus.Refunded;
+            DocumentVersion++;
+
+            return record;
+        }
+
+        public DocumentRefundRecord? RefundOf(long operationId)
+            => _refunds.FirstOrDefault(record => record.OperationId == operationId);
+
+        public IReadOnlyCollection<long> RefundedServiceIds()
+            => _coupons
+                .Where(coupon => coupon.FinancialStatus == TicketCouponFinancialStatus.Refunded)
+                .Select(coupon => coupon.CurrentOrderServiceId)
+                .Distinct()
+                .ToList();
+
+        public void AttachRefundPriceChangeSet(long operationId, long priceChangeSetId)
+            => RefundOf(operationId)?.AttachPriceChangeSet(priceChangeSetId);
+
+        public void RecordRefundValueMovement(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? reference,
+            string? detail,
+            IClock clock)
+            => RefundOf(operationId)?.RecordValueMovement(outcome, reference, detail, clock.GetDateTime());
     }
 
     public sealed record TicketCouponIssuance(

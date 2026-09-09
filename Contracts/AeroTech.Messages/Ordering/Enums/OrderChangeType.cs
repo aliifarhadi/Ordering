@@ -16,5 +16,6 @@ namespace AeroTech.Messages.Ordering.Enums
         [Display(Name = "Manual Adjustment")] ManualAdjustment = 10,
         [Display(Name = "Close")] Close = 11,
         [Display(Name = "Remove Service")] RemoveService = 12,
+        [Display(Name = "Refund")] Refund = 13,
     }
 }

@@ -2,6 +2,7 @@
 using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
 using AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrderDetails;
@@ -26,6 +27,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
         private readonly IWithdrawOrderService _withdrawOrderService;
         private readonly IOrderChangeService _orderChangeService;
         private readonly IOrderScopeCancellationService _scopeCancellationService;
+        private readonly IRefundService _refundService;
 
         public BackofficeOrderLifecycleController(
             IMediator mediator,
@@ -33,7 +35,8 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             IIssueOrderService issueOrderService,
             IWithdrawOrderService withdrawOrderService,
             IOrderChangeService orderChangeService,
-            IOrderScopeCancellationService scopeCancellationService)
+            IOrderScopeCancellationService scopeCancellationService,
+            IRefundService refundService)
         {
             _mediator = mediator;
             _reserveOrderService = reserveOrderService;
@@ -41,6 +44,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             _withdrawOrderService = withdrawOrderService;
             _orderChangeService = orderChangeService;
             _scopeCancellationService = scopeCancellationService;
+            _refundService = refundService;
         }
 
         [HttpGet("{orderId:long}/Details")]
@@ -145,6 +149,27 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             return (outcome.OperationId, outcome.CommercialVersion);
         }
 
+        [HttpGet("{orderId:long}/Documents/{documentId:long}/RefundQuote")]
+        public async Task<IActionResult> RefundQuote(
+            [FromRoute] long orderId,
+            [FromRoute] long documentId,
+            CancellationToken cancellationToken)
+            => Ok(await _refundService.QuoteAsync(orderId, documentId, cancellationToken));
+
+        [HttpPost("{orderId:long}/Documents/{documentId:long}/Refund")]
+        public async Task<IActionResult> Refund(
+            [FromRoute] long orderId,
+            [FromRoute] long documentId,
+            [FromBody] RefundDocumentRequest request,
+            CancellationToken cancellationToken)
+            => Ok(await _refundService.RefundAsync(
+                orderId,
+                documentId,
+                request.QuotedRefundId,
+                IdempotencyKey.Require(Request),
+                request.ExpectedCommercialVersion,
+                cancellationToken));
+
         [HttpPost("{orderId:long}/Withdraw")]
         public async Task<IActionResult> Withdraw(
             [FromRoute] long orderId,
@@ -164,6 +189,8 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
     public sealed record IssueOrderRequest(int? ExpectedCommercialVersion);
 
     public sealed record WithdrawOrderRequest(VoidReason Reason, int? ExpectedCommercialVersion);
+
+    public sealed record RefundDocumentRequest(string QuotedRefundId, int? ExpectedCommercialVersion);
 
 
 }

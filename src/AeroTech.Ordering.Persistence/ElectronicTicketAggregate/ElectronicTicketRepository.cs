@@ -1,4 +1,4 @@
-using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
+﻿using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,6 +25,8 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
         private IQueryable<ElectronicTicket> Query()
             => _dbContext.Set<ElectronicTicket>()
                 .Include(ticket => ticket.Coupons)
-                .Include(ticket => ticket.PriceLinks);
+                .Include(ticket => ticket.PriceLinks)
+                .Include(ticket => ticket.Refunds)
+                .ThenInclude(record => record.Coupons);
     }
 }

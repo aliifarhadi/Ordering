@@ -10,7 +10,8 @@ namespace AeroTech.Messages.Ordering.Enums
         [Display(Name = "Voided")] Voided = 3,
         [Display(Name = "Exchanged")] Exchanged = 4,
         [Display(Name = "Failed")] Failed = 5,
-        [Display(Name = "Cancelled")] Cancelled = 6
+        [Display(Name = "Cancelled")] Cancelled = 6,
+        [Display(Name = "Refunded")] Refunded = 7
 
     }
 }

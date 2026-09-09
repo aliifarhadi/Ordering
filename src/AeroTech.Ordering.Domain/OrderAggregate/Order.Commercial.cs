@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
@@ -97,8 +97,16 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             var ticketScope = _orderServices.Where(RequiresElectronicTicket).ToList();
 
+            if (ticketScope.Count > 0
+                && ticketScope.Any(service => service.DocumentStatus == OrderServiceDocumentStatus.Refunded)
+                && ticketScope.All(service =>
+                    service.DocumentStatus == OrderServiceDocumentStatus.Refunded
+                    || service.Status == OrderServiceStatus.Cancelled))
+                return OrderStatus.Refunded;
+
             if (ticketScope.Count > 0 && ticketScope.All(service =>
-                    service.DocumentStatus == OrderServiceDocumentStatus.Issued
+                    service.DocumentStatus is OrderServiceDocumentStatus.Issued
+                        or OrderServiceDocumentStatus.Refunded
                     || service.Status == OrderServiceStatus.Cancelled))
                 return OrderStatus.Ticketed;
 

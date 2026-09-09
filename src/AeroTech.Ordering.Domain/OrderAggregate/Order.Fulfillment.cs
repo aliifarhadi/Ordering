@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 
@@ -62,6 +62,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             => _orderServices
                 .Where(RequiresElectronicTicket)
                 .Where(service => service.Status != OrderServiceStatus.Cancelled)
+                .Where(service => service.DocumentStatus != OrderServiceDocumentStatus.Refunded)
                 .Select(service => service.Id)
                 .ToList();
 

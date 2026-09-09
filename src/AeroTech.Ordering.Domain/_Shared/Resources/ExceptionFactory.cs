@@ -658,6 +658,57 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException DocumentVoidSourceNotConfigured() =>
             new(2916, ExceptionMessages.DocumentVoidSourceNotConfigured) { HttpStatus = 501 };
 
+        public static BusinessException DocumentNotRefundable(params object?[] args) =>
+            new(2917, ExceptionMessages.DocumentNotRefundable, args) { HttpStatus = 409 };
+
+        public static BusinessException PartialRefundNotSupported(params object?[] args) =>
+            new(2918, ExceptionMessages.PartialRefundNotSupported, args) { HttpStatus = 422 };
+
+        public static BusinessException CouponControlForbidsRefund(params object?[] args) =>
+            new(2919, ExceptionMessages.CouponControlForbidsRefund, args) { HttpStatus = 409 };
+
+        public static BusinessException RefundScopeMustCoverTheWholeDocument(params object?[] args) =>
+            new(2920, ExceptionMessages.RefundScopeMustCoverTheWholeDocument, args) { HttpStatus = 422 };
+
+        public static BusinessException OrderRefundRequiresQuote(params object?[] args) =>
+            new(2921, ExceptionMessages.OrderRefundRequiresQuote, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedRefundDoesNotMatchTheRequest(params object?[] args) =>
+            new(2922, ExceptionMessages.AcceptedRefundDoesNotMatchTheRequest, args) { HttpStatus = 409 };
+
+        public static BusinessException AcceptedRefundScopeMismatch() =>
+            new(2923, ExceptionMessages.AcceptedRefundScopeMismatch) { HttpStatus = 409 };
+
+        public static BusinessException AcceptedQuotedRefundNotUsable(params object?[] args) =>
+            new(2924, ExceptionMessages.AcceptedQuotedRefundNotUsable, args) { HttpStatus = 409 };
+
+        public static BusinessException RefundQuoteExpired(params object?[] args) =>
+            new(2925, ExceptionMessages.RefundQuoteExpired, args) { HttpStatus = 409 };
+
+        public static BusinessException RefundPricingSourceNotAllowed(params object?[] args) =>
+            new(2926, ExceptionMessages.RefundPricingSourceNotAllowed, args) { HttpStatus = 422 };
+
+        public static BusinessException RefundAmountMustBeNonNegative(params object?[] args) =>
+            new(2927, ExceptionMessages.RefundAmountMustBeNonNegative, args) { HttpStatus = 422 };
+
+        public static BusinessException RefundRequiresPricingLines(params object?[] args) =>
+            new(2928, ExceptionMessages.RefundRequiresPricingLines, args) { HttpStatus = 422 };
+
+        public static BusinessException DocumentRefundNotAvailable(params object?[] args) =>
+            new(2929, ExceptionMessages.DocumentRefundNotAvailable, args) { HttpStatus = 409 };
+
+        public static BusinessException RefundQuoteSourceNotConfigured() =>
+            new(2930, ExceptionMessages.RefundQuoteSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException DocumentRefundSourceNotConfigured() =>
+            new(2931, ExceptionMessages.DocumentRefundSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException RefundValueSourceNotConfigured() =>
+            new(2932, ExceptionMessages.RefundValueSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException RefundedServiceNotInOrder(params object?[] args) =>
+            new(2933, ExceptionMessages.RefundedServiceNotInOrder, args) { HttpStatus = 422 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

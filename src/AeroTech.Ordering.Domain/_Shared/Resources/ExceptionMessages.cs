@@ -252,5 +252,39 @@
         public const string DocumentVoidNotAvailable = "The issuer reports document {0} is not voidable; this document requires a refund instead.";
         public const string AccountableDocumentNotFound = "No accountable document {0} was found on order {1}.";
         public const string DocumentVoidSourceNotConfigured = "No accountable document void provider is configured for this deployment.";
+
+        public const string DocumentNotRefundable = "Document {0} is {1} and can no longer be refunded.";
+
+        public const string PartialRefundNotSupported = "Document {0} is {1}; only the refund of a completely unused document is supported.";
+
+        public const string CouponControlForbidsRefund = "Coupon {0} is under {1} control; document control must be local before a refund.";
+
+        public const string RefundScopeMustCoverTheWholeDocument = "The accepted refund does not cover every coupon of document {0}.";
+
+        public const string OrderRefundRequiresQuote = "A refund of an accountable document on order {0} requires an accepted refund quote.";
+
+        public const string AcceptedRefundDoesNotMatchTheRequest = "The accepted refund does not match the requested {0}.";
+
+        public const string AcceptedRefundScopeMismatch = "The accepted refund covers a different set of coupons than the request.";
+
+        public const string AcceptedQuotedRefundNotUsable = "Refund quote {0} is unknown or is no longer usable.";
+
+        public const string RefundQuoteExpired = "Refund quote {0} expired at {1}.";
+
+        public const string RefundPricingSourceNotAllowed = "Pricing source {0} may not price a refund; the refund calculation authority must price it.";
+
+        public const string RefundAmountMustBeNonNegative = "An approved refund amount of {0} is not valid; refund magnitudes are non-negative.";
+
+        public const string RefundRequiresPricingLines = "An accepted refund of document {0} carries no pricing lines.";
+
+        public const string DocumentRefundNotAvailable = "The issuer reports document {0} cannot be refunded now.";
+
+        public const string RefundQuoteSourceNotConfigured = "No refund calculation authority is configured for this deployment.";
+
+        public const string DocumentRefundSourceNotConfigured = "No accountable document refund provider is configured for this deployment.";
+
+        public const string RefundValueSourceNotConfigured = "No refund value movement provider is configured for this deployment.";
+
+        public const string RefundedServiceNotInOrder = "Refunded order service {0} does not belong to order {1}.";
     }
 }
