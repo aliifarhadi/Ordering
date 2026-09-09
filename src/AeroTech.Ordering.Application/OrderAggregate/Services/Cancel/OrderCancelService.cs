@@ -23,8 +23,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
         private readonly IOrderRepository _orders;
         private readonly IElectronicTicketRepository _tickets;
         private readonly IElectronicMiscDocumentRepository _miscDocuments;
-        private readonly IFulfillmentReservationRepository _reservations;
-        private readonly IReservationPort _reservationPort;
+        private readonly IReservationReleaseCoordinator _release;
         private readonly IOrderOperationCoordinator _operations;
         private readonly IServicingOperationStore _operationStore;
         private readonly ICommandReceiptStore _receipts;
@@ -37,8 +36,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             IOrderRepository orders,
             IElectronicTicketRepository tickets,
             IElectronicMiscDocumentRepository miscDocuments,
-            IFulfillmentReservationRepository reservations,
-            IReservationPort reservationPort,
+            IReservationReleaseCoordinator release,
             IOrderOperationCoordinator operations,
             IServicingOperationStore operationStore,
             ICommandReceiptStore receipts,
@@ -50,8 +48,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             _orders = orders;
             _tickets = tickets;
             _miscDocuments = miscDocuments;
-            _reservations = reservations;
-            _reservationPort = reservationPort;
+            _release = release;
             _operations = operations;
             _operationStore = operationStore;
             _receipts = receipts;
@@ -127,7 +124,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                     operation.ClaimGeneration,
                     cancellationToken);
 
-                releaseOutcome = await ReleaseReservationsAsync(orderId, operation, cancellationToken);
+                releaseOutcome = await _release.ReleaseAsync(orderId, operation, null, cancellationToken);
             }
             catch
             {
@@ -258,7 +255,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
 
-            var recovered = await RecoverReleaseObligationsAsync(order.Id, operation, cancellationToken);
+            var recovered = await _release.RecoverAsync(order.Id, operation, null, cancellationToken);
 
             if (recovered == ProviderOperationOutcome.Rejected)
                 return await RejectAsync(order, operation, cancellationToken);
@@ -273,7 +270,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             if (!decision.IsAllowed || !CanStillBeCancelled(order))
                 return await ReconcileAsync(order, operation, ProviderOperationOutcome.Unknown, cancellationToken);
 
-            if (await HasOutstandingReleaseObligationAsync(order.Id, cancellationToken))
+            if (await _release.HasOutstandingObligationAsync(order.Id, null, cancellationToken))
                 return await ReconcileAsync(order, operation, ProviderOperationOutcome.Unknown, cancellationToken);
 
             return await FinalizeAsync(
@@ -313,40 +310,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 isReplay: true);
         }
 
-        private async Task<ProviderOperationOutcome> RecoverReleaseObligationsAsync(
-            long orderId,
-            OrderOperation operation,
-            CancellationToken cancellationToken)
-        {
-            var reservations = await _reservations.ListByOrderAsync(orderId, cancellationToken);
-            var observed = new List<ProviderOperationOutcome>();
-
-            foreach (var reservation in reservations.Where(IsReleasable))
-            {
-                var recovery = await _reservationPort.RecoverAsync(
-                    new RecoverReservationRequest(
-                        ReleaseKeyFor(operation, reservation),
-                        orderId,
-                        operation.OperationId),
-                    cancellationToken);
-
-                ApplyReleaseOutcome(reservation, recovery.Outcome);
-                observed.Add(recovery.Outcome);
-            }
-
-            return AggregateOutcome(observed);
-        }
-
-        private async Task<bool> HasOutstandingReleaseObligationAsync(long orderId, CancellationToken cancellationToken)
-        {
-            var reservations = await _reservations.ListByOrderAsync(orderId, cancellationToken);
-
-            return reservations.Any(IsReleasable);
-        }
-
-        private string ReleaseKeyFor(OrderOperation operation, FulfillmentReservation reservation)
-            => _operations.ProviderOperationKey(operation, $"{ReleaseStep}:{reservation.Id}");
-
         private static bool CanStillBeCancelled(Order order)
         {
             try
@@ -378,72 +341,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
 
             return documented.Distinct().ToList();
         }
-
-        private async Task<ProviderOperationOutcome> ReleaseReservationsAsync(
-            long orderId,
-            OrderOperation operation,
-            CancellationToken cancellationToken)
-        {
-            var reservations = await _reservations.ListByOrderAsync(orderId, cancellationToken);
-            var observed = new List<ProviderOperationOutcome>();
-
-            foreach (var reservation in reservations.Where(IsReleasable))
-            {
-                var result = await _reservationPort.ReleaseAsync(
-                    new ReleaseReservationRequest(
-                        ReleaseKeyFor(operation, reservation),
-                        orderId,
-                        operation.OperationId,
-                        reservation.ExternalReservationRef,
-                        reservation.Services.Select(service => service.OrderServiceId).ToList()),
-                    cancellationToken);
-
-                ApplyReleaseOutcome(reservation, result.Outcome);
-                observed.Add(result.Outcome);
-            }
-
-            return AggregateOutcome(observed);
-        }
-
-        private void ApplyReleaseOutcome(FulfillmentReservation reservation, ProviderOperationOutcome outcome)
-        {
-            switch (outcome)
-            {
-                case ProviderOperationOutcome.Confirmed:
-                    reservation.MarkReleased(_clock);
-                    break;
-
-                case ProviderOperationOutcome.Rejected:
-                    reservation.RestoreAfterUnreleasedCancellation(_clock);
-                    break;
-
-                default:
-                    reservation.MarkCancellationPending(_clock);
-                    break;
-            }
-        }
-
-        private static ProviderOperationOutcome AggregateOutcome(IReadOnlyList<ProviderOperationOutcome> observed)
-        {
-            if (observed.Count == 0)
-                return ProviderOperationOutcome.Confirmed;
-
-            var unresolved = observed
-                .Where(outcome => outcome is ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown)
-                .ToList();
-
-            if (unresolved.Count > 0)
-                return unresolved.Contains(ProviderOperationOutcome.Unknown)
-                    ? ProviderOperationOutcome.Unknown
-                    : ProviderOperationOutcome.Pending;
-
-            return observed.Contains(ProviderOperationOutcome.Rejected)
-                ? ProviderOperationOutcome.Rejected
-                : ProviderOperationOutcome.Confirmed;
-        }
-
-        private static bool IsReleasable(FulfillmentReservation reservation)
-            => reservation.Status is not (FulfillmentReservationStatus.Released or FulfillmentReservationStatus.Rejected);
 
         private static Entities.OrderChange? CommittedCancel(Order order, long operationId)
             => order.Changes.FirstOrDefault(change =>

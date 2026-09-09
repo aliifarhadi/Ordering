@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 
 namespace AeroTech.Ordering.Domain._Shared.Resources
 {
@@ -579,6 +579,57 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
 
         public static BusinessException CustomerContextRequired() =>
             new(2890, ExceptionMessages.CustomerContextRequired) { HttpStatus = 403 };
+
+        public static BusinessException OrderScopeNotCancellable(params object?[] args) =>
+            new(2891, ExceptionMessages.OrderScopeNotCancellable, args) { HttpStatus = 409 };
+
+        public static BusinessException CancellationScopeIsEmpty(params object?[] args) =>
+            new(2892, ExceptionMessages.CancellationScopeIsEmpty, args) { HttpStatus = 422 };
+
+        public static BusinessException CancellationScopeServiceNotInOrder(params object?[] args) =>
+            new(2893, ExceptionMessages.CancellationScopeServiceNotInOrder, args) { HttpStatus = 422 };
+
+        public static BusinessException CancellationScopeServiceAlreadyCancelled(params object?[] args) =>
+            new(2894, ExceptionMessages.CancellationScopeServiceAlreadyCancelled, args) { HttpStatus = 409 };
+
+        public static BusinessException CancellationScopeHasDependentService(params object?[] args) =>
+            new(2895, ExceptionMessages.CancellationScopeHasDependentService, args) { HttpStatus = 422 };
+
+        public static BusinessException ItemCancellationRequiresItem(params object?[] args) =>
+            new(2896, ExceptionMessages.ItemCancellationRequiresItem, args) { HttpStatus = 422 };
+
+        public static BusinessException CancellationScopeItemNotInOrder(params object?[] args) =>
+            new(2897, ExceptionMessages.CancellationScopeItemNotInOrder, args) { HttpStatus = 422 };
+
+        public static BusinessException ItemCancellationMustCoverTheWholeItem(params object?[] args) =>
+            new(2898, ExceptionMessages.ItemCancellationMustCoverTheWholeItem, args) { HttpStatus = 422 };
+
+        public static BusinessException CancellationScopeLeavesTheItem(params object?[] args) =>
+            new(2899, ExceptionMessages.CancellationScopeLeavesTheItem, args) { HttpStatus = 422 };
+
+        public static BusinessException ServiceRemovalCannotEmptyTheOrder(params object?[] args) =>
+            new(2900, ExceptionMessages.ServiceRemovalCannotEmptyTheOrder, args) { HttpStatus = 422 };
+
+        public static BusinessException CancellationScopeIntentNotSupported(params object?[] args) =>
+            new(2901, ExceptionMessages.CancellationScopeIntentNotSupported, args) { HttpStatus = 422 };
+
+        public static BusinessException CancellationReversalRequiresOriginalLine(params object?[] args) =>
+            new(2902, ExceptionMessages.CancellationReversalRequiresOriginalLine, args) { HttpStatus = 422 };
+
+        public static BusinessException CancellationReversalTargetNotInOrder(params object?[] args) =>
+            new(2903, ExceptionMessages.CancellationReversalTargetNotInOrder, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedQuotedCancellationNotUsable(params object?[] args) =>
+            new(2904, ExceptionMessages.AcceptedQuotedCancellationNotUsable, args) { HttpStatus = 409 };
+
+        public static BusinessException OrderCancellationQuoteSourceNotConfigured() =>
+            new(2905, ExceptionMessages.OrderCancellationQuoteSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException OrderScopeCancellationRequiresQuote(params object?[] args) =>
+            new(2906, ExceptionMessages.OrderScopeCancellationRequiresQuote, args) { HttpStatus = 400 };
+
+        public static BusinessException OrderChangeVariantIsAmbiguous(params object?[] args) =>
+            new(2907, ExceptionMessages.OrderChangeVariantIsAmbiguous, args) { HttpStatus = 422 };
 
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;

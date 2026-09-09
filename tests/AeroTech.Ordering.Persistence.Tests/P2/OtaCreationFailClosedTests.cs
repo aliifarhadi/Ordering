@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Access;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer;
@@ -131,6 +131,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
                 _provider.GetRequiredService<IMediator>(),
                 new OrderingDatabaseFixture.NullIdentityService(),
                 harness.OrderChange,
+                harness.ScopeCancel,
                 harness.AccessGuard)
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }

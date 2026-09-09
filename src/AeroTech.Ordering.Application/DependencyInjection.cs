@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Application._Shared.Behaviors;
 using AeroTech.Ordering.Application._Shared.Events;
 using AeroTech.Ordering.Application.FulfillmentTaskAggregate;
@@ -85,6 +85,8 @@ namespace AeroTech.Ordering.Application
             services.AddScoped<IWithdrawOrderService, WithdrawOrderService>();
             services.AddScoped<IOrderChangeService, OrderChangeService>();
             services.AddScoped<IOrderCustomerAccessGuard, OrderCustomerAccessGuard>();
+            services.AddScoped<IReservationReleaseCoordinator, ReservationReleaseCoordinator>();
+            services.AddScoped<IOrderScopeCancellationService, OrderScopeCancellationService>();
 
             return services;
         }

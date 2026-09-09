@@ -1,4 +1,4 @@
-using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
+﻿using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.Providers.FlightFlow;
 using AeroTech.Ordering.Domain.Providers.Payment;
 using AeroTech.Ordering.Domain.Providers.Pricing;
@@ -63,10 +63,13 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<IEmdIssuancePort>(provider => provider.GetRequiredService<DeterministicEmdIssuanceAdapter>());
                 services.AddSingleton<DeterministicOrderChangeQuoteAdapter>();
                 services.AddScoped<IOrderChangeQuoteProvider>(provider => provider.GetRequiredService<DeterministicOrderChangeQuoteAdapter>());
+                services.AddSingleton<DeterministicOrderCancellationQuoteAdapter>();
+                services.AddScoped<IOrderCancellationQuoteProvider>(provider => provider.GetRequiredService<DeterministicOrderCancellationQuoteAdapter>());
             }
             else
             {
                 services.AddScoped<IOrderChangeQuoteProvider, UnconfiguredOrderChangeQuoteProvider>();
+                services.AddScoped<IOrderCancellationQuoteProvider, UnconfiguredOrderCancellationQuoteProvider>();
                 services.AddScoped<IEmdIssuancePort, UnconfiguredEmdIssuanceProvider>();
             }
 

@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Ordering.Application.OrderAggregate.Access;
 using AeroTech.Ordering.Domain.OrderAggregate;
@@ -179,6 +179,30 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var after = await SnapshotAsync(foreign.OrderId);
 
             Assert.Equal(before, after);
+        }
+
+        [Fact]
+        public async Task A_cross_customer_scope_cancellation_never_reaches_the_pricing_authority()
+        {
+            var foreign = await CreateForeignOrderAsync();
+
+            await using var harness = NewHarness(OwnerCustomerId);
+
+            var before = await SnapshotAsync(foreign.OrderId);
+
+            var request = new OrderChangeRequest(
+                1,
+                CancelOrderItem: new CancelOrderItem(foreign.Order.Items.First().Id, "QCXL-1"));
+
+            var error = await Assert.ThrowsAsync<BusinessException>(
+                () => NewController(harness, NewKey()).Change(foreign.OrderId, request, default));
+
+            Assert.Equal(2500, error.Code);
+            Assert.Equal(404, error.HttpStatus);
+            Assert.Equal(0, harness.CancellationQuotes.CallCount);
+            Assert.Empty(harness.Reservation.ObservedOperationKeys);
+            Assert.Empty(harness.Events.Dispatched);
+            Assert.Equal(before, await SnapshotAsync(foreign.OrderId));
         }
 
         [Fact]
@@ -369,6 +393,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
                 _provider.GetRequiredService<IMediator>(),
                 new OrderingDatabaseFixture.NullIdentityService(),
                 harness.OrderChange,
+                harness.ScopeCancel,
                 harness.AccessGuard)
             {
                 ControllerContext = new ControllerContext { HttpContext = httpContext }

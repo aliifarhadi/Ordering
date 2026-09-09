@@ -116,7 +116,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Withdraw = new WithdrawOrderService(Orders, reservations, tickets, Reservation, Funding, coordinator, new StubIdentity(), unitOfWork, Ids, frameworkClock, projector);
             OrderChange = new OrderChangeService(Orders, Quotes, coordinator, caller, unitOfWork, Ids, frameworkClock, projector);
             AccessGuard = new OrderCustomerAccessGuard(Orders, caller);
-            Cancel = new OrderCancelService(Orders, tickets, miscDocuments, reservations, Reservation, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
+            var releaseCoordinator = new ReservationReleaseCoordinator(reservations, Reservation, coordinator, frameworkClock);
+
+            CancellationQuotes = new DeterministicOrderCancellationQuoteAdapter();
+            Cancel = new OrderCancelService(Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
+            ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
         }
 
         public SequentialIdGenerator Ids { get; }
@@ -160,6 +164,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public IOrderCustomerAccessGuard AccessGuard { get; }
 
         public IOrderCancelService Cancel { get; }
+
+        public IOrderScopeCancellationService ScopeCancel { get; }
+
+        public DeterministicOrderCancellationQuoteAdapter CancellationQuotes { get; }
 
         public ICreateOrderService Create { get; }
 

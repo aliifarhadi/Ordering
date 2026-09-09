@@ -1,4 +1,5 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
@@ -24,19 +25,22 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
         private readonly IIssueOrderService _issueOrderService;
         private readonly IWithdrawOrderService _withdrawOrderService;
         private readonly IOrderChangeService _orderChangeService;
+        private readonly IOrderScopeCancellationService _scopeCancellationService;
 
         public BackofficeOrderLifecycleController(
             IMediator mediator,
             IReserveOrderService reserveOrderService,
             IIssueOrderService issueOrderService,
             IWithdrawOrderService withdrawOrderService,
-            IOrderChangeService orderChangeService)
+            IOrderChangeService orderChangeService,
+            IOrderScopeCancellationService scopeCancellationService)
         {
             _mediator = mediator;
             _reserveOrderService = reserveOrderService;
             _issueOrderService = issueOrderService;
             _withdrawOrderService = withdrawOrderService;
             _orderChangeService = orderChangeService;
+            _scopeCancellationService = scopeCancellationService;
         }
 
         [HttpGet("{orderId:long}/Details")]
@@ -75,16 +79,70 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             [FromBody] OrderChangeRequest request,
             CancellationToken cancellationToken)
         {
-            var outcome = await _orderChangeService.AddServiceAsync(
-                orderId,
-                OrderChangeRequestMapper.ToSelections(request),
-                IdempotencyKey.Require(Request),
-                request.ExpectedCommercialVersion,
-                cancellationToken);
+            var idempotencyKey = IdempotencyKey.Require(Request);
+
+            var (operationId, commercialVersion) = OrderChangeRequestMapper.ResolveVariant(request) switch
+            {
+                OrderChangeVariant.CancelOrderItem => await CancelOrderItemAsync(
+                    orderId, request, idempotencyKey, cancellationToken),
+                OrderChangeVariant.RemoveOrderServices => await RemoveOrderServicesAsync(
+                    orderId, request, idempotencyKey, cancellationToken),
+                _ => await AddServiceAsync(orderId, request, idempotencyKey, cancellationToken)
+            };
 
             var order = await _mediator.Send(new GetOrderDetailsQuery(orderId), cancellationToken);
 
-            return Ok(new OrderChangeResponse(outcome.OperationId, outcome.CommercialVersion, order));
+            return Ok(new OrderChangeResponse(operationId, commercialVersion, order));
+        }
+
+        private async Task<(long OperationId, int CommercialVersion)> AddServiceAsync(
+            long orderId,
+            OrderChangeRequest request,
+            string idempotencyKey,
+            CancellationToken cancellationToken)
+        {
+            var outcome = await _orderChangeService.AddServiceAsync(
+                orderId,
+                OrderChangeRequestMapper.ToSelections(request),
+                idempotencyKey,
+                request.ExpectedCommercialVersion,
+                cancellationToken);
+
+            return (outcome.OperationId, outcome.CommercialVersion);
+        }
+
+        private async Task<(long OperationId, int CommercialVersion)> CancelOrderItemAsync(
+            long orderId,
+            OrderChangeRequest request,
+            string idempotencyKey,
+            CancellationToken cancellationToken)
+        {
+            var outcome = await _scopeCancellationService.CancelItemAsync(
+                orderId,
+                request.CancelOrderItem!.OrderItemId,
+                request.CancelOrderItem.QuotedCancellationId,
+                idempotencyKey,
+                request.ExpectedCommercialVersion,
+                cancellationToken);
+
+            return (outcome.OperationId, outcome.CommercialVersion);
+        }
+
+        private async Task<(long OperationId, int CommercialVersion)> RemoveOrderServicesAsync(
+            long orderId,
+            OrderChangeRequest request,
+            string idempotencyKey,
+            CancellationToken cancellationToken)
+        {
+            var outcome = await _scopeCancellationService.RemoveServicesAsync(
+                orderId,
+                request.RemoveOrderServices!.OrderServiceIds,
+                request.RemoveOrderServices.QuotedCancellationId,
+                idempotencyKey,
+                request.ExpectedCommercialVersion,
+                cancellationToken);
+
+            return (outcome.OperationId, outcome.CommercialVersion);
         }
 
         [HttpPost("{orderId:long}/Withdraw")]

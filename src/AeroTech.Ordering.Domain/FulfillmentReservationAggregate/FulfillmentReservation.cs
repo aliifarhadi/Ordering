@@ -120,6 +120,24 @@ namespace AeroTech.Ordering.Domain.FulfillmentReservationAggregate
             LastUpdatedAt = clock.GetDateTime();
         }
 
+        public void MarkReleased(IReadOnlyCollection<long> orderServiceIds, IClock clock)
+        {
+            foreach (var member in _services.Where(service => orderServiceIds.Contains(service.OrderServiceId)))
+                member.Release();
+
+            RecomputeStatus();
+            LastUpdatedAt = clock.GetDateTime();
+        }
+
+        public bool Covers(IReadOnlyCollection<long> orderServiceIds)
+            => _services.Any(service => orderServiceIds.Contains(service.OrderServiceId));
+
+        public IReadOnlyCollection<long> OutstandingServiceIds()
+            => _services
+                .Where(service => service.ObservedStatus != ReservationMemberStatus.Released)
+                .Select(service => service.OrderServiceId)
+                .ToList();
+
         public bool IsConfirmedFor(long orderServiceId)
             => _services.Any(service =>
                 service.OrderServiceId == orderServiceId

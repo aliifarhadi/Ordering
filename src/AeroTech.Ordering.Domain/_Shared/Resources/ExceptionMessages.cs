@@ -1,4 +1,4 @@
-namespace AeroTech.Ordering.Domain._Shared.Resources
+﻿namespace AeroTech.Ordering.Domain._Shared.Resources
 {
     public static class ExceptionMessages
     {
@@ -226,5 +226,22 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public const string MiscellaneousDocumentSourceNotConfigured = "No electronic miscellaneous document issuance provider is configured for this deployment.";
         public const string EmdCouponValueMustBeNonNegative = "An electronic miscellaneous document coupon value cannot be negative.";
         public const string CustomerContextRequired = "This operation requires an authenticated customer context.";
+        public const string OrderScopeNotCancellable = "Order {0} is {1} and no scope can be cancelled.";
+        public const string CancellationScopeIsEmpty = "A cancellation scope on order {0} must contain at least one service.";
+        public const string CancellationScopeServiceNotInOrder = "Order service {0} does not belong to order {1}.";
+        public const string CancellationScopeServiceAlreadyCancelled = "Order service {0} is already cancelled.";
+        public const string CancellationScopeHasDependentService = "Order service {0} cannot be cancelled while order service {1} still covers it.";
+        public const string ItemCancellationRequiresItem = "Cancelling an order item on order {0} requires the order item.";
+        public const string CancellationScopeItemNotInOrder = "Order item {0} does not belong to order {1}.";
+        public const string ItemCancellationMustCoverTheWholeItem = "Cancelling order item {0} must cover all of its active services; {1} would remain.";
+        public const string CancellationScopeLeavesTheItem = "A cancellation of order item {0} cannot include services of another item.";
+        public const string ServiceRemovalCannotEmptyTheOrder = "Removing these services would leave order {0} with no active service; cancel the order instead.";
+        public const string CancellationScopeIntentNotSupported = "Change type {0} is not a supported cancellation scope intent.";
+        public const string CancellationReversalRequiresOriginalLine = "Accepted cancellation reversal line {0} does not state which pricing line it reverses.";
+        public const string CancellationReversalTargetNotInOrder = "Accepted cancellation reverses pricing line {0}, which does not belong to order {1}.";
+        public const string AcceptedQuotedCancellationNotUsable = "The quoted cancellation {0} is not available or is no longer valid; a new quote is required.";
+        public const string OrderCancellationQuoteSourceNotConfigured = "No authoritative order cancellation quote source is configured for this deployment.";
+        public const string OrderScopeCancellationRequiresQuote = "A scoped cancellation on order {0} requires a quoted cancellation identity.";
+        public const string OrderChangeVariantIsAmbiguous = "An order change must request exactly one of add service, cancel order item or remove services; {0} were supplied.";
     }
 }
