@@ -7,6 +7,7 @@ namespace AeroTech.Ordering.Providers.Testing
     {
         private readonly Dictionary<string, ReservationOutcome> _replies = new(StringComparer.Ordinal);
         private readonly Dictionary<string, ProviderOperationOutcome> _releaseReplies = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, ProviderOperationOutcome> _recoveryReplies = new(StringComparer.Ordinal);
 
         public ReservationMemberStatus DefaultMemberStatus { get; set; } = ReservationMemberStatus.Confirmed;
 
@@ -63,11 +64,19 @@ namespace AeroTech.Ordering.Providers.Testing
                     .ToList()));
         }
 
+        public void ReplyToRecovery(string operationKeyPrefix, ProviderOperationOutcome outcome)
+            => _recoveryReplies[operationKeyPrefix] = outcome;
+
         public Task<ReservationOutcome> RecoverAsync(RecoverReservationRequest request, CancellationToken cancellationToken = default)
         {
             ObservedRecoveryKeys.Add(request.OperationKey);
 
-            return Task.FromResult(new ReservationOutcome(RecoveryOutcome, null, null, []));
+            var scripted = _recoveryReplies
+                .Where(reply => request.OperationKey.StartsWith(reply.Key, StringComparison.Ordinal))
+                .Select(reply => (ProviderOperationOutcome?)reply.Value)
+                .FirstOrDefault();
+
+            return Task.FromResult(new ReservationOutcome(scripted ?? RecoveryOutcome, null, null, []));
         }
     }
 }

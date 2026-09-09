@@ -539,6 +539,220 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 reservations.Single(reservation => reservation.Id != second).Status);
         }
 
+        [Fact]
+        public async Task Each_reservation_release_uses_its_own_stable_provider_operation_key()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var second = await AddConfirmedReservationAsync(harness, order, "PNR-SECOND");
+            var first = await OtherReservationIdAsync(order.Id, second);
+
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
+
+            var outcome = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, NewKey(), order.CommercialVersion);
+
+            var releaseKeys = ReleaseKeys(harness);
+
+            Assert.Equal(2, releaseKeys.Distinct().Count());
+            Assert.Contains($"release:{first}:{outcome.OperationId}", releaseKeys);
+            Assert.Contains($"release:{second}:{outcome.OperationId}", releaseKeys);
+        }
+
+        [Fact]
+        public async Task A_reservation_keeps_the_same_provider_key_between_release_and_recovery()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var second = await AddConfirmedReservationAsync(harness, order, "PNR-SECOND");
+            var key = NewKey();
+
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
+
+            await harness.Cancel.CancelAsync(order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            var releaseKeys = ReleaseKeys(harness).Distinct().OrderBy(value => value).ToList();
+
+            harness.Reservation.RecoveryOutcome = ProviderOperationOutcome.Unknown;
+
+            await harness.Cancel.CancelAsync(order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            var recoveryKeys = harness.Reservation.ObservedRecoveryKeys.Distinct().OrderBy(value => value).ToList();
+
+            Assert.Equal(releaseKeys, recoveryKeys);
+            Assert.Equal(releaseKeys, ReleaseKeys(harness).Distinct().OrderBy(value => value).ToList());
+            Assert.NotEqual(0, second);
+        }
+
+        [Fact]
+        public async Task An_unknown_and_a_rejected_reservation_resolve_independently_on_replay()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var rejectedId = await AddConfirmedReservationAsync(harness, order, "PNR-REJECTED");
+            var unknownId = await OtherReservationIdAsync(order.Id, rejectedId);
+            var key = NewKey();
+
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
+            harness.Reservation.ReplyToRelease("PNR-REJECTED", ProviderOperationOutcome.Rejected);
+
+            var first = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, first.OperationStatus);
+            Assert.Equal(FulfillmentReservationStatus.CancellationPending, await ReservationStateAsync(order.Id, unknownId));
+            Assert.Equal(FulfillmentReservationStatus.Confirmed, await ReservationStateAsync(order.Id, rejectedId));
+
+            var releaseCalls = ReleaseKeys(harness);
+            var commercialBefore = await SnapshotAsync(order.Id);
+
+            harness.Reservation.ReplyToRecovery($"release:{unknownId}", ProviderOperationOutcome.Confirmed);
+            harness.Reservation.ReplyToRecovery($"release:{rejectedId}", ProviderOperationOutcome.Rejected);
+
+            var replay = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.Equal(first.OperationId, replay.OperationId);
+            Assert.Equal(ServicingOperationStatus.Rejected, replay.OperationStatus);
+
+            Assert.Equal(FulfillmentReservationStatus.Released, await ReservationStateAsync(order.Id, unknownId));
+            Assert.Equal(FulfillmentReservationStatus.Confirmed, await ReservationStateAsync(order.Id, rejectedId));
+
+            Assert.Equal(commercialBefore, await SnapshotAsync(order.Id));
+            Assert.Equal(releaseCalls, ReleaseKeys(harness));
+        }
+
+        [Fact]
+        public async Task Two_unknown_reservations_recover_to_independent_results()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var secondId = await AddConfirmedReservationAsync(harness, order, "PNR-SECOND");
+            var firstId = await OtherReservationIdAsync(order.Id, secondId);
+            var key = NewKey();
+
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
+
+            var first = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            var releaseCalls = ReleaseKeys(harness);
+            var commercialBefore = await SnapshotAsync(order.Id);
+
+            harness.Reservation.ReplyToRecovery($"release:{firstId}", ProviderOperationOutcome.Confirmed);
+            harness.Reservation.ReplyToRecovery($"release:{secondId}", ProviderOperationOutcome.Rejected);
+
+            var replay = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.Equal(first.OperationId, replay.OperationId);
+            Assert.Equal(ServicingOperationStatus.Rejected, replay.OperationStatus);
+
+            Assert.Equal(FulfillmentReservationStatus.Released, await ReservationStateAsync(order.Id, firstId));
+            Assert.Equal(FulfillmentReservationStatus.Confirmed, await ReservationStateAsync(order.Id, secondId));
+
+            Assert.Equal(commercialBefore, await SnapshotAsync(order.Id));
+            Assert.Equal(releaseCalls, ReleaseKeys(harness));
+        }
+
+        [Fact]
+        public async Task Two_unknown_reservations_that_both_confirm_finalize_the_cancellation_once()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var secondId = await AddConfirmedReservationAsync(harness, order, "PNR-SECOND");
+            var firstId = await OtherReservationIdAsync(order.Id, secondId);
+            var key = NewKey();
+
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
+
+            var first = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            var releaseCalls = ReleaseKeys(harness);
+
+            harness.Reservation.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+            var replay = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.Equal(first.OperationId, replay.OperationId);
+            Assert.Equal(ServicingOperationStatus.Completed, replay.OperationStatus);
+            Assert.Equal(OrderStatus.Cancelled, replay.Status);
+
+            Assert.Equal(FulfillmentReservationStatus.Released, await ReservationStateAsync(order.Id, firstId));
+            Assert.Equal(FulfillmentReservationStatus.Released, await ReservationStateAsync(order.Id, secondId));
+
+            var reloaded = await ReloadAsync(order.Id);
+
+            Assert.Equal(2, reloaded.CommercialVersion);
+            Assert.Single(reloaded.PriceChangeSets, set => set.Reason == PriceChangeReason.Cancellation);
+            Assert.Equal(releaseCalls, ReleaseKeys(harness));
+        }
+
+        [Fact]
+        public async Task Only_the_unresolved_reservation_is_recovered_after_a_mixed_first_attempt()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var confirmedId = await AddConfirmedReservationAsync(harness, order, "PNR-CONFIRMED");
+            var unknownId = await OtherReservationIdAsync(order.Id, confirmedId);
+            var key = NewKey();
+
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
+            harness.Reservation.ReplyToRelease("PNR-CONFIRMED", ProviderOperationOutcome.Confirmed);
+
+            var first = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.Equal(FulfillmentReservationStatus.Released, await ReservationStateAsync(order.Id, confirmedId));
+
+            var releaseCalls = ReleaseKeys(harness);
+
+            harness.Reservation.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+            var replay = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.Equal(first.OperationId, replay.OperationId);
+            Assert.Equal(ServicingOperationStatus.Completed, replay.OperationStatus);
+
+            Assert.All(
+                harness.Reservation.ObservedRecoveryKeys,
+                recoveryKey => Assert.StartsWith($"release:{unknownId}:", recoveryKey, StringComparison.Ordinal));
+
+            Assert.Equal(releaseCalls, ReleaseKeys(harness));
+            Assert.Equal(FulfillmentReservationStatus.Released, await ReservationStateAsync(order.Id, confirmedId));
+            Assert.Equal(FulfillmentReservationStatus.Released, await ReservationStateAsync(order.Id, unknownId));
+        }
+
+        [Fact]
+        public async Task A_non_releasable_rejected_reservation_row_does_not_block_finalization()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var rejectedRow = await AddRejectedReservationAsync(harness, order, "PNR-NEVER-HELD");
+
+            Assert.Equal(FulfillmentReservationStatus.Rejected, await ReservationStateAsync(order.Id, rejectedRow));
+
+            var outcome = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, NewKey(), order.CommercialVersion);
+
+            Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
+            Assert.Equal(OrderStatus.Cancelled, outcome.Status);
+
+            Assert.DoesNotContain(
+                ReleaseKeys(harness),
+                releaseKey => releaseKey.StartsWith($"release:{rejectedRow}:", StringComparison.Ordinal));
+
+            Assert.Equal(FulfillmentReservationStatus.Rejected, await ReservationStateAsync(order.Id, rejectedRow));
+
+            var reloaded = await ReloadAsync(order.Id);
+
+            Assert.Equal(2, reloaded.CommercialVersion);
+            Assert.Single(reloaded.PriceChangeSets, set => set.Reason == PriceChangeReason.Cancellation);
+        }
+
         private static bool IsCancellationEvent(Framework.Core.Domain.Events.IDomainEvent domainEvent)
             => domainEvent.GetType().Name is "OrderCancelled" or "OrderPricingChanged";
 
@@ -595,10 +809,41 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             return reservations.Select(reservation => reservation.Status).OrderBy(status => status).ToList();
         }
 
-        private static async Task<long> AddConfirmedReservationAsync(
+        private async Task<FulfillmentReservationStatus> ReservationStateAsync(long orderId, long reservationId)
+        {
+            await using var command = _fixture.NewCommandContext();
+
+            var reservations = await new FulfillmentReservationRepository(command).ListByOrderAsync(orderId);
+
+            return reservations.Single(reservation => reservation.Id == reservationId).Status;
+        }
+
+        private async Task<long> OtherReservationIdAsync(long orderId, long knownId)
+        {
+            await using var command = _fixture.NewCommandContext();
+
+            var reservations = await new FulfillmentReservationRepository(command).ListByOrderAsync(orderId);
+
+            return reservations.Single(reservation => reservation.Id != knownId).Id;
+        }
+
+        private static Task<long> AddRejectedReservationAsync(
             OrderSliceHarness harness,
             Order order,
             string externalReference)
+            => AddReservationAsync(harness, order, externalReference, ReservationMemberStatus.Rejected);
+
+        private static Task<long> AddConfirmedReservationAsync(
+            OrderSliceHarness harness,
+            Order order,
+            string externalReference)
+            => AddReservationAsync(harness, order, externalReference, ReservationMemberStatus.Confirmed);
+
+        private static async Task<long> AddReservationAsync(
+            OrderSliceHarness harness,
+            Order order,
+            string externalReference,
+            ReservationMemberStatus memberStatus)
         {
             var serviceIds = order.OrderServices.Select(service => service.Id).ToList();
 
@@ -613,9 +858,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 harness.Clock);
 
             reservation.Observe(
-                serviceIds
-                    .Select(id => new ReservationServiceObservation(id, ReservationMemberStatus.Confirmed))
-                    .ToList(),
+                serviceIds.Select(id => new ReservationServiceObservation(id, memberStatus)).ToList(),
                 externalReference,
                 null,
                 harness.Clock);

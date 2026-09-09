@@ -258,22 +258,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
 
-            var recovery = await _reservationPort.RecoverAsync(
-                new RecoverReservationRequest(
-                    _operations.ProviderOperationKey(operation, ReleaseStep),
-                    order.Id,
-                    operation.OperationId),
-                cancellationToken);
+            var recovered = await RecoverReleaseObligationsAsync(order.Id, operation, cancellationToken);
 
-            if (recovery.Outcome == ProviderOperationOutcome.Rejected)
-            {
-                await ResolveUnreleasedReservationsAsync(order.Id, ProviderOperationOutcome.Rejected, cancellationToken);
-
+            if (recovered == ProviderOperationOutcome.Rejected)
                 return await RejectAsync(order, operation, cancellationToken);
-            }
 
-            if (recovery.Outcome != ProviderOperationOutcome.Confirmed)
-                return await ReconcileAsync(order, operation, recovery.Outcome, cancellationToken);
+            if (recovered != ProviderOperationOutcome.Confirmed)
+                return await ReconcileAsync(order, operation, recovered, cancellationToken);
 
             var decision = WithdrawEligibilityPolicy.Evaluate(
                 order,
@@ -282,9 +273,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             if (!decision.IsAllowed || !CanStillBeCancelled(order))
                 return await ReconcileAsync(order, operation, ProviderOperationOutcome.Unknown, cancellationToken);
 
-            await ResolveUnreleasedReservationsAsync(order.Id, ProviderOperationOutcome.Confirmed, cancellationToken);
-
-            if (!await AllReservationsReleasedAsync(order.Id, cancellationToken))
+            if (await HasOutstandingReleaseObligationAsync(order.Id, cancellationToken))
                 return await ReconcileAsync(order, operation, ProviderOperationOutcome.Unknown, cancellationToken);
 
             return await FinalizeAsync(
@@ -324,24 +313,39 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 isReplay: true);
         }
 
-        private async Task ResolveUnreleasedReservationsAsync(
+        private async Task<ProviderOperationOutcome> RecoverReleaseObligationsAsync(
             long orderId,
-            ProviderOperationOutcome outcome,
+            OrderOperation operation,
             CancellationToken cancellationToken)
         {
             var reservations = await _reservations.ListByOrderAsync(orderId, cancellationToken);
+            var observed = new List<ProviderOperationOutcome>();
 
-            foreach (var reservation in reservations.Where(candidate =>
-                         candidate.Status == FulfillmentReservationStatus.CancellationPending))
-                ApplyReleaseOutcome(reservation, outcome);
+            foreach (var reservation in reservations.Where(IsReleasable))
+            {
+                var recovery = await _reservationPort.RecoverAsync(
+                    new RecoverReservationRequest(
+                        ReleaseKeyFor(operation, reservation),
+                        orderId,
+                        operation.OperationId),
+                    cancellationToken);
+
+                ApplyReleaseOutcome(reservation, recovery.Outcome);
+                observed.Add(recovery.Outcome);
+            }
+
+            return AggregateOutcome(observed);
         }
 
-        private async Task<bool> AllReservationsReleasedAsync(long orderId, CancellationToken cancellationToken)
+        private async Task<bool> HasOutstandingReleaseObligationAsync(long orderId, CancellationToken cancellationToken)
         {
             var reservations = await _reservations.ListByOrderAsync(orderId, cancellationToken);
 
-            return reservations.All(reservation => reservation.Status == FulfillmentReservationStatus.Released);
+            return reservations.Any(IsReleasable);
         }
+
+        private string ReleaseKeyFor(OrderOperation operation, FulfillmentReservation reservation)
+            => _operations.ProviderOperationKey(operation, $"{ReleaseStep}:{reservation.Id}");
 
         private static bool CanStillBeCancelled(Order order)
         {
@@ -387,7 +391,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             {
                 var result = await _reservationPort.ReleaseAsync(
                     new ReleaseReservationRequest(
-                        _operations.ProviderOperationKey(operation, ReleaseStep),
+                        ReleaseKeyFor(operation, reservation),
                         orderId,
                         operation.OperationId,
                         reservation.ExternalReservationRef,
