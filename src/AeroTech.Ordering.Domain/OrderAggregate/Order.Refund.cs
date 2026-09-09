@@ -1,16 +1,20 @@
-﻿using AeroTech.Framework.Core.ServiceContracts;
+using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Dto;
+using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate
 {
     public sealed partial class Order
     {
-        public RefundedDocument CommitRefund(AcceptedRefundArgs args, IIdGenerator idGenerator, IClock clock)
-            => AttachRefund(StageRefund(args, idGenerator, clock.GetDateTime()), idGenerator, clock.GetDateTime());
+        public StagedRefund PrepareRefund(AcceptedRefundArgs args, IIdGenerator idGenerator, IClock clock)
+            => StageRefund(args, idGenerator, clock.GetDateTime());
+
+        public RefundedDocument CommitRefund(StagedRefund staged, IIdGenerator idGenerator, IClock clock)
+            => AttachRefund(staged, idGenerator, clock.GetDateTime());
 
         public void ApplyDocumentRefund(IReadOnlyCollection<long> orderServiceIds, IClock clock)
         {
@@ -51,15 +55,21 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             if (accepted.ApprovedRefundAmount < 0m)
                 throw ExceptionFactory.RefundAmountMustBeNonNegative(accepted.ApprovedRefundAmount);
 
+            RefundConservationPolicy.EnsureReconciles(accepted.PricingLines, accepted.ApprovedRefundAmount);
+
             var serviceIds = args.RefundedOrderServiceIds.Distinct().ToList();
 
             EnsureRefundScopeBelongsToTheOrder(serviceIds);
+
+            var lines = accepted.PricingLines
+                .Select(line => MapRefundPricingLine(line, args.DocumentPricingLineIds))
+                .ToList();
 
             var changeArgs = new AcceptedPriceChangeArgs(
                 OrderChangeType.Refund,
                 PriceChangeReason.Refund,
                 accepted.PricingSource,
-                accepted.PricingLines.Select(MapRefundPricingLine).ToList(),
+                lines,
                 SourcePricingRef: accepted.SourcePricingReference,
                 ChangeReason: accepted.QuotedRefundId,
                 ExternalReference: accepted.QuotedRefundId,
@@ -67,17 +77,27 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 ActorId: args.ActorId,
                 OperationId: args.OperationId);
 
-            return new StagedRefund(StagePriceChange(changeArgs, idGenerator, now), serviceIds);
+            return new StagedRefund(
+                StagePriceChange(changeArgs, idGenerator, now),
+                serviceIds,
+                accepted.ApprovedRefundAmount);
         }
 
-        private AcceptedPricingLineArgs MapRefundPricingLine(AcceptedRefundPricingLine line)
+        private AcceptedPricingLineArgs MapRefundPricingLine(
+            AcceptedRefundPricingLine line,
+            IReadOnlyCollection<long> documentPricingLineIds)
         {
             if (line.LineRole == PricingLineRole.Reversal && line.ReversesPricingLineId is null)
                 throw ExceptionFactory.ReversalRequiresOriginalLine();
 
-            if (line.ReversesPricingLineId is { } originalId
-                && _pricingLines.All(candidate => candidate.Id != originalId))
-                throw ExceptionFactory.OriginalPricingLineNotFound(originalId);
+            if (line.ReversesPricingLineId is { } originalId)
+            {
+                if (_pricingLines.All(candidate => candidate.Id != originalId))
+                    throw ExceptionFactory.OriginalPricingLineNotFound(originalId);
+
+                if (!documentPricingLineIds.Contains(originalId))
+                    throw ExceptionFactory.RefundReversalOutsideDocumentScope(originalId, Id);
+            }
 
             return new AcceptedPricingLineArgs(
                 line.ComponentType,
@@ -105,6 +125,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
         private RefundedDocument AttachRefund(StagedRefund staged, IIdGenerator idGenerator, DateTimeOffset now)
         {
+            ArgumentNullException.ThrowIfNull(staged);
+
             var changeSet = AttachPriceChange(staged.PriceChange, now);
 
             MarkServicesRefunded(staged.ServiceIds);

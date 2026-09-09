@@ -6,7 +6,9 @@ namespace AeroTech.Ordering.Domain.Ports.RefundValue
     {
         Task<RefundValueResult> RequestAsync(RefundValueRequest request, CancellationToken cancellationToken = default);
 
-        Task<RefundValueResult> RecoverAsync(RefundValueRecoveryRequest request, CancellationToken cancellationToken = default);
+        Task<RefundValueRecovery> RecoverAsync(
+            RefundValueRecoveryRequest request,
+            CancellationToken cancellationToken = default);
     }
 
     public sealed record RefundValueRequest(
@@ -25,6 +27,12 @@ namespace AeroTech.Ordering.Domain.Ports.RefundValue
         long OperationId);
 
     public sealed record RefundValueResult(
+        ProviderOperationOutcome Outcome,
+        string? ValueMovementReference = null,
+        string? Detail = null);
+
+    public sealed record RefundValueRecovery(
+        bool WasDispatched,
         ProviderOperationOutcome Outcome,
         string? ValueMovementReference = null,
         string? Detail = null);

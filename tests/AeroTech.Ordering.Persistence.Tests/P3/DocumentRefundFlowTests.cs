@@ -561,6 +561,252 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Refund);
         }
 
+        [Fact]
+        public async Task Malformed_accepted_pricing_fails_before_the_document_is_refunded()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = await FirstTicketAsync(order.Id);
+
+            var incoherent = PricingLines(order)
+                .Select(line => line.Effect == PricingEffect.CustomerBalance
+                                && line.Direction == OrderPricingLineDirection.Credit
+                    ? line with { SaleCurrencyId = order.CurrencyId + 1 }
+                    : line)
+                .ToList();
+
+            harness.RefundQuotes.Quote(
+                QuoteOf(order, ticket),
+                AcceptedOf(order, ticket) with { PricingLines = incoherent });
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.Refund.RefundAsync(
+                    order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion));
+
+            Assert.Equal(2770, refusal.Code);
+
+            await AssertNothingHappenedAsync(harness, order, ticket);
+        }
+
+        [Fact]
+        public async Task A_reversal_of_another_documents_pricing_line_fails_before_the_document_is_refunded()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var tickets = (await TicketsAsync(order.Id)).OrderBy(candidate => candidate.Id).ToList();
+            var ticket = tickets.First();
+            var other = tickets.Last();
+
+            Assert.NotEqual(ticket.Id, other.Id);
+
+            var foreignPricingLineId = other.PriceLinks.Select(link => link.PricingLineId).First();
+
+            Assert.DoesNotContain(foreignPricingLineId, ticket.CarriedPricingLineIds());
+
+            var borrowed = PricingLines(order)
+                .Select(line => line.Effect == PricingEffect.CustomerBalance
+                                && line.Direction == OrderPricingLineDirection.Credit
+                    ? line with
+                    {
+                        LineRole = PricingLineRole.Reversal,
+                        ReversesPricingLineId = foreignPricingLineId
+                    }
+                    : line)
+                .ToList();
+
+            harness.RefundQuotes.Quote(
+                QuoteOf(order, ticket),
+                AcceptedOf(order, ticket) with { PricingLines = borrowed });
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.Refund.RefundAsync(
+                    order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion));
+
+            Assert.Equal(2934, refusal.Code);
+
+            await AssertNothingHappenedAsync(harness, order, ticket);
+        }
+
+        [Fact]
+        public async Task An_approved_amount_that_contradicts_its_own_lines_fails_before_the_document_is_refunded()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = await FirstTicketAsync(order.Id);
+
+            harness.RefundQuotes.Quote(
+                QuoteOf(order, ticket),
+                AcceptedOf(order, ticket) with { ApprovedRefundAmount = RefundedFare });
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.Refund.RefundAsync(
+                    order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion));
+
+            Assert.Equal(2935, refusal.Code);
+
+            await AssertNothingHappenedAsync(harness, order, ticket);
+        }
+
+        [Fact]
+        public async Task A_penalty_and_credit_decomposition_reconciles_with_the_approved_amount()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = await FirstTicketAsync(order.Id);
+
+            var before = await ReloadAsync(order.Id);
+
+            Quote(harness, order, ticket);
+
+            var outcome = await harness.Refund.RefundAsync(
+                order.Id, ticket.Id, QuoteId, NewKey(), before.CommercialVersion);
+
+            var after = await ReloadAsync(order.Id);
+            var lines = after.PricingLines.Where(line => line.PriceChangeSetId == outcome.PriceChangeSetId).ToList();
+
+            var netCustomerCredit = -lines
+                .Where(line => line.AffectsCustomerBalance)
+                .Sum(line => line.SignedSaleAmount);
+
+            Assert.Equal(RefundedFare - Penalty, netCustomerCredit);
+            Assert.Equal(netCustomerCredit, outcome.ApprovedRefundAmount);
+            Assert.Equal(before.CustomerTotal - netCustomerCredit, after.CustomerTotal);
+            Assert.Equal(netCustomerCredit, Assert.Single(harness.RefundValues.ObservedRequests).ApprovedAmount);
+
+            Assert.Equal(
+                Penalty,
+                Assert.Single(lines, line => line.ComponentType == PricingComponentType.Penalty).SaleAmount);
+        }
+
+        [Fact]
+        public async Task An_ambiguous_replay_recovers_the_value_movement_instead_of_requesting_it_again()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = await FirstTicketAsync(order.Id);
+            var key = NewKey();
+
+            var before = await ReloadAsync(order.Id);
+
+            Quote(harness, order, ticket);
+            harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Unknown;
+
+            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+
+            harness.DocumentRefunds.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+            harness.RefundValues.RecoveredAsDispatched = true;
+            harness.RefundValues.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+            var recovered = await harness.Refund.RefundAsync(
+                order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+
+            var refunded = await FirstTicketAsync(order.Id);
+            var record = Assert.Single(refunded.Refunds);
+
+            Assert.Empty(harness.RefundValues.ObservedRequests);
+            Assert.Single(harness.RefundValues.ObservedRecoveryKeys);
+            Assert.Equal(
+                $"refund-value:{ticket.Id}:{recovered.OperationId}",
+                harness.RefundValues.ObservedRecoveryKeys.Single());
+
+            Assert.Equal(ProviderOperationOutcome.Confirmed, recovered.ValueMovementOutcome);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, record.ValueMovementStatus);
+            Assert.Equal($"VAL-RECOVERED-{recovered.OperationId}", record.ValueMovementReference);
+            Assert.Equal(ElectronicTicketStatus.Refunded, refunded.StatusSummary);
+        }
+
+        [Fact]
+        public async Task An_unsettled_recovered_value_movement_leaves_the_document_and_pricing_committed()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = await FirstTicketAsync(order.Id);
+            var key = NewKey();
+
+            var before = await ReloadAsync(order.Id);
+
+            Quote(harness, order, ticket);
+            harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Unknown;
+
+            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+
+            harness.DocumentRefunds.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+            harness.RefundValues.RecoveredAsDispatched = true;
+            harness.RefundValues.RecoveryOutcome = ProviderOperationOutcome.Unknown;
+
+            var recovered = await harness.Refund.RefundAsync(
+                order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+
+            var after = await ReloadAsync(order.Id);
+            var refunded = await FirstTicketAsync(order.Id);
+            var record = Assert.Single(refunded.Refunds);
+
+            Assert.Empty(harness.RefundValues.ObservedRequests);
+            Assert.Equal(ProviderOperationOutcome.Unknown, record.ValueMovementStatus);
+            Assert.Null(record.ValueMovementReference);
+
+            Assert.Equal(ServicingOperationStatus.Completed, recovered.OperationStatus);
+            Assert.Equal(ElectronicTicketStatus.Refunded, refunded.StatusSummary);
+            Assert.Equal(before.CommercialVersion + 1, after.CommercialVersion);
+            Assert.Equal(before.FinancialSequence + 1, after.FinancialSequence);
+            Assert.Equal(record.Id, Assert.Single(refunded.Refunds).Id);
+            Assert.NotNull(record.PriceChangeSetId);
+        }
+
+        [Fact]
+        public async Task A_replay_that_never_dispatched_value_movement_may_still_request_it_once()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = await FirstTicketAsync(order.Id);
+            var key = NewKey();
+
+            var before = await ReloadAsync(order.Id);
+
+            Quote(harness, order, ticket);
+            harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Unknown;
+
+            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+
+            harness.DocumentRefunds.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+            harness.RefundValues.RecoveredAsDispatched = false;
+
+            var recovered = await harness.Refund.RefundAsync(
+                order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+
+            var record = Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
+
+            Assert.Single(harness.RefundValues.ObservedRecoveryKeys);
+            Assert.Single(harness.RefundValues.ObservedRequests);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, recovered.ValueMovementOutcome);
+            Assert.Equal($"VAL-{ticket.DocumentNumber}", record.ValueMovementReference);
+        }
+
+        private async Task AssertNothingHappenedAsync(
+            OrderSliceHarness harness,
+            Order order,
+            ElectronicTicket ticket)
+        {
+            var after = await ReloadAsync(order.Id);
+            var untouched = (await TicketsAsync(order.Id)).Single(candidate => candidate.Id == ticket.Id);
+
+            Assert.Single(harness.DocumentRefunds.ObservedEligibilityKeys);
+            Assert.Single(harness.RefundQuotes.ObservedSelections);
+            Assert.Empty(harness.DocumentRefunds.ObservedRefundKeys);
+            Assert.Empty(harness.RefundValues.ObservedRequests);
+            Assert.Empty(harness.RefundValues.ObservedRecoveryKeys);
+
+            Assert.Equal(ElectronicTicketStatus.Issued, untouched.StatusSummary);
+            Assert.Empty(untouched.Refunds);
+            Assert.All(untouched.Coupons, coupon =>
+                Assert.Equal(TicketCouponFinancialStatus.Open, coupon.FinancialStatus));
+
+            Assert.Equal(order.CommercialVersion, after.CommercialVersion);
+            Assert.Equal(order.FinancialSequence, after.FinancialSequence);
+            Assert.Equal(order.CustomerTotal, after.CustomerTotal);
+            Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Refund);
+        }
+
         private static void Quote(OrderSliceHarness harness, Order order, ElectronicTicket ticket)
             => harness.RefundQuotes.Quote(QuoteOf(order, ticket), AcceptedOf(order, ticket));
 

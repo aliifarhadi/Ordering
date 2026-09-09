@@ -10,7 +10,7 @@ namespace AeroTech.Ordering.Providers.RefundValue.Services
             CancellationToken cancellationToken = default)
             => throw ExceptionFactory.RefundValueSourceNotConfigured();
 
-        public Task<RefundValueResult> RecoverAsync(
+        public Task<RefundValueRecovery> RecoverAsync(
             RefundValueRecoveryRequest request,
             CancellationToken cancellationToken = default)
             => throw ExceptionFactory.RefundValueSourceNotConfigured();

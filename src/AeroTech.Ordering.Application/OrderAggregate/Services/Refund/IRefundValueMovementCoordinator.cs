@@ -7,11 +7,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
 {
     public interface IRefundValueMovementCoordinator
     {
-        Task<ProviderOperationOutcome> RequestAsync(
+        Task<ProviderOperationOutcome> SettleAsync(
             long orderId,
             OrderOperation operation,
             ElectronicTicket ticket,
             AcceptedRefund accepted,
+            RefundValueDispatch dispatch,
             CancellationToken cancellationToken = default);
     }
 }

@@ -25,14 +25,17 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             _clock = clock;
         }
 
-        public async Task<ProviderOperationOutcome> RequestAsync(
+        public async Task<ProviderOperationOutcome> SettleAsync(
             long orderId,
             OrderOperation operation,
             ElectronicTicket ticket,
             AcceptedRefund accepted,
+            RefundValueDispatch dispatch,
             CancellationToken cancellationToken = default)
         {
-            var result = await ObserveAsync(orderId, operation, ticket, accepted, cancellationToken);
+            var result = dispatch == RefundValueDispatch.FirstAttempt
+                ? await RequestAsync(orderId, operation, ticket, accepted, cancellationToken)
+                : await RecoverThenRequestAsync(orderId, operation, ticket, accepted, cancellationToken);
 
             ticket.RecordRefundValueMovement(
                 operation.OperationId,
@@ -44,7 +47,35 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             return result.Outcome;
         }
 
-        private async Task<RefundValueResult> ObserveAsync(
+        private async Task<RefundValueResult> RecoverThenRequestAsync(
+            long orderId,
+            OrderOperation operation,
+            ElectronicTicket ticket,
+            AcceptedRefund accepted,
+            CancellationToken cancellationToken)
+        {
+            RefundValueRecovery recovery;
+
+            try
+            {
+                recovery = await _value.RecoverAsync(
+                    new RefundValueRecoveryRequest(
+                        ValueKey(operation, ticket),
+                        orderId,
+                        operation.OperationId),
+                    cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                return new RefundValueResult(ProviderOperationOutcome.Unknown, null, exception.Message);
+            }
+
+            return recovery.WasDispatched
+                ? new RefundValueResult(recovery.Outcome, recovery.ValueMovementReference, recovery.Detail)
+                : await RequestAsync(orderId, operation, ticket, accepted, cancellationToken);
+        }
+
+        private async Task<RefundValueResult> RequestAsync(
             long orderId,
             OrderOperation operation,
             ElectronicTicket ticket,
@@ -55,7 +86,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             {
                 return await _value.RequestAsync(
                     new RefundValueRequest(
-                        _operations.ProviderOperationKey(operation, $"{ValueStep}:{ticket.Id}"),
+                        ValueKey(operation, ticket),
                         orderId,
                         operation.OperationId,
                         ticket.DocumentNumber,
@@ -70,5 +101,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 return new RefundValueResult(ProviderOperationOutcome.Unknown, null, exception.Message);
             }
         }
+
+        private string ValueKey(OrderOperation operation, ElectronicTicket ticket)
+            => _operations.ProviderOperationKey(operation, $"{ValueStep}:{ticket.Id}");
     }
 }

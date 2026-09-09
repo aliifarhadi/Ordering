@@ -9,6 +9,8 @@ namespace AeroTech.Ordering.Providers.Testing
 
         public ProviderOperationOutcome RecoveryOutcome { get; set; } = ProviderOperationOutcome.Unknown;
 
+        public bool RecoveredAsDispatched { get; set; }
+
         public bool ThrowOnRequest { get; set; }
 
         public List<RefundValueRequest> ObservedRequests { get; } = new();
@@ -29,13 +31,18 @@ namespace AeroTech.Ordering.Providers.Testing
                 RequestOutcome == ProviderOperationOutcome.Confirmed ? $"VAL-{request.DocumentNumber}" : null));
         }
 
-        public Task<RefundValueResult> RecoverAsync(
+        public Task<RefundValueRecovery> RecoverAsync(
             RefundValueRecoveryRequest request,
             CancellationToken cancellationToken = default)
         {
             ObservedRecoveryKeys.Add(request.OperationKey);
 
-            return Task.FromResult(new RefundValueResult(RecoveryOutcome));
+            return Task.FromResult(new RefundValueRecovery(
+                RecoveredAsDispatched,
+                RecoveryOutcome,
+                RecoveredAsDispatched && RecoveryOutcome == ProviderOperationOutcome.Confirmed
+                    ? $"VAL-RECOVERED-{request.OperationId}"
+                    : null));
         }
     }
 }

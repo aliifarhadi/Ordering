@@ -202,6 +202,12 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
         public bool CoversService(long orderServiceId)
             => _coupons.Any(coupon => coupon.CurrentOrderServiceId == orderServiceId);
 
+        public IReadOnlyCollection<long> CoveredServiceIds()
+            => _coupons.Select(coupon => coupon.CurrentOrderServiceId).Distinct().ToList();
+
+        public IReadOnlyCollection<long> CarriedPricingLineIds()
+            => _priceLinks.Select(link => link.PricingLineId).Distinct().ToList();
+
         public IReadOnlyCollection<DocumentRefundRecord> Refunds => _refunds.AsReadOnly();
 
         public bool IsFullyUnused => _coupons.All(coupon => coupon.FinancialStatus == TicketCouponFinancialStatus.Open);

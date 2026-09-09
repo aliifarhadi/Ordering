@@ -709,6 +709,12 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException RefundedServiceNotInOrder(params object?[] args) =>
             new(2933, ExceptionMessages.RefundedServiceNotInOrder, args) { HttpStatus = 422 };
 
+        public static BusinessException RefundReversalOutsideDocumentScope(params object?[] args) =>
+            new(2934, ExceptionMessages.RefundReversalOutsideDocumentScope, args) { HttpStatus = 422 };
+
+        public static BusinessException RefundAmountDoesNotReconcile(params object?[] args) =>
+            new(2935, ExceptionMessages.RefundAmountDoesNotReconcile, args) { HttpStatus = 422 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

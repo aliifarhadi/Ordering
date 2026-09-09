@@ -286,5 +286,9 @@
         public const string RefundValueSourceNotConfigured = "No refund value movement provider is configured for this deployment.";
 
         public const string RefundedServiceNotInOrder = "Refunded order service {0} does not belong to order {1}.";
+
+        public const string RefundReversalOutsideDocumentScope = "Pricing line {0} is not carried by document {1} and may not be reversed by its refund.";
+
+        public const string RefundAmountDoesNotReconcile = "An approved refund amount of {0} does not reconcile with the net customer-balance credit of {1} in the accepted refund.";
     }
 }

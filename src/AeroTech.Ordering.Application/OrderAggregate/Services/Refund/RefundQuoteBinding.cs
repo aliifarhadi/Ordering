@@ -2,6 +2,7 @@ using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
+using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
@@ -16,6 +17,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
         {
             EnsurePricingAuthorityIsExternal(quote.PricingSource);
             EnsureAmountIsWellFormed(quote.ApprovedRefundAmount);
+            RefundConservationPolicy.EnsureReconciles(quote.PricingLines, quote.ApprovedRefundAmount);
 
             if (quote.OrderId != order.Id)
                 throw ExceptionFactory.AcceptedRefundDoesNotMatchTheRequest("order");
