@@ -17,5 +17,6 @@ namespace AeroTech.Messages.Ordering.Enums
         [Display(Name = "Close")] Close = 11,
         [Display(Name = "Remove Service")] RemoveService = 12,
         [Display(Name = "Refund")] Refund = 13,
+        [Display(Name = "Cancel Refund")] CancelRefund = 14,
     }
 }

@@ -274,6 +274,17 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             DocumentCouponId = documentCouponId;
         }
 
+        internal void RestoreDocumentedAfterRefundCancellation(long electronicTicketId, long ticketCouponId)
+        {
+            if (DocumentStatus != OrderServiceDocumentStatus.Refunded)
+                return;
+
+            DocumentStatus = OrderServiceDocumentStatus.Issued;
+            FinancialStatus = OrderServiceFinancialStatus.Priced;
+            ElectronicTicketId = electronicTicketId;
+            TicketCouponId = ticketCouponId;
+        }
+
         internal void MarkDocumentRefunded()
         {
             if (DocumentStatus != OrderServiceDocumentStatus.Issued)

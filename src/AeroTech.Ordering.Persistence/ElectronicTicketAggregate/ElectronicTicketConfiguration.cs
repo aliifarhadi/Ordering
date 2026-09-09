@@ -35,6 +35,11 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
                 .HasForeignKey(record => record.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            builder.HasMany(ticket => ticket.RefundCorrections)
+                .WithOne()
+                .HasForeignKey(record => record.TicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+
 
             builder.OwnsOne(ticket => ticket.VoidRecord, record =>
             {
@@ -49,6 +54,7 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
             builder.Navigation(ticket => ticket.Coupons).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(ticket => ticket.PriceLinks).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(ticket => ticket.Refunds).UsePropertyAccessMode(PropertyAccessMode.Field);
+            builder.Navigation(ticket => ticket.RefundCorrections).UsePropertyAccessMode(PropertyAccessMode.Field);
         }
     }
 
@@ -115,6 +121,49 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
                 .OnDelete(DeleteBehavior.Cascade);
 
             builder.Navigation(record => record.Coupons).UsePropertyAccessMode(PropertyAccessMode.Field);
+        }
+    }
+
+    public sealed class DocumentRefundCorrectionRecordConfiguration
+        : IEntityTypeConfiguration<DocumentRefundCorrectionRecord>
+    {
+        public void Configure(EntityTypeBuilder<DocumentRefundCorrectionRecord> builder)
+        {
+            builder.ToTable("DocumentRefundCorrectionRecords");
+            builder.HasKey(record => record.Id);
+            builder.Property(record => record.Id).ValueGeneratedNever();
+            builder.Property(record => record.Reason).HasMaxLength(128).IsRequired();
+            builder.Property(record => record.ReasonDetail).HasMaxLength(512);
+            builder.Property(record => record.ProviderReference).HasMaxLength(128);
+            builder.Property(record => record.ActorScope).HasMaxLength(128);
+            builder.Property(record => record.ValueCorrectionReference).HasMaxLength(128);
+            builder.Property(record => record.ValueCorrectionDetail).HasMaxLength(512);
+
+            builder.HasIndex(record => record.DocumentRefundRecordId).IsUnique();
+            builder.HasIndex(record => new { record.TicketId, record.OperationId }).IsUnique();
+            builder.HasIndex(record => record.OperationId);
+
+            builder.HasMany(record => record.Coupons)
+                .WithOne()
+                .HasForeignKey(coupon => coupon.DocumentRefundCorrectionRecordId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Navigation(record => record.Coupons).UsePropertyAccessMode(PropertyAccessMode.Field);
+        }
+    }
+
+    public sealed class DocumentRefundCorrectionCouponConfiguration
+        : IEntityTypeConfiguration<DocumentRefundCorrectionCoupon>
+    {
+        public void Configure(EntityTypeBuilder<DocumentRefundCorrectionCoupon> builder)
+        {
+            builder.ToTable("DocumentRefundCorrectionCoupons");
+            builder.HasKey(coupon => coupon.Id);
+            builder.Property(coupon => coupon.Id).ValueGeneratedNever();
+
+            builder.HasIndex(coupon => new { coupon.DocumentRefundCorrectionRecordId, coupon.TicketCouponId })
+                .IsUnique();
+            builder.HasIndex(coupon => coupon.OrderServiceId);
         }
     }
 

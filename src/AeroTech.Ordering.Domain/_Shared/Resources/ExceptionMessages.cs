@@ -307,6 +307,30 @@
 
         public const string ManualRefundAuthorizationNotConfigured = "No manual refund authorization authority is configured for this deployment.";
 
+        public const string RefundRecordNotFound = "Refund {0} does not belong to document {1}.";
+
+        public const string RefundAlreadyCancelled = "Refund {0} has already been cancelled by operation {1}.";
+
+        public const string CouponStateForbidsRefundCorrection = "Coupon {0} is {1} and no longer reflects the refund being cancelled.";
+
+        public const string RefundValueNotSettledForCorrection = "Refund {0} carries value movement status {1}; only a confirmed value movement can be corrected.";
+
+        public const string RefundPriceChangeSetNotFound = "Price change set {0} is not a committed refund of order {1}.";
+
+        public const string CancelRefundNotAuthorized = "The authorization authority refused a refund cancellation on order {0}: {1}.";
+
+        public const string CancelRefundAuthorizationUnavailable = "No refund cancellation authorization decision is available for order {0}: {1}.";
+
+        public const string CancelRefundAuthorizationNotConfigured = "No refund cancellation authorization authority is configured for this deployment.";
+
+        public const string DocumentRefundCorrectionSourceNotConfigured = "No accountable document refund correction provider is configured for this deployment.";
+
+        public const string RefundValueCorrectionSourceNotConfigured = "No refund value correction provider is configured for this deployment.";
+
+        public const string CancelRefundRequiresReason = "A refund cancellation on order {0} requires an explicit reason.";
+
+        public const string RefundCorrectionNotAvailable = "The issuer reports the refund of document {0} cannot be cancelled now.";
+
         public const string RefundRequiresCouponScope = "A refund of an accountable document on order {0} requires an explicit coupon scope.";
     }
 }

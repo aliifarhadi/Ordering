@@ -63,6 +63,8 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
 
         internal void Refund() => FinancialStatus = TicketCouponFinancialStatus.Refunded;
 
+        internal void RestoreFromRefund() => FinancialStatus = TicketCouponFinancialStatus.Open;
+
         internal void RecordProviderStatus(string? providerCouponStatusCode, TicketCouponControlStatus controlStatus)
         {
             ProviderCouponStatusCode = providerCouponStatusCode;

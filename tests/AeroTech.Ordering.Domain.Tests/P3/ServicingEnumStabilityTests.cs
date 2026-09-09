@@ -46,7 +46,8 @@ namespace AeroTech.Ordering.Domain.Tests.P3
             Assert.Equal(11, (int)OrderChangeType.Close);
             Assert.Equal(12, (int)OrderChangeType.RemoveService);
             Assert.Equal(13, (int)OrderChangeType.Refund);
-            Assert.Equal(13, Enum.GetValues<OrderChangeType>().Length);
+            Assert.Equal(14, (int)OrderChangeType.CancelRefund);
+            Assert.Equal(14, Enum.GetValues<OrderChangeType>().Length);
         }
 
         [Fact]
@@ -85,7 +86,6 @@ namespace AeroTech.Ordering.Domain.Tests.P3
                 .ToList();
 
             Assert.DoesNotContain("Revalidate", implemented);
-            Assert.DoesNotContain("CancelRefund", implemented);
             Assert.DoesNotContain("RemoveService", implemented);
         }
     }

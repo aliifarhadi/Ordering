@@ -3,6 +3,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Access;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
+using AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
@@ -132,6 +133,23 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var refundValueCoordinator = new RefundValueMovementCoordinator(RefundValues, coordinator, frameworkClock);
             ManualRefundAuthorizations = new DeterministicManualRefundAuthorizationAdapter();
             var manualRefundAuthorizer = new ManualRefundAuthorizer(ManualRefundAuthorizations, caller);
+            DocumentRefundCorrections = new DeterministicDocumentRefundCorrectionAdapter();
+            RefundValueCorrections = new DeterministicRefundValueCorrectionAdapter();
+            CancelRefundAuthorizations = new DeterministicCancelRefundAuthorizationAdapter();
+            CancelRefund = new CancelRefundService(
+                Orders,
+                tickets,
+                DocumentRefundCorrections,
+                new RefundValueCorrectionCoordinator(RefundValueCorrections, coordinator, frameworkClock),
+                new CancelRefundAuthorizer(CancelRefundAuthorizations, caller),
+                coordinator,
+                operationStore,
+                receipts,
+                caller,
+                unitOfWork,
+                Ids,
+                frameworkClock,
+                projector);
             Refund = new RefundService(Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
         }
 
@@ -192,6 +210,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicRefundValueAdapter RefundValues { get; }
 
         public DeterministicManualRefundAuthorizationAdapter ManualRefundAuthorizations { get; }
+
+        public DeterministicDocumentRefundCorrectionAdapter DocumentRefundCorrections { get; }
+
+        public DeterministicRefundValueCorrectionAdapter RefundValueCorrections { get; }
+
+        public DeterministicCancelRefundAuthorizationAdapter CancelRefundAuthorizations { get; }
+
+        public ICancelRefundService CancelRefund { get; }
 
         public IRefundService Refund { get; }
 

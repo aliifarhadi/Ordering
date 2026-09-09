@@ -14,6 +14,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
         private readonly List<TicketCoupon> _coupons = new();
         private readonly List<DocumentPriceLink> _priceLinks = new();
         private readonly List<DocumentRefundRecord> _refunds = new();
+        private readonly List<DocumentRefundCorrectionRecord> _refundCorrections = new();
 
         private ElectronicTicket()
         {
@@ -328,6 +329,111 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
 
         public DocumentRefundRecord? RefundOf(long operationId)
             => _refunds.FirstOrDefault(record => record.OperationId == operationId);
+
+        public IReadOnlyCollection<DocumentRefundCorrectionRecord> RefundCorrections => _refundCorrections.AsReadOnly();
+
+        public DocumentRefundCorrectionRecord? RefundCorrectionOf(long operationId)
+            => _refundCorrections.FirstOrDefault(record => record.OperationId == operationId);
+
+        public DocumentRefundCorrectionRecord? CorrectionForRefund(long documentRefundRecordId)
+            => _refundCorrections.FirstOrDefault(record => record.DocumentRefundRecordId == documentRefundRecordId);
+
+        public DocumentRefundRecord RefundRecord(long documentRefundRecordId)
+            => _refunds.FirstOrDefault(record => record.Id == documentRefundRecordId)
+               ?? throw ExceptionFactory.RefundRecordNotFound(documentRefundRecordId, DocumentNumber);
+
+        public void EnsureRefundCanBeCancelled(long documentRefundRecordId)
+        {
+            var record = RefundRecord(documentRefundRecordId);
+
+            if (CorrectionForRefund(documentRefundRecordId) is { } existing)
+                throw ExceptionFactory.RefundAlreadyCancelled(documentRefundRecordId, existing.OperationId);
+
+            if (record.ValueMovementStatus != ProviderOperationOutcome.Confirmed)
+                throw ExceptionFactory.RefundValueNotSettledForCorrection(
+                    documentRefundRecordId, record.ValueMovementStatus);
+
+            foreach (var refunded in record.Coupons)
+            {
+                var coupon = _coupons.FirstOrDefault(candidate => candidate.Id == refunded.TicketCouponId)
+                             ?? throw ExceptionFactory.RefundScopeCouponNotOnDocument(
+                                 refunded.TicketCouponId, DocumentNumber);
+
+                if (coupon.FinancialStatus != TicketCouponFinancialStatus.Refunded)
+                    throw ExceptionFactory.CouponStateForbidsRefundCorrection(
+                        coupon.CouponNumber, coupon.FinancialStatus);
+
+                if (coupon.ControlStatus != TicketCouponControlStatus.Local)
+                    throw ExceptionFactory.CouponControlForbidsRefund(coupon.CouponNumber, coupon.ControlStatus);
+            }
+        }
+
+        public IReadOnlyList<int> RefundedCouponNumbers(long documentRefundRecordId)
+            => RefundRecord(documentRefundRecordId).Coupons
+                .Select(coupon => coupon.CouponNumber)
+                .Order()
+                .ToList();
+
+        public DocumentRefundCorrectionRecord CancelRefund(
+            long documentRefundRecordId,
+            long operationId,
+            string reason,
+            string? reasonDetail,
+            string? providerReference,
+            long? correctedBy,
+            string? actorScope,
+            IIdGenerator idGenerator,
+            IClock clock)
+        {
+            EnsureRefundCanBeCancelled(documentRefundRecordId);
+
+            var refund = RefundRecord(documentRefundRecordId);
+
+            var correction = new DocumentRefundCorrectionRecord(
+                idGenerator.NewId(),
+                Id,
+                refund.Id,
+                operationId,
+                refund.OperationId,
+                refund.ApprovedAmount,
+                CurrencyId,
+                reason,
+                reasonDetail,
+                providerReference,
+                correctedBy,
+                actorScope,
+                clock.GetDateTime());
+
+            foreach (var refunded in refund.Coupons)
+            {
+                var coupon = _coupons.Single(candidate => candidate.Id == refunded.TicketCouponId);
+
+                coupon.RestoreFromRefund();
+                correction.AddCoupon(
+                    idGenerator.NewId(),
+                    coupon.Id,
+                    coupon.CouponNumber,
+                    refunded.OrderServiceId);
+            }
+
+            _refundCorrections.Add(correction);
+
+            StatusSummary = DeriveStatusSummary();
+            DocumentVersion++;
+
+            return correction;
+        }
+
+        public void AttachRefundCorrectionPriceChangeSet(long operationId, long priceChangeSetId)
+            => RefundCorrectionOf(operationId)?.AttachPriceChangeSet(priceChangeSetId);
+
+        public void RecordRefundCorrectionValueMovement(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? reference,
+            string? detail,
+            IClock clock)
+            => RefundCorrectionOf(operationId)?.RecordValueCorrection(outcome, reference, detail, clock.GetDateTime());
 
         public IReadOnlyCollection<long> RefundedServiceIds()
             => _coupons

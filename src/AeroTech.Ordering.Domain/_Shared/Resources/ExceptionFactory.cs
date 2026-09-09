@@ -742,6 +742,42 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ManualRefundAuthorizationNotConfigured() =>
             new(2945, ExceptionMessages.ManualRefundAuthorizationNotConfigured) { HttpStatus = 501 };
 
+        public static BusinessException RefundRecordNotFound(params object?[] args) =>
+            new(2946, ExceptionMessages.RefundRecordNotFound, args) { HttpStatus = 404 };
+
+        public static BusinessException RefundAlreadyCancelled(params object?[] args) =>
+            new(2947, ExceptionMessages.RefundAlreadyCancelled, args) { HttpStatus = 409 };
+
+        public static BusinessException CouponStateForbidsRefundCorrection(params object?[] args) =>
+            new(2948, ExceptionMessages.CouponStateForbidsRefundCorrection, args) { HttpStatus = 409 };
+
+        public static BusinessException RefundValueNotSettledForCorrection(params object?[] args) =>
+            new(2949, ExceptionMessages.RefundValueNotSettledForCorrection, args) { HttpStatus = 409 };
+
+        public static BusinessException RefundPriceChangeSetNotFound(params object?[] args) =>
+            new(2950, ExceptionMessages.RefundPriceChangeSetNotFound, args) { HttpStatus = 422 };
+
+        public static BusinessException CancelRefundNotAuthorized(params object?[] args) =>
+            new(2951, ExceptionMessages.CancelRefundNotAuthorized, args) { HttpStatus = 403 };
+
+        public static BusinessException CancelRefundAuthorizationUnavailable(params object?[] args) =>
+            new(2952, ExceptionMessages.CancelRefundAuthorizationUnavailable, args) { HttpStatus = 502 };
+
+        public static BusinessException CancelRefundAuthorizationNotConfigured() =>
+            new(2953, ExceptionMessages.CancelRefundAuthorizationNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException DocumentRefundCorrectionSourceNotConfigured() =>
+            new(2954, ExceptionMessages.DocumentRefundCorrectionSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException RefundValueCorrectionSourceNotConfigured() =>
+            new(2955, ExceptionMessages.RefundValueCorrectionSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException CancelRefundRequiresReason(params object?[] args) =>
+            new(2956, ExceptionMessages.CancelRefundRequiresReason, args) { HttpStatus = 422 };
+
+        public static BusinessException RefundCorrectionNotAvailable(params object?[] args) =>
+            new(2957, ExceptionMessages.RefundCorrectionNotAvailable, args) { HttpStatus = 409 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

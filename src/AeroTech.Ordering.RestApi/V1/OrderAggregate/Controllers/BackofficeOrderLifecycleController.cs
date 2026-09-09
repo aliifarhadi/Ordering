@@ -1,5 +1,6 @@
 ﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
+using AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
@@ -29,6 +30,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
         private readonly IOrderChangeService _orderChangeService;
         private readonly IOrderScopeCancellationService _scopeCancellationService;
         private readonly IRefundService _refundService;
+        private readonly ICancelRefundService _cancelRefundService;
 
         public BackofficeOrderLifecycleController(
             IMediator mediator,
@@ -37,7 +39,8 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             IWithdrawOrderService withdrawOrderService,
             IOrderChangeService orderChangeService,
             IOrderScopeCancellationService scopeCancellationService,
-            IRefundService refundService)
+            IRefundService refundService,
+            ICancelRefundService cancelRefundService)
         {
             _mediator = mediator;
             _reserveOrderService = reserveOrderService;
@@ -46,6 +49,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             _orderChangeService = orderChangeService;
             _scopeCancellationService = scopeCancellationService;
             _refundService = refundService;
+            _cancelRefundService = cancelRefundService;
         }
 
         [HttpGet("{orderId:long}/Details")]
@@ -172,6 +176,24 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
                     IdempotencyKey.Require(Request)),
                 cancellationToken));
 
+        [HttpPost("{orderId:long}/Documents/{documentId:long}/Refunds/{refundRecordId:long}/Cancel")]
+        public async Task<IActionResult> CancelRefund(
+            [FromRoute] long orderId,
+            [FromRoute] long documentId,
+            [FromRoute] long refundRecordId,
+            [FromBody] CancelRefundRequest request,
+            CancellationToken cancellationToken)
+            => Ok(await _cancelRefundService.CancelRefundAsync(
+                new CancelRefundExecution(
+                    orderId,
+                    documentId,
+                    refundRecordId,
+                    request.Reason,
+                    IdempotencyKey.Require(Request),
+                    request.ExpectedCommercialVersion,
+                    request.ReasonDetail),
+                cancellationToken));
+
         [HttpPost("{orderId:long}/Withdraw")]
         public async Task<IActionResult> Withdraw(
             [FromRoute] long orderId,
@@ -191,6 +213,11 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
     public sealed record IssueOrderRequest(int? ExpectedCommercialVersion);
 
     public sealed record WithdrawOrderRequest(VoidReason Reason, int? ExpectedCommercialVersion);
+
+    public sealed record CancelRefundRequest(
+        string Reason,
+        int? ExpectedCommercialVersion,
+        string? ReasonDetail = null);
 
     public sealed record RefundDocumentRequest(
         IReadOnlyList<long> TicketCouponIds,

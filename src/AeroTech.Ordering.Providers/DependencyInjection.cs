@@ -73,6 +73,15 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<Domain.Ports.DocumentRefund.IDocumentRefundPort>(provider => provider.GetRequiredService<DeterministicDocumentRefundAdapter>());
                 services.AddSingleton<DeterministicRefundValueAdapter>();
                 services.AddScoped<Domain.Ports.RefundValue.IRefundValuePort>(provider => provider.GetRequiredService<DeterministicRefundValueAdapter>());
+                services.AddSingleton<DeterministicDocumentRefundCorrectionAdapter>();
+                services.AddScoped<Domain.Ports.DocumentRefundCorrection.IDocumentRefundCorrectionPort>(
+                    provider => provider.GetRequiredService<DeterministicDocumentRefundCorrectionAdapter>());
+                services.AddSingleton<DeterministicRefundValueCorrectionAdapter>();
+                services.AddScoped<Domain.Ports.RefundValueCorrection.IRefundValueCorrectionPort>(
+                    provider => provider.GetRequiredService<DeterministicRefundValueCorrectionAdapter>());
+                services.AddSingleton<DeterministicCancelRefundAuthorizationAdapter>();
+                services.AddScoped<Domain.Ports.CancelRefundAuthorization.ICancelRefundAuthorizationPort>(
+                    provider => provider.GetRequiredService<DeterministicCancelRefundAuthorizationAdapter>());
                 services.AddSingleton<DeterministicManualRefundAuthorizationAdapter>();
                 services.AddScoped<Domain.Ports.ManualRefundAuthorization.IManualRefundAuthorizationPort>(
                     provider => provider.GetRequiredService<DeterministicManualRefundAuthorizationAdapter>());
@@ -88,6 +97,12 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<Domain.Ports.RefundValue.IRefundValuePort, RefundValue.Services.UnconfiguredRefundValueProvider>();
                 services.AddScoped<Domain.Ports.ManualRefundAuthorization.IManualRefundAuthorizationPort,
                     ManualRefundAuthorization.Services.UnconfiguredManualRefundAuthorizationProvider>();
+                services.AddScoped<Domain.Ports.DocumentRefundCorrection.IDocumentRefundCorrectionPort,
+                    DocumentRefundCorrection.Services.UnconfiguredDocumentRefundCorrectionProvider>();
+                services.AddScoped<Domain.Ports.RefundValueCorrection.IRefundValueCorrectionPort,
+                    RefundValueCorrection.Services.UnconfiguredRefundValueCorrectionProvider>();
+                services.AddScoped<Domain.Ports.CancelRefundAuthorization.ICancelRefundAuthorizationPort,
+                    CancelRefundAuthorization.Services.UnconfiguredCancelRefundAuthorizationProvider>();
             }
 
             return services;
