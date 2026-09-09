@@ -89,18 +89,26 @@ Split, Expire, AddService`. P3 requires, as a **single append-only** extension (
 renumbered):
 
 ```
-Refund         -- refund of an issued document           [ATPCO Cat33, Amadeus]
-Exchange       -- reissue producing a successor document [Amadeus ATC, Sabre]
-Revalidate     -- rebind without a new document          [Amadeus]
-CancelRefund   -- reverse a processed refund where the
-                  carrier/market permits it              [Amadeus + Sabre]
-RemoveService  -- internal discriminator for the IATA
-                  OrderChange service-removal flow,
-                  mirroring the existing AddService       [AeroTech technical abstraction]
+Refund        = 10  -- refund of an issued document            [ATPCO Cat33, Amadeus]
+Exchange      = 11  -- reissue producing a successor document  [Amadeus ATC, Sabre]
+Revalidate    = 12  -- rebind without a new document           [Amadeus]
+CancelRefund  = 13  -- reverse a processed refund where the
+                       carrier/market permits it               [Amadeus + Sabre]
+RemoveService = 14  -- technical discriminator for the IATA
+                       OrderChange service-removal flow,
+                       mirroring the existing AddService       [AeroTech technical abstraction]
 ```
 
-**Numeric values are deliberately not assigned in this document.** P3-B appends them after inspecting the live
-enum: append-only, with no existing value renumbered.
+#### Frozen append-only enum values for P3-B
+
+These values are **binding**. Every one continues its enum's existing sequence; **no existing value is
+renumbered**, and no persisted value changes meaning.
+
+| Enum | Last existing value | Appended in P3-B |
+|---|---|---|
+| `ServicingOperationKind` | `AddService = 9` | `Refund = 10`, `Exchange = 11`, `Revalidate = 12`, `CancelRefund = 13`, `RemoveService = 14` |
+| `OrderChangeType` | `Close = 11` | `RemoveService = 12` |
+| `PricingSource` | `Manual = 4` | `OrderingDerived = 5` |
 
 `CancelRefund` carries the operational vocabulary both `Amadeus` and `Sabre` use for reversing a processed refund
 ("cancel refund" / "refund cancellation"). It must **not** be generalized into a `ReverseTransaction`-style
@@ -113,13 +121,14 @@ This is a **wire-contract change** to `Contracts/AeroTech.Messages` (frozen P2 r
 published event changes the MassTransit type name). It must happen **once**, in P3-B, coordinated through the
 handoff ledger — not incrementally across phases.
 
-`OrderChangeType`, `PriceChangeReason`, `PricingComponentType.Penalty`, `PricingLineRole.Transfer`,
-`PricingSource.Manual`, `ElectronicTicketStatus.{Exchanged,Refunded,PartiallyUsed,Suspended}`,
+`PriceChangeReason`, `PricingComponentType.Penalty`, `PricingLineRole.Transfer`,
+`ElectronicTicketStatus.{Exchanged,Refunded,PartiallyUsed,Suspended}`,
 `TicketCouponFinancialStatus.{Exchanged,Refunded,Suspended}` and `EligibilityOutcome.PendingEvidence`
 **already exist** and require no change. `ElectronicMiscDocumentStatus` and `EmdCouponStatus` currently hold a
 single value each and must be extended in P3-C/P3-G.
 
-`PricingSource` needs exactly **one** append — `OrderingDerived` — for the provenance correction in §9.3.
+`OrderChangeType` and `PricingSource` each take exactly **one** append, listed in the table above:
+`OrderChangeType.RemoveService = 12` (§2.2) and `PricingSource.OrderingDerived = 5` (§9.3).
 
 ### 2.2 Cancellation family vs service removal — three distinct scopes
 
@@ -130,17 +139,26 @@ inside** an OrderItem. P3 keeps three scopes and never collapses them:
 |---|---|---|---|---|
 | Whole Order | **Cancel** | `IATA` | existing `Cancel` | `Cancel` |
 | Whole OrderItem | **Cancel** (cancellation family) | `IATA` | existing `Cancel`, item-scoped | `Cancel` |
-| One or more Services, containing OrderItem survives | **OrderChange — Remove Service** | `IATA` OrderChange | new `RemoveService` | `VoluntaryChange` |
+| One or more Services, containing OrderItem survives | **OrderChange — Remove Service** | `IATA` OrderChange | new `RemoveService = 14` | new **`RemoveService = 12`** |
 
-**Binding:** `RemoveService` is never described or exposed as an IATA cancellation operation, and no public
-`ServiceRemoval` business operation is created.
+**Binding:** service removal is classified as `OrderChangeType.RemoveService`, **not** as
+`OrderChangeType.VoluntaryChange`. A voluntary itinerary change and the removal of a service from a surviving
+OrderItem are different commercial changes and must stay separately observable.
+
+**Provenance of `OrderChangeType.RemoveService`:** `IATA` OrderChange service-removal semantics, normalized into
+AeroTech's existing `OrderChangeType` discriminator. `ServicingOperationKind.RemoveService` remains the
+`AeroTech technical abstraction` — the technical operation discriminator corresponding to this commercial change.
+
+`RemoveService` is never described or exposed as an IATA cancellation operation, and no public `ServiceRemoval`
+business operation is created.
 
 **Recorded interaction with the pushed code.** `Order.RollUpCancelledItems` already marks an `OrderItem`
 `Cancelled` once *all* of its services are cancelled. The three scopes are therefore not fully separable at the
 *state* level: removing the last surviving service of an item will roll that item up to `Cancelled`. That derived
 transition is acceptable — item state follows its services. What must **not** follow the derived outcome is the
-recorded **intent**: `ServicingOperationKind` and `OrderChangeType` record what the caller asked for
-(`RemoveService` / `VoluntaryChange`), never what the roll-up happened to produce. P3-B must assert this.
+recorded **intent**: `ServicingOperationKind.RemoveService` and `OrderChangeType.RemoveService` record what the
+caller asked for, never what the roll-up happened to produce — the operation does not silently become a `Cancel`
+because roll-up closed the item. P3-B must assert this.
 
 ---
 
@@ -395,7 +413,7 @@ call. It is **not** a refund entitlement, and it must never become one.
 3. Where a cancellation *fee* or *penalty* exists, it comes from the pricing owner — never from
    `ReverseServiceValue`, and never stamped `OrderingDerived`.
 
-### 9.3 `PricingSource.OrderingDerived` (new value, appended in P3-B)
+### 9.3 `PricingSource.OrderingDerived = 5` (appended in P3-B)
 
 An `AeroTech technical provenance value` — **not** an airline business concept. Narrow definition:
 
@@ -412,7 +430,7 @@ An `AeroTech technical provenance value` — **not** an airline business concept
 - Refund; FareUsed; refundable fare; tax refundability;
 - penalties; cancellation fees;
 - exchange / repricing; residual value;
-- any amount requiring ATPCO or provider calculation.
+- any source-calculated servicing amount, or any amount requiring ATPCO or provider calculation.
 
 All of those continue to require an authoritative external pricing/refund result.
 
@@ -422,10 +440,15 @@ already-accepted sale value mechanically, from amounts that are already authorit
 no entitlement. `OrderingDerived` therefore covers pre-ticket cancel (P3-B) **and** void-time reversal (P3-C),
 and stops there.
 
-**Open decision for P3-B — not decided here.** Historical rows written by P2 through `ReverseServiceValue` carry
-`PricingSource.PricingEngine`. Correcting them repairs a known-wrong provenance value rather than fabricating
-missing semantics, so the frozen "no historical backfill" rule does not automatically forbid it — but it does not
-authorize it either. P3-B must decide explicitly and record the decision.
+**Historical provenance — binding decision: no rewrite, no backfill.** Rows written by P2 through
+`ReverseServiceValue` and stamped `PricingSource.PricingEngine` **remain unchanged**, even though Ordering derived
+them mechanically. Historical persisted evidence stays as it was recorded. P3-B is therefore a **cutover**, not a
+migration:
+
+- existing historical rows keep `PricingEngine` and are never rewritten;
+- only qualifying mechanical reversals created **after** the P3-B change carry `OrderingDerived`.
+
+**No data migration is required for historical provenance.**
 
 **Contract note.** `PricingSource` is published on `OrderPricingChanged` and is persisted. The append is safe
 (append-only, nothing renumbered), but consumers must tolerate an unknown value. P3-B coordinates this through the
@@ -507,8 +530,11 @@ neither is a business operation:
 
 | New element | What it is | What it is **not** |
 |---|---|---|
-| `ServicingOperationKind.RemoveService` | internal discriminator for the IATA OrderChange service-removal flow, mirroring the existing `AddService` | not an IATA cancellation operation; not a public `ServiceRemoval` business operation |
-| `PricingSource.OrderingDerived` | technical provenance for a mechanical reversal of Ordering's own accepted truth (§9.3) | not a pricing capability; never used for refund, penalty, fee, tax or repricing amounts |
+| `ServicingOperationKind.RemoveService = 14` | technical operation discriminator for the IATA OrderChange service-removal flow, mirroring the existing `AddService` | not an IATA cancellation operation; not a public `ServiceRemoval` business operation |
+| `PricingSource.OrderingDerived = 5` | technical provenance for a mechanical reversal of Ordering's own accepted truth (§9.3) | not a pricing capability; never used for refund, penalty, fee, tax or repricing amounts |
+
+`OrderChangeType.RemoveService = 12` is **not** listed here: it is a commercial classification traced to `IATA`
+OrderChange service-removal semantics, normalized into the existing `OrderChangeType` discriminator (§2.2).
 
 Two candidates were examined and rejected as new concepts:
 

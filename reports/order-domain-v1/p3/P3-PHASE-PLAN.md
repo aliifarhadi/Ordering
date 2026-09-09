@@ -45,7 +45,7 @@ re-ordering it. Two constraints discovered in the pushed code shape *what lands 
 |---|---|---|---|
 | Whole Order | **Cancel** | existing `Cancel` | `Cancel` |
 | Whole OrderItem | **Cancel** (cancellation family) | existing `Cancel`, item-scoped | `Cancel` |
-| One or more Services, containing OrderItem survives | **OrderChange — Remove Service** | new `RemoveService` | `VoluntaryChange` |
+| One or more Services, containing OrderItem survives | **OrderChange — Remove Service** | new `RemoveService = 14` | new **`RemoveService = 12`** |
 
 **Deliver**
 - Whole-Order cancel and whole-OrderItem cancel, both in the cancellation family, under the existing
@@ -55,24 +55,33 @@ re-ordering it. Two constraints discovered in the pushed code shape *what lands 
   `AddService`, **not** a public `ServiceRemoval` business operation.
 - Unify the live Cancel path onto `OrderOperationCoordinator`; retire or fence the legacy
   `OrderCancelService` + `FulfillmentTask` cancel rail.
-- Single append-only `ServicingOperationKind` extension:
-  `Refund, Exchange, Revalidate, CancelRefund, RemoveService`. Numeric values are assigned here, after inspecting
-  the live enum; nothing is renumbered.
-- Append `PricingSource.OrderingDerived` and stamp locally derived reversals with it (design §9.2 / §9.3,
-  finding **B-2**). Decide and record explicitly whether existing P2 rows stamped `PricingEngine` are corrected.
+- The frozen append-only enum extensions (design §2.1). **No existing value is renumbered:**
+
+  | Enum | Last existing | Appended |
+  |---|---|---|
+  | `ServicingOperationKind` | `AddService = 9` | `Refund = 10`, `Exchange = 11`, `Revalidate = 12`, `CancelRefund = 13`, `RemoveService = 14` |
+  | `OrderChangeType` | `Close = 11` | `RemoveService = 12` |
+  | `PricingSource` | `Manual = 4` | `OrderingDerived = 5` |
+
+- Stamp locally derived reversals `PricingSource.OrderingDerived` (design §9.2 / §9.3, finding **B-2**). This is a
+  **cutover, not a migration**: historical rows stamped `PricingEngine` are **never rewritten or backfilled**, and
+  only qualifying reversals created after the change carry `OrderingDerived`.
 - Cancellation fee accepted from the pricing owner as a `Fee`/`Penalty` line — never computed, never stamped
   `OrderingDerived`.
 
 **Do not**
 - Describe or expose `RemoveService` as an IATA cancellation operation.
+- Classify service removal as `OrderChangeType.VoluntaryChange` — it is `OrderChangeType.RemoveService`.
+- Rewrite, backfill or migrate historical `PricingSource.PricingEngine` rows.
 - Let a derived `RollUpCancelledItems` outcome overwrite the caller's recorded intent.
 - Touch documents. Cancel with an issued document for the scope must be refused and routed to Void or Refund.
 - Extend `ReverseServiceValue` toward refund semantics, or stamp any calculated amount `OrderingDerived`.
 - Renumber any existing enum value.
 
-**Exit gate** — the three scopes are separately observable through `ServicingOperationKind` + `OrderChangeType`,
-and removing an item's last service still records `RemoveService` / `VoluntaryChange` intent even though roll-up
-cancels the item; dependent-service scope respected; capacity released under a stable operation key; a scope with
+**Exit gate** — the three scopes are separately observable through `ServicingOperationKind` + `OrderChangeType`
+(`Cancel` for the two cancellation scopes, `RemoveService` for service removal), and removing an item's last
+service still records `RemoveService` intent even though roll-up cancels the item; historical `PricingEngine`
+rows are provably unchanged; dependent-service scope respected; capacity released under a stable operation key; a scope with
 an issued document is refused; one `PriceChangeSet` per accepted operation; locally derived reversals carry
 `OrderingDerived` while no calculated amount does; replay is idempotent; legacy cancel rail no longer reachable
 from a production channel; full regression green.
@@ -216,12 +225,15 @@ Enforced in every phase, verified again in P3-H:
 9. No provider-specific entity enters the domain.
 10. No wallet, ledger, ATPCO engine, or Money/ROE subsystem is created.
 11. Enum extensions are append-only; no persisted numeric value is renumbered (note the existing intentional hole
-    at `RefundabilityRule = 2`).
+    at `RefundabilityRule = 2`). The P3-B values are frozen: `ServicingOperationKind` `Refund = 10` /
+    `Exchange = 11` / `Revalidate = 12` / `CancelRefund = 13` / `RemoveService = 14`;
+    `OrderChangeType.RemoveService = 12`; `PricingSource.OrderingDerived = 5`.
 12. Ports follow the frozen `Domain/Ports/<Area>` convention with a deterministic double and a fail-closed
     `Unconfigured*` production implementation.
 13. `PricingSource.OrderingDerived` is used **only** for mechanical reversals of Ordering's own accepted truth —
-    never for refund, FareUsed, refundable fare, tax refundability, penalty, cancellation fee, exchange/repricing
-    or residual value (design §9.3).
+    never for refund, FareUsed, refundable fare, tax refundability, penalty, cancellation fee, exchange/repricing,
+    residual value, or any other source-calculated servicing amount (design §9.3). Historical provenance is never
+    rewritten.
 14. No design decision rests solely on weak or secondary vendor evidence. Where primary SITA Horizon or Navitaire
     New Skies operational documentation is unavailable, the gap is stated explicitly rather than presented as
     Tier-1 confirmed behaviour.
