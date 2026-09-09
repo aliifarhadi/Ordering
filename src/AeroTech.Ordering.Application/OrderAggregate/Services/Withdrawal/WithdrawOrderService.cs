@@ -12,25 +12,6 @@ using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal
 {
-    public sealed record WithdrawOrderOutcome(
-        long OrderId,
-        long OperationId,
-        CommercialSummary CommercialSummary,
-        int CommercialVersion,
-        IReadOnlyList<long> WithdrawnServiceIds,
-        ProviderOperationOutcome ReservationReleaseOutcome,
-        ProviderOperationOutcome FundingReleaseOutcome);
-
-    public interface IWithdrawOrderService
-    {
-        Task<WithdrawOrderOutcome> WithdrawAsync(
-            long orderId,
-            VoidReason reason,
-            string idempotencyKey,
-            int? expectedCommercialVersion,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class WithdrawOrderService : IWithdrawOrderService
     {
         public const string ReleaseStep = "release";

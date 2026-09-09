@@ -12,25 +12,6 @@ using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Reservation
 {
-    public sealed record ReserveOrderOutcome(
-        long OrderId,
-        long OperationId,
-        FulfillmentReservationStatus ReservationStatus,
-        CommercialSummary CommercialSummary,
-        int CommercialVersion,
-        IReadOnlyList<long> ConfirmedServiceIds,
-        IReadOnlyList<long> UnconfirmedServiceIds,
-        string? Detail);
-
-    public interface IReserveOrderService
-    {
-        Task<ReserveOrderOutcome> ReserveAsync(
-            long orderId,
-            string idempotencyKey,
-            int? expectedCommercialVersion,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class ReserveOrderService : IReserveOrderService
     {
         public const string ProviderStep = "reserve";

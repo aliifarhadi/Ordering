@@ -8,29 +8,6 @@ using Microsoft.Extensions.Options;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Operations
 {
-    public sealed record OrderOperation(
-        long ReceiptId,
-        long OperationId,
-        long ClaimGeneration,
-        bool IsReplay);
-
-    public interface IOrderOperationCoordinator
-    {
-        Task<OrderOperation> BeginAsync(
-            long orderId,
-            ServicingOperationKind kind,
-            string idempotencyKey,
-            object requestIntent,
-            int? expectedCommercialVersion = null,
-            CancellationToken cancellationToken = default);
-
-        Task ResolveAsync(long orderId, OrderOperation operation, CancellationToken cancellationToken = default);
-
-        string ProviderOperationKey(OrderOperation operation, string step);
-
-        string Fingerprint(object requestIntent);
-    }
-
     public sealed class OrderOperationCoordinator : IOrderOperationCoordinator
     {
         private static readonly JsonSerializerOptions FingerprintOptions = new()

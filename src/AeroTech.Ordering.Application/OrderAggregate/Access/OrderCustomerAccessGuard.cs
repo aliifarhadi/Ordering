@@ -4,13 +4,6 @@ using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Access
 {
-    public interface IOrderCustomerAccessGuard
-    {
-        long RequireCustomerId();
-
-        Task EnsureOwnedAsync(long orderId, CancellationToken cancellationToken = default);
-    }
-
     public sealed class OrderCustomerAccessGuard : IOrderCustomerAccessGuard
     {
         private readonly IOrderRepository _orders;

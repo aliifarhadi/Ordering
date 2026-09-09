@@ -7,26 +7,6 @@ using AeroTech.Ordering.Domain.Ports.Reservation;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
 {
-    public interface IReservationReleaseCoordinator
-    {
-        Task<ProviderOperationOutcome> ReleaseAsync(
-            long orderId,
-            OrderOperation operation,
-            IReadOnlyCollection<long>? scopeServiceIds,
-            CancellationToken cancellationToken = default);
-
-        Task<ProviderOperationOutcome> RecoverAsync(
-            long orderId,
-            OrderOperation operation,
-            IReadOnlyCollection<long>? scopeServiceIds,
-            CancellationToken cancellationToken = default);
-
-        Task<bool> HasOutstandingObligationAsync(
-            long orderId,
-            IReadOnlyCollection<long>? scopeServiceIds,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class ReservationReleaseCoordinator : IReservationReleaseCoordinator
     {
         public const string ReleaseStep = "release";

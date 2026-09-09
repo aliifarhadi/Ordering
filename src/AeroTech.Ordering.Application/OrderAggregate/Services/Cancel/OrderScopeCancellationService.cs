@@ -17,41 +17,6 @@ using Entities = AeroTech.Ordering.Domain.OrderAggregate.Entities;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
 {
-    public sealed record ScopeCancellationOutcome(
-        long OrderId,
-        long OperationId,
-        OrderChangeType Intent,
-        long OrderChangeId,
-        long? PriceChangeSetId,
-        IReadOnlyList<long> CancelledServiceIds,
-        IReadOnlyList<long> CancelledItemIds,
-        int CommercialVersion,
-        long FinancialSequence,
-        long ObligationVersion,
-        decimal CustomerTotal,
-        ProviderOperationOutcome ReservationReleaseOutcome,
-        ServicingOperationStatus OperationStatus,
-        bool IsReplay);
-
-    public interface IOrderScopeCancellationService
-    {
-        Task<ScopeCancellationOutcome> CancelItemAsync(
-            long orderId,
-            long orderItemId,
-            string quotedCancellationId,
-            string idempotencyKey,
-            int? expectedCommercialVersion,
-            CancellationToken cancellationToken = default);
-
-        Task<ScopeCancellationOutcome> RemoveServicesAsync(
-            long orderId,
-            IReadOnlyList<long> orderServiceIds,
-            string quotedCancellationId,
-            string idempotencyKey,
-            int? expectedCommercialVersion,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class OrderScopeCancellationService : IOrderScopeCancellationService
     {
         public const string QuoteStep = "accept-quoted-cancellation";

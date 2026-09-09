@@ -20,30 +20,6 @@ using Microsoft.Extensions.Options;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
 {
-    public sealed record IssueOrderOutcome(
-        long OrderId,
-        long OperationId,
-        long ReceiptId,
-        ProviderOperationOutcome Outcome,
-        ServicingOperationStatus OperationStatus,
-        CommercialSummary CommercialSummary,
-        int CommercialVersion,
-        IReadOnlyList<IssuedTicketSummary> Tickets,
-        IReadOnlyList<long> OutstandingServiceIds,
-        string? Detail,
-        IReadOnlyList<IssuedMiscellaneousDocumentSummary> MiscellaneousDocuments);
-
-    public sealed record IssuedTicketSummary(long TicketId, long TravelerId, string DocumentNumber, int CouponCount);
-
-    public interface IIssueOrderService
-    {
-        Task<IssueOrderOutcome> IssueAsync(
-            long orderId,
-            string idempotencyKey,
-            int? expectedCommercialVersion,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class IssueOrderService : IIssueOrderService
     {
         public const string FundingStep = "coverage";

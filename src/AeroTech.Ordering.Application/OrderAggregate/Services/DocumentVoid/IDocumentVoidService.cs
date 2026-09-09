@@ -1,16 +1,16 @@
 using AeroTech.Messages.Ordering.Enums;
 
-namespace AeroTech.Ordering.Application.TrafficDocumentAggregate
+namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
 {
-    public interface ITrafficDocumentVoidService
+    public interface IDocumentVoidService
     {
-        Task<VoidTrafficDocumentOutcome> VoidAsync(
+        Task<DocumentVoidOutcome> VoidAsync(
             long orderId,
             long documentId,
             VoidReason reason,
             string? reasonDetail,
             long voidedBy,
+            string idempotencyKey,
             CancellationToken cancellationToken = default);
     }
-
 }

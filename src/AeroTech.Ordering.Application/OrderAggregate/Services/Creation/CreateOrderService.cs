@@ -12,22 +12,6 @@ using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Creation
 {
-    public sealed record CreateOrderOutcome(
-        long OrderId,
-        long ReceiptId,
-        int CommercialVersion,
-        CommercialSummary CommercialSummary,
-        bool IsReplay);
-
-    public interface ICreateOrderService
-    {
-        Task<CreateOrderOutcome> CreateAsync(
-            CreateOrderArgs args,
-            AcceptedOrderSource source,
-            string idempotencyKey,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class CreateOrderService : ICreateOrderService
     {
         private readonly IOrderRepository _orders;

@@ -2,7 +2,6 @@ using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
-using AeroTech.Ordering.Domain.DocumentStockAggregate;
 using AeroTech.Ordering.Domain.DocumentStockAggregate.Entities;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
@@ -13,29 +12,6 @@ using AeroTech.Ordering.Domain.Ports.DocumentIssuance;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
 {
-    public sealed record ElectronicTicketIssuanceRequest(
-        Order Order,
-        OrderOperation Operation,
-        DocumentStock Stock,
-        long OwnerAirlineId,
-        IReadOnlyList<long> Scope,
-        IReadOnlyCollection<long> Outstanding,
-        IReadOnlyList<IssuedTicketSummary> AlreadyIssued);
-
-    public sealed record ElectronicTicketIssuanceOutcome(
-        ProviderOperationOutcome Outcome,
-        IReadOnlyList<IssuedTicketSummary> Summaries,
-        IReadOnlyCollection<long> Outstanding,
-        bool AlreadyIrreversible,
-        string? Detail);
-
-    public interface IElectronicTicketIssuer
-    {
-        Task<ElectronicTicketIssuanceOutcome> IssueAsync(
-            ElectronicTicketIssuanceRequest request,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class ElectronicTicketIssuer : IElectronicTicketIssuer
     {
         public const string IssueStep = "issue";

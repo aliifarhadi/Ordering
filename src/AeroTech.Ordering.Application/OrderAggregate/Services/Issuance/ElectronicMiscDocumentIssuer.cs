@@ -2,7 +2,6 @@ using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
-using AeroTech.Ordering.Domain.DocumentStockAggregate;
 using AeroTech.Ordering.Domain.DocumentStockAggregate.Entities;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
@@ -14,37 +13,6 @@ using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Issuance
 {
-    public sealed record IssuedMiscellaneousDocumentSummary(
-        long ElectronicMiscDocumentId,
-        string DocumentNumber,
-        ElectronicMiscDocumentType Type,
-        string ReasonForIssuanceCode,
-        int CouponCount);
-
-    public sealed record ElectronicMiscDocumentIssuanceRequest(
-        Order Order,
-        OrderOperation Operation,
-        DocumentStock Stock,
-        long OwnerAirlineId,
-        IReadOnlyList<long> Scope,
-        IReadOnlyList<ElectronicTicket> Tickets,
-        IReadOnlyList<IssuedMiscellaneousDocumentSummary> AlreadyIssued,
-        bool AlreadyIrreversible);
-
-    public sealed record ElectronicMiscDocumentIssuanceOutcome(
-        ProviderOperationOutcome Outcome,
-        IReadOnlyList<IssuedMiscellaneousDocumentSummary> Summaries,
-        IReadOnlyCollection<long> Outstanding,
-        bool AlreadyIrreversible,
-        string? Detail);
-
-    public interface IElectronicMiscDocumentIssuer
-    {
-        Task<ElectronicMiscDocumentIssuanceOutcome> IssueAsync(
-            ElectronicMiscDocumentIssuanceRequest request,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class ElectronicMiscDocumentIssuer : IElectronicMiscDocumentIssuer
     {
         public const string IssueStep = "issue-emd";

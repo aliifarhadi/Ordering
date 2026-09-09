@@ -14,32 +14,6 @@ using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange
 {
-    public sealed record SelectedQuotedOffer(string QuotedOfferId, IReadOnlyList<string> SelectedOfferItemIds);
-
-    public sealed record OrderChangeOutcome(
-        long OrderId,
-        long OperationId,
-        long OrderChangeId,
-        long PriceChangeSetId,
-        long OrderItemId,
-        IReadOnlyList<long> ServiceIds,
-        long FinancialSequence,
-        int CommercialVersion,
-        long ObligationVersion,
-        decimal CustomerTotal,
-        int CurrencyId,
-        bool IsReplay);
-
-    public interface IOrderChangeService
-    {
-        Task<OrderChangeOutcome> AddServiceAsync(
-            long orderId,
-            IReadOnlyList<SelectedQuotedOffer> acceptSelectedQuotedOfferList,
-            string idempotencyKey,
-            int? expectedCommercialVersion,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class OrderChangeService : IOrderChangeService
     {
         public const string ProviderStep = "accept-quoted-offer";

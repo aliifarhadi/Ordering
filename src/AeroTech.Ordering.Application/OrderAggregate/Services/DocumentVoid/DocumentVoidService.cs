@@ -14,31 +14,6 @@ using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
 {
-    public sealed record DocumentVoidOutcome(
-        long OrderId,
-        long OperationId,
-        AccountableDocumentKind DocumentKind,
-        long DocumentId,
-        string DocumentNumber,
-        int DocumentVersion,
-        IReadOnlyList<long> AffectedOrderServiceIds,
-        ProviderOperationOutcome ProviderOutcome,
-        ServicingOperationStatus OperationStatus,
-        bool RefundRequiredInstead,
-        bool IsReplay);
-
-    public interface IDocumentVoidService
-    {
-        Task<DocumentVoidOutcome> VoidAsync(
-            long orderId,
-            long documentId,
-            VoidReason reason,
-            string? reasonDetail,
-            long voidedBy,
-            string idempotencyKey,
-            CancellationToken cancellationToken = default);
-    }
-
     public sealed class DocumentVoidService : IDocumentVoidService
     {
         public const string VoidStep = "document-void";
