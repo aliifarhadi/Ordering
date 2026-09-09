@@ -8,7 +8,7 @@ namespace AeroTech.Ordering.Domain.Ports.ReservationChange
             ReservationChangeRequest request,
             CancellationToken cancellationToken = default);
 
-        Task<ReservationChangeResult> RecoverAsync(
+        Task<ReservationChangeRecovery> RecoverAsync(
             ReservationChangeRecoveryRequest request,
             CancellationToken cancellationToken = default);
     }
@@ -35,4 +35,15 @@ namespace AeroTech.Ordering.Domain.Ports.ReservationChange
         string? ExternalReservationRef = null,
         string? ExternalServiceRef = null,
         string? Detail = null);
+
+    public sealed record ReservationChangeRecovery(
+        bool WasDispatched,
+        ProviderOperationOutcome Outcome,
+        string? ExternalReservationRef = null,
+        string? ExternalServiceRef = null,
+        string? Detail = null)
+    {
+        public ReservationChangeResult AsResult()
+            => new(Outcome, ExternalReservationRef, ExternalServiceRef, Detail);
+    }
 }

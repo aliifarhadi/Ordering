@@ -621,6 +621,155 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await AssertNothingHappenedAsync(harness, before, target);
         }
 
+        [Fact]
+        public async Task A_durable_revalidate_whose_reservation_was_never_dispatched_applies_once()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+            var key = NewKey();
+
+            harness.ReservationChanges.ThrowOnApply = true;
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => harness.VoluntaryChange.ChangeAsync(
+                    new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion)));
+
+            var plan = await harness.ChangePlans.FindAsync(
+                harness.ReservationChanges.ObservedApplies.Single().OperationId);
+
+            Assert.Equal(DocumentChangeEligibilityOutcome.Revalidate, plan!.EligibilityOutcome);
+            Assert.NotEqual(ProviderOperationOutcome.Confirmed, plan.ReservationOutcome);
+            Assert.Empty(harness.ReservationChanges.DispatchedKeys);
+
+            var attemptsBefore = harness.ReservationChanges.ObservedApplies.Count;
+            var eligibilityCalls = harness.DocumentChangeEligibilities.ObservedRequests.Count;
+            var acceptCalls = harness.ChangeQuotes.ObservedSelections.Count;
+
+            harness.ReservationChanges.ThrowOnApply = false;
+
+            var recovered = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            var replayApply = Assert.Single(
+                harness.ReservationChanges.ObservedApplies.Skip(attemptsBefore).ToList());
+
+            Assert.Equal(attemptsBefore + 1, harness.ReservationChanges.ObservedApplies.Count);
+            Assert.Single(harness.ReservationChanges.ObservedRecoveryKeys);
+            Assert.Equal(replayApply.OperationKey, harness.ReservationChanges.ObservedRecoveryKeys.Single());
+
+            Assert.Equal(plan.ReplacementOrderServiceId, replayApply.ReplacementOrderServiceId);
+            Assert.Equal(plan.ReplacementOrderSegmentId, replayApply.ReplacementOrderSegmentId);
+            Assert.Contains($"reservation-change:{target.ServiceId}", replayApply.OperationKey);
+
+            Assert.Equal(eligibilityCalls, harness.DocumentChangeEligibilities.ObservedRequests.Count);
+            Assert.Equal(acceptCalls, harness.ChangeQuotes.ObservedSelections.Count);
+            Assert.Equal(1, acceptCalls);
+
+            Assert.Equal(ChangeDocumentOutcome.Revalidated, recovered.DocumentOutcome);
+            Assert.Equal(plan.ReplacementOrderServiceId, recovered.ReplacementOrderServiceId);
+        }
+
+        [Fact]
+        public async Task A_dispatched_reservation_reported_unknown_never_applies_again()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+            var key = NewKey();
+
+            harness.ReservationChanges.ApplyOutcome = ProviderOperationOutcome.Unknown;
+            harness.ReservationChanges.RecoveryOutcome = ProviderOperationOutcome.Unknown;
+
+            await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            var replay = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            Assert.Single(harness.ReservationChanges.ObservedApplies);
+            Assert.Single(harness.ReservationChanges.ObservedRecoveryKeys);
+            Assert.Single(harness.ReservationChanges.DispatchedKeys);
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, replay.OperationStatus);
+            Assert.Empty(harness.DocumentRevalidations.ObservedRequests);
+            Assert.Equal(before.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
+        }
+
+        [Fact]
+        public async Task A_dispatched_reservation_reported_confirmed_never_applies_again()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+            var key = NewKey();
+
+            harness.ReservationChanges.ApplyOutcome = ProviderOperationOutcome.Unknown;
+
+            await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            harness.ReservationChanges.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+            var recovered = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            Assert.Single(harness.ReservationChanges.ObservedApplies);
+            Assert.Single(harness.ReservationChanges.ObservedRecoveryKeys);
+            Assert.Single(harness.DocumentRevalidations.ObservedRequests);
+            Assert.Equal(ChangeDocumentOutcome.Revalidated, recovered.DocumentOutcome);
+        }
+
+        [Fact]
+        public async Task A_dispatched_reservation_reported_rejected_stays_distinct_from_never_dispatched()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+            var key = NewKey();
+
+            harness.ReservationChanges.ApplyOutcome = ProviderOperationOutcome.Unknown;
+
+            await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            harness.ReservationChanges.RecoveryOutcome = ProviderOperationOutcome.Rejected;
+
+            var rejected = await harness.VoluntaryChange.ChangeAsync(
+                new VoluntaryChangeExecution(order.Id, target.ServiceId, QuoteId, key, before.CommercialVersion));
+
+            Assert.Single(harness.ReservationChanges.ObservedApplies);
+            Assert.Single(harness.ReservationChanges.DispatchedKeys);
+            Assert.Equal(ServicingOperationStatus.Rejected, rejected.OperationStatus);
+            Assert.Empty(harness.DocumentRevalidations.ObservedRequests);
+
+            var after = await ReloadAsync(order.Id);
+            var ticket = await TicketAsync(order.Id, target.TicketId);
+
+            Assert.Equal(before.CommercialVersion, after.CommercialVersion);
+            Assert.Empty(ticket.Revalidations);
+            Assert.Equal(target.ServiceId, ticket.Coupons.Single(c => c.Id == target.CouponId).CurrentOrderServiceId);
+        }
+
+        [Fact]
+        public async Task A_fresh_successful_change_applies_once_without_a_read_back()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var target = await ChangeTargetAsync(harness, order);
+            var before = await ReloadAsync(order.Id);
+
+            var outcome = await harness.VoluntaryChange.ChangeAsync(Execution(order.Id, target, before));
+
+            Assert.Single(harness.ReservationChanges.ObservedApplies);
+            Assert.Empty(harness.ReservationChanges.ObservedRecoveryKeys);
+            Assert.Single(harness.ReservationChanges.DispatchedKeys);
+            Assert.Equal(ChangeDocumentOutcome.Revalidated, outcome.DocumentOutcome);
+        }
+
         private const long ReplacementCapacityReference = 987_654L;
         private const string ReplacementBookingClass = "Q";
 

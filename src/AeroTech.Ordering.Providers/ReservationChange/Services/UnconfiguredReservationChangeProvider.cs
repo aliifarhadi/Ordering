@@ -10,7 +10,7 @@ namespace AeroTech.Ordering.Providers.ReservationChange.Services
             CancellationToken cancellationToken = default)
             => throw ExceptionFactory.ReservationChangeSourceNotConfigured();
 
-        public Task<ReservationChangeResult> RecoverAsync(
+        public Task<ReservationChangeRecovery> RecoverAsync(
             ReservationChangeRecoveryRequest request,
             CancellationToken cancellationToken = default)
             => throw ExceptionFactory.ReservationChangeSourceNotConfigured();

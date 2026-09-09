@@ -331,7 +331,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange
                 return await ApplyReservationChangeAsync(
                     order, operation, ticket, plan, isReplay, cancellationToken);
 
-            ReservationChangeResult recovered;
+            ReservationChangeRecovery recovered;
 
             try
             {
@@ -346,8 +346,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange
                 throw;
             }
 
+            if (!recovered.WasDispatched)
+                return await ApplyReservationChangeAsync(
+                    order, operation, ticket, plan, isReplay, cancellationToken);
+
             return await AfterReservationAsync(
-                order, operation, ticket, plan, recovered, isReplay, cancellationToken);
+                order, operation, ticket, plan, recovered.AsResult(), isReplay, cancellationToken);
         }
 
         private VoluntaryChangeOutcome TerminalEligibilityOutcome(
