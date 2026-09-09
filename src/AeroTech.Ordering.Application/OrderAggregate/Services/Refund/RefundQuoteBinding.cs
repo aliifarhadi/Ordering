@@ -1,4 +1,3 @@
-using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
@@ -15,7 +14,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             ElectronicTicket ticket,
             IReadOnlyCollection<long> ticketCouponIds)
         {
-            EnsurePricingAuthorityIsExternal(quote.PricingSource);
+            RefundPricingAuthorityPolicy.EnsureCalculatedAuthority(quote.PricingSource);
             EnsureAmountIsWellFormed(quote.ApprovedRefundAmount);
             RefundConservationPolicy.EnsureReconciles(quote.PricingLines, quote.ApprovedRefundAmount);
 
@@ -36,15 +35,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             Order order,
             ElectronicTicket ticket,
             IReadOnlyCollection<long> ticketCouponIds,
-            string quotedRefundId,
-            int expectedCommercialVersion,
-            DateTimeOffset now)
+            int expectedCommercialVersion)
         {
-            EnsurePricingAuthorityIsExternal(accepted.PricingSource);
             EnsureAmountIsWellFormed(accepted.ApprovedRefundAmount);
-
-            if (!string.Equals(accepted.QuotedRefundId, quotedRefundId, StringComparison.Ordinal))
-                throw ExceptionFactory.AcceptedRefundDoesNotMatchTheRequest("quoted refund identity");
 
             if (accepted.OrderId != order.Id)
                 throw ExceptionFactory.AcceptedRefundDoesNotMatchTheRequest("order");
@@ -61,16 +54,21 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             if (accepted.PricingLines.Count == 0)
                 throw ExceptionFactory.RefundRequiresPricingLines(accepted.QuotedRefundId);
 
-            if (accepted.ExpiresAt <= now)
-                throw ExceptionFactory.RefundQuoteExpired(accepted.QuotedRefundId, accepted.ExpiresAt);
-
             EnsureCouponScopeMatches(accepted.TicketCouponIds, ticketCouponIds);
         }
 
-        private static void EnsurePricingAuthorityIsExternal(PricingSource source)
+        public static void EnsureQuotedRefundStillStands(
+            AcceptedRefund accepted,
+            string quotedRefundId,
+            DateTimeOffset now)
         {
-            if (source == PricingSource.OrderingDerived)
-                throw ExceptionFactory.RefundPricingSourceNotAllowed(source);
+            RefundPricingAuthorityPolicy.EnsureCalculatedAuthority(accepted.PricingSource);
+
+            if (!string.Equals(accepted.QuotedRefundId, quotedRefundId, StringComparison.Ordinal))
+                throw ExceptionFactory.AcceptedRefundDoesNotMatchTheRequest("quoted refund identity");
+
+            if (accepted.ExpiresAt <= now)
+                throw ExceptionFactory.RefundQuoteExpired(accepted.QuotedRefundId, accepted.ExpiresAt);
         }
 
         private static void EnsureAmountIsWellFormed(decimal approvedRefundAmount)

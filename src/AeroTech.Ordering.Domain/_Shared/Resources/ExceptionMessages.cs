@@ -259,8 +259,6 @@
 
         public const string CouponControlForbidsRefund = "Coupon {0} is under {1} control; document control must be local before a refund.";
 
-        public const string RefundScopeMustCoverTheWholeDocument = "The accepted refund does not cover every coupon of document {0}.";
-
         public const string OrderRefundRequiresQuote = "A refund of an accountable document on order {0} requires an accepted refund quote.";
 
         public const string AcceptedRefundDoesNotMatchTheRequest = "The accepted refund does not match the requested {0}.";
@@ -290,5 +288,19 @@
         public const string RefundReversalOutsideDocumentScope = "Pricing line {0} is not carried by document {1} and may not be reversed by its refund.";
 
         public const string RefundAmountDoesNotReconcile = "An approved refund amount of {0} does not reconcile with the net customer-balance credit of {1} in the accepted refund.";
+
+        public const string RefundScopeIsEmpty = "A refund of document {0} names no coupon to refund.";
+
+        public const string RefundScopeCouponNotOnDocument = "Coupon {0} is not carried by document {1}.";
+
+        public const string CouponIsNotRefundable = "Coupon {0} is {1} and is not open for refund.";
+
+        public const string RefundPricingAuthorityMismatch = "Pricing source {0} is not the authority for a {1} refund.";
+
+        public const string ManualRefundRequiresAuthority = "A manual refund requires an explicit authority reference and reason.";
+
+        public const string ManualRefundSurfaceNotPermitted = "The calling surface may not authorize a manual refund of order {0}.";
+
+        public const string RefundRequiresCouponScope = "A refund of an accountable document on order {0} requires an explicit coupon scope.";
     }
 }

@@ -4,6 +4,7 @@ using AeroTech.Ordering.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AeroTech.Ordering.Persistence.Migrations
 {
     [DbContext(typeof(OrderingDbContext))]
-    partial class OrderingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909201511_P3D2PartialRefundProvenance")]
+    partial class P3D2PartialRefundProvenance
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

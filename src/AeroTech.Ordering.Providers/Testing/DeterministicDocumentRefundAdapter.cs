@@ -17,6 +17,8 @@ namespace AeroTech.Ordering.Providers.Testing
 
         public List<string> ObservedRecoveryKeys { get; } = new();
 
+        public List<DocumentRefundRequest> ObservedRefundRequests { get; } = new();
+
         public Task<DocumentRefundEligibility> CheckEligibilityAsync(
             DocumentRefundEligibilityRequest request,
             CancellationToken cancellationToken = default)
@@ -31,6 +33,7 @@ namespace AeroTech.Ordering.Providers.Testing
             CancellationToken cancellationToken = default)
         {
             ObservedRefundKeys.Add(request.OperationKey);
+            ObservedRefundRequests.Add(request);
 
             return Task.FromResult(new DocumentRefundResult(RefundOutcome, $"RFND-{request.DocumentNumber}"));
         }

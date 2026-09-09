@@ -5,14 +5,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
         Task<RefundQuoteOutcome> QuoteAsync(
             long orderId,
             long electronicTicketId,
+            IReadOnlyList<long>? ticketCouponIds = null,
             CancellationToken cancellationToken = default);
 
-        Task<RefundOutcome> RefundAsync(
-            long orderId,
-            long electronicTicketId,
-            string quotedRefundId,
-            string idempotencyKey,
-            int? expectedCommercialVersion,
-            CancellationToken cancellationToken = default);
+        Task<RefundOutcome> RefundAsync(RefundExecution execution, CancellationToken cancellationToken = default);
     }
 }

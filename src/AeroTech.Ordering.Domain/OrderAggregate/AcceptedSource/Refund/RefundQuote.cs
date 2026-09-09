@@ -15,5 +15,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund
         decimal ApprovedRefundAmount,
         string ApprovedDisposition,
         DateTimeOffset ExpiresAt,
-        string? SourcePricingReference = null);
+        string? SourcePricingReference = null,
+        string? SourceRefundType = null,
+        string? SourceEvidence = null);
 }

@@ -27,7 +27,10 @@ namespace AeroTech.Ordering.Providers.Testing
         {
             ObservedQuoteRequests.Add(request);
 
-            var quote = _quotes.LastOrDefault(candidate => candidate.ElectronicTicketId == request.ElectronicTicketId);
+            var quote = _quotes.LastOrDefault(candidate =>
+                candidate.ElectronicTicketId == request.ElectronicTicketId
+                && candidate.TicketCouponIds.OrderBy(id => id)
+                    .SequenceEqual(request.TicketCouponIds.OrderBy(id => id)));
 
             return quote is not null
                 ? Task.FromResult(quote)

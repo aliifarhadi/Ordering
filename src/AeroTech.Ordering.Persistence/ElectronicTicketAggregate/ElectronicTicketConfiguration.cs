@@ -89,6 +89,8 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
             builder.Property(record => record.Id).ValueGeneratedNever();
             builder.Property(record => record.QuotedRefundId).HasMaxLength(128).IsRequired();
             builder.Property(record => record.SourcePricingReference).HasMaxLength(128);
+            builder.Property(record => record.SourceRefundType).HasMaxLength(64);
+            builder.Property(record => record.SourceEvidence).HasMaxLength(4000);
             builder.Property(record => record.ApprovedDisposition).HasMaxLength(64).IsRequired();
             builder.Property(record => record.DispositionReference).HasMaxLength(128);
             builder.Property(record => record.ProviderReference).HasMaxLength(128);
@@ -98,6 +100,14 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
 
             builder.HasIndex(record => new { record.TicketId, record.OperationId }).IsUnique();
             builder.HasIndex(record => record.OperationId);
+
+            builder.OwnsOne(record => record.ManualAuthority, authority =>
+            {
+                authority.Property(value => value.Reference)
+                    .HasColumnName("ManualAuthorityReference").HasMaxLength(128);
+                authority.Property(value => value.Reason)
+                    .HasColumnName("ManualRefundReason").HasMaxLength(512);
+            });
 
             builder.HasMany(record => record.Coupons)
                 .WithOne()

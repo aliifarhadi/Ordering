@@ -5,11 +5,13 @@ using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
+using AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Dto;
+using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Ports.DocumentRefund;
 using AeroTech.Ordering.Domain.Ports.Refund;
 using AeroTech.Ordering.Domain._Shared.Contracts;
@@ -24,6 +26,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
     {
         public const string QuoteStep = "accept-quoted-refund";
         public const string DocumentStep = "document-refund";
+        public const string ManualSourceSystem = "Manual";
 
         private readonly IOrderRepository _orders;
         private readonly IElectronicTicketRepository _tickets;
@@ -72,15 +75,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
         public async Task<RefundQuoteOutcome> QuoteAsync(
             long orderId,
             long electronicTicketId,
+            IReadOnlyList<long>? ticketCouponIds = null,
             CancellationToken cancellationToken = default)
         {
             var order = await _orders.GetAsync(orderId, cancellationToken)
                         ?? throw ExceptionFactory.OrderNotFound(orderId);
 
             var ticket = await ResolveAsync(orderId, electronicTicketId, cancellationToken);
-            var couponIds = CouponIds(ticket);
+            var scope = ResolveScope(ticket, ticketCouponIds);
 
-            ticket.EnsureFullUnusedRefundIsSupported(couponIds);
+            ticket.EnsureRefundScopeIsEligible(scope);
 
             var quote = await _quotes.QuoteAsync(
                 new RefundQuoteRequest(
@@ -88,11 +92,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                     order.CommercialVersion,
                     ticket.Id,
                     ticket.DocumentNumber,
-                    couponIds,
+                    scope,
                     order.CurrencyId),
                 cancellationToken);
 
-            RefundQuoteBinding.EnsureQuoteBindsToTheOrder(quote, order, ticket, couponIds);
+            RefundQuoteBinding.EnsureQuoteBindsToTheOrder(quote, order, ticket, scope);
 
             return new RefundQuoteOutcome(
                 order.Id,
@@ -108,43 +112,52 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 quote.ExpiresAt,
                 quote.TicketCouponIds,
                 quote.PricingLines,
-                quote.SourcePricingReference);
+                quote.SourcePricingReference,
+                quote.SourceRefundType,
+                quote.SourceEvidence);
         }
 
         public async Task<RefundOutcome> RefundAsync(
-            long orderId,
-            long electronicTicketId,
-            string quotedRefundId,
-            string idempotencyKey,
-            int? expectedCommercialVersion,
+            RefundExecution execution,
             CancellationToken cancellationToken = default)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+            ArgumentNullException.ThrowIfNull(execution);
+            ArgumentException.ThrowIfNullOrWhiteSpace(execution.IdempotencyKey);
 
-            if (string.IsNullOrWhiteSpace(quotedRefundId))
-                throw ExceptionFactory.OrderRefundRequiresQuote(orderId);
+            if (!execution.IsManual && string.IsNullOrWhiteSpace(execution.QuotedRefundId))
+                throw ExceptionFactory.OrderRefundRequiresQuote(execution.OrderId);
 
-            if (expectedCommercialVersion is null)
-                throw ExceptionFactory.ExpectedCommercialVersionRequired(orderId);
+            if (execution.ExpectedCommercialVersion is null)
+                throw ExceptionFactory.ExpectedCommercialVersionRequired(execution.OrderId);
 
-            var order = await _orders.GetAsync(orderId, cancellationToken)
-                        ?? throw ExceptionFactory.OrderNotFound(orderId);
+            if (execution.TicketCouponIds.Count == 0)
+                throw ExceptionFactory.RefundRequiresCouponScope(execution.OrderId);
 
-            var ticket = await ResolveAsync(orderId, electronicTicketId, cancellationToken);
+            var order = await _orders.GetAsync(execution.OrderId, cancellationToken)
+                        ?? throw ExceptionFactory.OrderNotFound(execution.OrderId);
+
+            var ticket = await ResolveAsync(execution.OrderId, execution.ElectronicTicketId, cancellationToken);
+            var scope = execution.TicketCouponIds.Distinct().Order().ToList();
+
+            var authority = execution.Manual is { } manual
+                ? ManualRefundAuthorityGuard.Authorize(_callerContext, manual, execution.OrderId)
+                : null;
 
             var operation = await _operations.BeginAsync(
-                orderId,
+                execution.OrderId,
                 ServicingOperationKind.Refund,
-                idempotencyKey,
+                execution.IdempotencyKey,
                 new
                 {
                     Operation = "Refund",
-                    OrderId = orderId,
-                    ElectronicTicketId = electronicTicketId,
-                    QuotedRefundId = quotedRefundId,
-                    ExpectedCommercialVersion = expectedCommercialVersion
+                    OrderId = execution.OrderId,
+                    ElectronicTicketId = execution.ElectronicTicketId,
+                    TicketCouponIds = scope.ToArray(),
+                    QuotedRefundId = execution.QuotedRefundId,
+                    ManualAuthorityReference = authority?.Reference,
+                    ExpectedCommercialVersion = execution.ExpectedCommercialVersion
                 },
-                expectedCommercialVersion,
+                execution.ExpectedCommercialVersion,
                 cancellationToken);
 
             var committed = CommittedRefund(order, operation.OperationId);
@@ -155,18 +168,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             if (operation.IsReplay)
             {
                 var unfinished = await ReplayUnfinishedAsync(
-                    order,
-                    operation,
-                    ticket,
-                    quotedRefundId,
-                    expectedCommercialVersion.Value,
-                    cancellationToken);
+                    order, operation, ticket, execution, scope, authority, cancellationToken);
 
                 if (unfinished is not null)
                     return unfinished;
             }
-
-            var couponIds = CouponIds(ticket);
 
             ProviderOperationOutcome outcome;
             string? providerReference;
@@ -175,13 +181,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
 
             try
             {
-                if (expectedCommercialVersion != order.CommercialVersion)
+                if (execution.ExpectedCommercialVersion != order.CommercialVersion)
                     throw ExceptionFactory.OrderCommercialVersionMismatch(
-                        expectedCommercialVersion,
-                        orderId,
+                        execution.ExpectedCommercialVersion,
+                        execution.OrderId,
                         order.CommercialVersion);
 
-                ticket.EnsureFullUnusedRefundIsSupported(couponIds);
+                ticket.EnsureRefundScopeIsEligible(scope);
 
                 await _operationStore.TransitionAsync(
                     operation.OperationId,
@@ -192,10 +198,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 var eligibility = await _documents.CheckEligibilityAsync(
                     new DocumentRefundEligibilityRequest(
                         DocumentKey(operation, ticket),
-                        orderId,
+                        execution.OrderId,
                         operation.OperationId,
                         ticket.DocumentNumber,
-                        CouponNumbers(ticket)),
+                        CouponNumbers(ticket, scope)),
                     cancellationToken);
 
                 if (eligibility.Outcome == EligibilityOutcome.Denied)
@@ -204,24 +210,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 if (eligibility.Outcome == EligibilityOutcome.PendingEvidence)
                     return await SuspendAsync(order, operation, ticket, ProviderOperationOutcome.Pending, cancellationToken);
 
-                accepted = await AcceptQuotedRefundAsync(
-                    order,
-                    operation,
-                    ticket,
-                    couponIds,
-                    quotedRefundId,
-                    expectedCommercialVersion.Value,
-                    cancellationToken);
-
-                staged = PrepareRefund(order, operation, ticket, accepted);
+                accepted = await AcceptRefundAsync(order, operation, ticket, execution, scope, cancellationToken);
+                staged = PrepareRefund(order, operation, ticket, accepted, scope);
 
                 var result = await _documents.RefundAsync(
                     new DocumentRefundRequest(
                         DocumentKey(operation, ticket),
-                        orderId,
+                        execution.OrderId,
                         operation.OperationId,
                         ticket.DocumentNumber,
-                        CouponNumbers(ticket)),
+                        CouponNumbers(ticket, scope)),
                     cancellationToken);
 
                 outcome = result.Outcome;
@@ -229,70 +227,88 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             }
             catch
             {
-                await TryReleaseRejectedAsync(orderId, operation, cancellationToken);
+                await TryReleaseRejectedAsync(execution.OrderId, operation, cancellationToken);
                 throw;
             }
 
             return outcome switch
             {
                 ProviderOperationOutcome.Confirmed => await FinalizeAsync(
-                    order,
-                    operation,
-                    ticket,
-                    accepted,
-                    staged,
-                    couponIds,
-                    providerReference,
-                    RefundValueDispatch.FirstAttempt,
-                    cancellationToken),
+                    order, operation, ticket, accepted, staged, scope, authority,
+                    providerReference, RefundValueDispatch.FirstAttempt, cancellationToken),
                 ProviderOperationOutcome.Rejected => await RejectAsync(order, operation, ticket, cancellationToken),
                 _ => await SuspendAsync(order, operation, ticket, outcome, cancellationToken)
             };
         }
 
-        private async Task<AcceptedRefund> AcceptQuotedRefundAsync(
+        private async Task<AcceptedRefund> AcceptRefundAsync(
             Order order,
             OrderOperation operation,
             ElectronicTicket ticket,
-            IReadOnlyList<long> couponIds,
-            string quotedRefundId,
-            int expectedCommercialVersion,
+            RefundExecution execution,
+            IReadOnlyList<long> scope,
             CancellationToken cancellationToken)
         {
-            var accepted = await _quotes.AcceptQuotedRefundAsync(
-                new AcceptedQuotedRefundSelection(
-                    _operations.ProviderOperationKey(operation, QuoteStep),
-                    order.Id,
-                    operation.OperationId,
-                    quotedRefundId,
-                    expectedCommercialVersion,
-                    ticket.Id,
-                    ticket.DocumentNumber,
-                    couponIds,
-                    order.CurrencyId),
-                cancellationToken);
+            var accepted = execution.Manual is { } manual
+                ? ManualAccepted(order, ticket, scope, manual)
+                : await _quotes.AcceptQuotedRefundAsync(
+                    new AcceptedQuotedRefundSelection(
+                        _operations.ProviderOperationKey(operation, QuoteStep),
+                        order.Id,
+                        operation.OperationId,
+                        execution.QuotedRefundId!,
+                        execution.ExpectedCommercialVersion!.Value,
+                        ticket.Id,
+                        ticket.DocumentNumber,
+                        scope,
+                        order.CurrencyId),
+                    cancellationToken);
+
+            if (execution.Manual is null)
+                RefundQuoteBinding.EnsureQuotedRefundStillStands(
+                    accepted, execution.QuotedRefundId!, _clock.GetDateTime());
+            else
+                RefundPricingAuthorityPolicy.EnsureManualAuthority(accepted.PricingSource);
 
             RefundQuoteBinding.EnsureAcceptedBindsToTheRequest(
-                accepted,
-                order,
-                ticket,
-                couponIds,
-                quotedRefundId,
-                expectedCommercialVersion,
-                _clock.GetDateTime());
+                accepted, order, ticket, scope, execution.ExpectedCommercialVersion!.Value);
 
             return accepted;
         }
+
+        private AcceptedRefund ManualAccepted(
+            Order order,
+            ElectronicTicket ticket,
+            IReadOnlyList<long> scope,
+            ManualRefundInstruction manual)
+            => new(
+                ManualSourceSystem,
+                manual.AuthorityReference,
+                PricingSource.Manual,
+                order.Id,
+                order.CommercialVersion,
+                ticket.Id,
+                order.CurrencyId,
+                scope,
+                manual.PricingLines,
+                manual.ApprovedRefundAmount,
+                manual.ApprovedDisposition,
+                _clock.GetDateTime(),
+                manual.SourcePricingReference,
+                manual.DispositionReference,
+                manual.SourceRefundType,
+                manual.SourceEvidence);
 
         private StagedRefund PrepareRefund(
             Order order,
             OrderOperation operation,
             ElectronicTicket ticket,
-            AcceptedRefund accepted)
+            AcceptedRefund accepted,
+            IReadOnlyList<long> scope)
             => order.PrepareRefund(
                 new AcceptedRefundArgs(
                     accepted,
-                    ticket.CoveredServiceIds().ToList(),
+                    ticket.ServiceIdsClosedByRefundOf(scope).ToList(),
                     ticket.CarriedPricingLineIds(),
                     operation.OperationId,
                     _callerContext.ActorId,
@@ -306,19 +322,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             ElectronicTicket ticket,
             AcceptedRefund accepted,
             StagedRefund staged,
-            IReadOnlyCollection<long> couponIds,
+            IReadOnlyList<long> scope,
+            ManualRefundAuthority? authority,
             string? providerReference,
             RefundValueDispatch dispatch,
             CancellationToken cancellationToken)
         {
             var record = ticket.Refund(
                 operation.OperationId,
-                couponIds,
-                accepted.QuotedRefundId,
-                accepted.SourcePricingReference,
-                accepted.ApprovedRefundAmount,
-                accepted.ApprovedDisposition,
-                accepted.DispositionReference,
+                scope,
+                AcceptedRefundProvenance.Of(accepted, authority),
                 providerReference,
                 _callerContext.ActorId,
                 CallerScope.For(_callerContext),
@@ -330,12 +343,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             ticket.AttachRefundPriceChangeSet(operation.OperationId, refunded.PriceChangeSetId);
 
             var valueOutcome = await _valueMovement.SettleAsync(
-                order.Id,
-                operation,
-                ticket,
-                accepted,
-                dispatch,
-                cancellationToken);
+                order.Id, operation, ticket, accepted, dispatch, cancellationToken);
 
             await _operationStore.TransitionAsync(
                 operation.OperationId,
@@ -350,16 +358,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Outcome(
-                order,
-                operation,
-                ticket,
-                record,
-                refunded,
-                ProviderOperationOutcome.Confirmed,
-                valueOutcome,
-                ServicingOperationStatus.Completed,
-                refundNotAvailable: false,
-                isReplay: false);
+                order, operation, ticket, record, refunded,
+                ProviderOperationOutcome.Confirmed, valueOutcome,
+                ServicingOperationStatus.Completed, refundNotAvailable: false, isReplay: false);
         }
 
         private async Task<RefundOutcome> RejectAsync(
@@ -368,16 +369,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             ElectronicTicket ticket,
             CancellationToken cancellationToken)
             => await SettleUnfinishedAsync(
-                order,
-                operation,
-                ticket,
+                order, operation, ticket,
                 ServicingOperationStatus.Rejected,
                 CommandReceiptStatus.Rejected,
                 ProviderOperationOutcome.Rejected,
-                releaseClaim: true,
-                refundNotAvailable: false,
-                isReplay: false,
-                cancellationToken);
+                releaseClaim: true, refundNotAvailable: false, isReplay: false, cancellationToken);
 
         private async Task<RefundOutcome> RefuseAsync(
             Order order,
@@ -385,16 +381,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             ElectronicTicket ticket,
             CancellationToken cancellationToken)
             => await SettleUnfinishedAsync(
-                order,
-                operation,
-                ticket,
+                order, operation, ticket,
                 ServicingOperationStatus.Rejected,
                 CommandReceiptStatus.Rejected,
                 ProviderOperationOutcome.Rejected,
-                releaseClaim: true,
-                refundNotAvailable: true,
-                isReplay: false,
-                cancellationToken);
+                releaseClaim: true, refundNotAvailable: true, isReplay: false, cancellationToken);
 
         private async Task<RefundOutcome> SuspendAsync(
             Order order,
@@ -403,18 +394,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             ProviderOperationOutcome outcome,
             CancellationToken cancellationToken)
             => await SettleUnfinishedAsync(
-                order,
-                operation,
-                ticket,
+                order, operation, ticket,
                 ServicingOperationStatus.AwaitingExternal,
                 outcome == ProviderOperationOutcome.Unknown
                     ? CommandReceiptStatus.Unknown
                     : CommandReceiptStatus.Pending,
                 outcome,
-                releaseClaim: false,
-                refundNotAvailable: false,
-                isReplay: false,
-                cancellationToken);
+                releaseClaim: false, refundNotAvailable: false, isReplay: false, cancellationToken);
 
         private async Task<RefundOutcome> ReconcileAsync(
             Order order,
@@ -423,16 +409,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             ProviderOperationOutcome outcome,
             CancellationToken cancellationToken)
             => await SettleUnfinishedAsync(
-                order,
-                operation,
-                ticket,
+                order, operation, ticket,
                 ServicingOperationStatus.NeedsReconciliation,
                 CommandReceiptStatus.NeedsReconciliation,
                 outcome,
-                releaseClaim: false,
-                refundNotAvailable: false,
-                isReplay: true,
-                cancellationToken);
+                releaseClaim: false, refundNotAvailable: false, isReplay: true, cancellationToken);
 
         private async Task<RefundOutcome> SettleUnfinishedAsync(
             Order order,
@@ -460,24 +441,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Outcome(
-                order,
-                operation,
-                ticket,
-                null,
-                null,
-                documentOutcome,
-                ProviderOperationOutcome.Pending,
-                operationStatus,
-                refundNotAvailable,
-                isReplay);
+                order, operation, ticket, null, null,
+                documentOutcome, ProviderOperationOutcome.Pending,
+                operationStatus, refundNotAvailable, isReplay);
         }
 
         private async Task<RefundOutcome?> ReplayUnfinishedAsync(
             Order order,
             OrderOperation operation,
             ElectronicTicket ticket,
-            string quotedRefundId,
-            int expectedCommercialVersion,
+            RefundExecution execution,
+            IReadOnlyList<long> scope,
+            ManualRefundAuthority? authority,
             CancellationToken cancellationToken)
         {
             var prior = await _operationStore.FindAsync(operation.OperationId, cancellationToken);
@@ -487,16 +462,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
 
             if (prior.Status == ServicingOperationStatus.Rejected)
                 return Outcome(
-                    order,
-                    operation,
-                    ticket,
-                    null,
-                    null,
-                    ProviderOperationOutcome.Rejected,
-                    ProviderOperationOutcome.Pending,
-                    prior.Status,
-                    refundNotAvailable: false,
-                    isReplay: true);
+                    order, operation, ticket, null, null,
+                    ProviderOperationOutcome.Rejected, ProviderOperationOutcome.Pending,
+                    prior.Status, refundNotAvailable: false, isReplay: true);
 
             if (prior.Status is not (ServicingOperationStatus.Executing
                 or ServicingOperationStatus.AwaitingExternal
@@ -517,23 +485,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             if (recovery.Outcome != ProviderOperationOutcome.Confirmed)
                 return await ReconcileAsync(order, operation, ticket, recovery.Outcome, cancellationToken);
 
-            var couponIds = CouponIds(ticket);
-
             AcceptedRefund accepted;
             StagedRefund staged;
 
             try
             {
-                accepted = await AcceptQuotedRefundAsync(
-                    order,
-                    operation,
-                    ticket,
-                    couponIds,
-                    quotedRefundId,
-                    expectedCommercialVersion,
-                    cancellationToken);
-
-                staged = PrepareRefund(order, operation, ticket, accepted);
+                accepted = await AcceptRefundAsync(order, operation, ticket, execution, scope, cancellationToken);
+                staged = PrepareRefund(order, operation, ticket, accepted, scope);
             }
             catch
             {
@@ -541,15 +499,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             }
 
             return await FinalizeAsync(
-                order,
-                operation,
-                ticket,
-                accepted,
-                staged,
-                couponIds,
-                recovery.ProviderReference,
-                RefundValueDispatch.AfterRecovery,
-                cancellationToken);
+                order, operation, ticket, accepted, staged, scope, authority,
+                recovery.ProviderReference, RefundValueDispatch.AfterRecovery, cancellationToken);
         }
 
         private async Task<RefundOutcome> ReplayFinalizedAsync(
@@ -572,16 +523,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 changeSet?.FinancialSequence ?? order.FinancialSequence);
 
             return Outcome(
-                order,
-                operation,
-                ticket,
-                record,
-                refunded,
+                order, operation, ticket, record, refunded,
                 ProviderOperationOutcome.Confirmed,
                 record?.ValueMovementStatus ?? ProviderOperationOutcome.Pending,
-                ServicingOperationStatus.Completed,
-                refundNotAvailable: false,
-                isReplay: true);
+                ServicingOperationStatus.Completed, refundNotAvailable: false, isReplay: true);
         }
 
         private static Entities.OrderChange? CommittedRefund(Order order, long operationId)
@@ -599,11 +544,17 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                    ?? throw ExceptionFactory.AccountableDocumentNotFound(electronicTicketId, orderId);
         }
 
-        private static IReadOnlyList<long> CouponIds(ElectronicTicket ticket)
-            => ticket.Coupons.Select(coupon => coupon.Id).Order().ToList();
+        private static IReadOnlyList<long> ResolveScope(ElectronicTicket ticket, IReadOnlyList<long>? requested)
+            => requested is { Count: > 0 }
+                ? requested.Distinct().Order().ToList()
+                : ticket.RefundableCouponIds().ToList();
 
-        private static IReadOnlyList<int> CouponNumbers(ElectronicTicket ticket)
-            => ticket.Coupons.Select(coupon => coupon.CouponNumber).Order().ToList();
+        private static IReadOnlyList<int> CouponNumbers(ElectronicTicket ticket, IReadOnlyCollection<long> scope)
+            => ticket.Coupons
+                .Where(coupon => scope.Contains(coupon.Id))
+                .Select(coupon => coupon.CouponNumber)
+                .Order()
+                .ToList();
 
         private string DocumentKey(OrderOperation operation, ElectronicTicket ticket)
             => _operations.ProviderOperationKey(operation, $"{DocumentStep}:{ticket.Id}");
@@ -637,10 +588,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 ticket.Id,
                 ticket.DocumentNumber,
                 ticket.DocumentVersion,
+                ticket.StatusSummary,
                 record?.Id,
                 refunded?.OrderChangeId,
                 refunded?.PriceChangeSetId,
+                record?.Coupons.Select(coupon => coupon.TicketCouponId).ToList() ?? [],
                 refunded?.RefundedServiceIds ?? [],
+                record?.PricingSource ?? PricingSource.PricingEngine,
                 record?.ApprovedAmount ?? 0m,
                 order.CommercialVersion,
                 order.FinancialSequence,

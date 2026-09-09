@@ -3,6 +3,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Withdrawal;
 using AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrderDetails;
@@ -153,8 +154,9 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
         public async Task<IActionResult> RefundQuote(
             [FromRoute] long orderId,
             [FromRoute] long documentId,
+            [FromQuery] long[]? ticketCouponIds,
             CancellationToken cancellationToken)
-            => Ok(await _refundService.QuoteAsync(orderId, documentId, cancellationToken));
+            => Ok(await _refundService.QuoteAsync(orderId, documentId, ticketCouponIds, cancellationToken));
 
         [HttpPost("{orderId:long}/Documents/{documentId:long}/Refund")]
         public async Task<IActionResult> Refund(
@@ -163,11 +165,11 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             [FromBody] RefundDocumentRequest request,
             CancellationToken cancellationToken)
             => Ok(await _refundService.RefundAsync(
-                orderId,
-                documentId,
-                request.QuotedRefundId,
-                IdempotencyKey.Require(Request),
-                request.ExpectedCommercialVersion,
+                RefundDocumentRequestMapper.ToExecution(
+                    orderId,
+                    documentId,
+                    request,
+                    IdempotencyKey.Require(Request)),
                 cancellationToken));
 
         [HttpPost("{orderId:long}/Withdraw")]
@@ -190,7 +192,22 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
 
     public sealed record WithdrawOrderRequest(VoidReason Reason, int? ExpectedCommercialVersion);
 
-    public sealed record RefundDocumentRequest(string QuotedRefundId, int? ExpectedCommercialVersion);
+    public sealed record RefundDocumentRequest(
+        IReadOnlyList<long> TicketCouponIds,
+        int? ExpectedCommercialVersion,
+        string? QuotedRefundId = null,
+        ManualRefundRequest? Manual = null);
+
+    public sealed record ManualRefundRequest(
+        string AuthorityReference,
+        string Reason,
+        decimal ApprovedRefundAmount,
+        string ApprovedDisposition,
+        IReadOnlyList<AcceptedRefundPricingLine> PricingLines,
+        string? DispositionReference = null,
+        string? SourcePricingReference = null,
+        string? SourceRefundType = null,
+        string? SourceEvidence = null);
 
 
 }

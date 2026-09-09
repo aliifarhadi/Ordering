@@ -667,9 +667,6 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException CouponControlForbidsRefund(params object?[] args) =>
             new(2919, ExceptionMessages.CouponControlForbidsRefund, args) { HttpStatus = 409 };
 
-        public static BusinessException RefundScopeMustCoverTheWholeDocument(params object?[] args) =>
-            new(2920, ExceptionMessages.RefundScopeMustCoverTheWholeDocument, args) { HttpStatus = 422 };
-
         public static BusinessException OrderRefundRequiresQuote(params object?[] args) =>
             new(2921, ExceptionMessages.OrderRefundRequiresQuote, args) { HttpStatus = 422 };
 
@@ -714,6 +711,27 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
 
         public static BusinessException RefundAmountDoesNotReconcile(params object?[] args) =>
             new(2935, ExceptionMessages.RefundAmountDoesNotReconcile, args) { HttpStatus = 422 };
+
+        public static BusinessException RefundScopeIsEmpty(params object?[] args) =>
+            new(2936, ExceptionMessages.RefundScopeIsEmpty, args) { HttpStatus = 422 };
+
+        public static BusinessException RefundScopeCouponNotOnDocument(params object?[] args) =>
+            new(2937, ExceptionMessages.RefundScopeCouponNotOnDocument, args) { HttpStatus = 422 };
+
+        public static BusinessException CouponIsNotRefundable(params object?[] args) =>
+            new(2938, ExceptionMessages.CouponIsNotRefundable, args) { HttpStatus = 409 };
+
+        public static BusinessException RefundPricingAuthorityMismatch(params object?[] args) =>
+            new(2939, ExceptionMessages.RefundPricingAuthorityMismatch, args) { HttpStatus = 422 };
+
+        public static BusinessException ManualRefundRequiresAuthority(params object?[] args) =>
+            new(2940, ExceptionMessages.ManualRefundRequiresAuthority, args) { HttpStatus = 422 };
+
+        public static BusinessException ManualRefundSurfaceNotPermitted(params object?[] args) =>
+            new(2941, ExceptionMessages.ManualRefundSurfaceNotPermitted, args) { HttpStatus = 403 };
+
+        public static BusinessException RefundRequiresCouponScope(params object?[] args) =>
+            new(2942, ExceptionMessages.RefundRequiresCouponScope, args) { HttpStatus = 422 };
 
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;

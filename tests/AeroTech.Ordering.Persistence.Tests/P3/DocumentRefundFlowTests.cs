@@ -1,5 +1,6 @@
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
@@ -35,8 +36,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion));
 
             Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
             Assert.Equal(ProviderOperationOutcome.Confirmed, outcome.DocumentRefundOutcome);
@@ -62,8 +62,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion));
 
             var refunded = await FirstTicketAsync(order.Id);
             var record = Assert.Single(refunded.Refunds);
@@ -95,8 +94,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), before.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), before.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
 
@@ -123,7 +121,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, NewKey(), before.CommercialVersion);
+            await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), before.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
 
@@ -143,7 +141,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, NewKey(), before.CommercialVersion);
+            await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), before.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
 
@@ -162,8 +160,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
 
@@ -189,8 +186,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
             var required = after.RequiredElectronicTicketServiceIds();
@@ -223,8 +219,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                     QuoteOf(current, ticket) with { QuotedRefundId = quoteId },
                     AcceptedOf(current, ticket) with { QuotedRefundId = quoteId });
 
-                await harness.Refund.RefundAsync(
-                    order.Id, ticket.Id, quoteId, NewKey(), current.CommercialVersion);
+                await harness.Refund.RefundAsync(Execution(order.Id, ticket, quoteId, NewKey(), current.CommercialVersion));
             }
 
             var after = await ReloadAsync(order.Id);
@@ -245,10 +240,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            var first = await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, key, order.CommercialVersion);
+            var first = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
             var settled = await ReloadAsync(order.Id);
 
-            var replay = await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, key, order.CommercialVersion);
+            var replay = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
             var after = await ReloadAsync(order.Id);
             var refunded = await FirstTicketAsync(order.Id);
 
@@ -272,10 +267,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, key, order.CommercialVersion);
+            await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
 
             await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Refund.RefundAsync(order.Id, ticket.Id, "RFND-QUOTE-2", key, order.CommercialVersion));
+                () => harness.Refund.RefundAsync(Execution(order.Id, ticket, "RFND-QUOTE-2", key, order.CommercialVersion)));
 
             Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
         }
@@ -292,8 +287,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Quote(harness, order, ticket);
             harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Rejected;
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), before.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), before.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
             var untouched = await FirstTicketAsync(order.Id);
@@ -319,8 +313,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Quote(harness, order, ticket);
             harness.DocumentRefunds.Eligibility = EligibilityOutcome.Denied;
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion));
 
             Assert.True(outcome.RefundNotAvailable);
             Assert.Equal(ServicingOperationStatus.Rejected, outcome.OperationStatus);
@@ -342,8 +335,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Quote(harness, order, ticket);
             harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Unknown;
 
-            var first = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+            var first = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
 
             Assert.Equal(ServicingOperationStatus.AwaitingExternal, first.OperationStatus);
             Assert.Empty((await FirstTicketAsync(order.Id)).Refunds);
@@ -351,8 +343,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             harness.DocumentRefunds.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
 
-            var recovered = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+            var recovered = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
             var refunded = await FirstTicketAsync(order.Id);
@@ -362,8 +353,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single(refunded.Refunds);
             Assert.Equal(before.CommercialVersion + 1, after.CommercialVersion);
 
-            var settled = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+            var settled = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
 
             Assert.True(settled.IsReplay);
             Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
@@ -371,7 +361,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Fact]
-        public async Task A_partially_used_ticket_is_refused_as_unsupported_not_as_non_refundable()
+        public async Task A_settled_coupon_is_refused_as_not_refundable()
         {
             await using var harness = NewHarness();
             var order = await TicketedOrderAsync(harness);
@@ -385,12 +375,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(refunding, reloaded, ticket);
 
-            var unsupported = await Assert.ThrowsAsync<BusinessException>(
-                () => refunding.Refund.RefundAsync(
-                    order.Id, ticket.Id, QuoteId, NewKey(), reloaded.CommercialVersion));
+            var refusal = await Assert.ThrowsAsync<BusinessException>(
+                () => refunding.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), reloaded.CommercialVersion)));
 
-            Assert.Equal(2918, unsupported.Code);
-            Assert.Equal(422, unsupported.HttpStatus);
+            Assert.Equal(2938, refusal.Code);
+            Assert.Equal(409, refusal.HttpStatus);
             Assert.Empty(refunding.DocumentRefunds.ObservedRefundKeys);
         }
 
@@ -403,7 +392,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion);
+            await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion));
 
             await using var again = NewHarness();
 
@@ -412,8 +401,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Quote(again, reloaded, ticket);
 
             var terminal = await Assert.ThrowsAsync<BusinessException>(
-                () => again.Refund.RefundAsync(
-                    order.Id, ticket.Id, QuoteId, NewKey(), reloaded.CommercialVersion));
+                () => again.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), reloaded.CommercialVersion)));
 
             Assert.Equal(2917, terminal.Code);
             Assert.Equal(409, terminal.HttpStatus);
@@ -435,8 +423,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Quote(refunding, reloaded, ticket);
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => refunding.Refund.RefundAsync(
-                    order.Id, ticket.Id, QuoteId, NewKey(), reloaded.CommercialVersion));
+                () => refunding.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), reloaded.CommercialVersion)));
 
             Assert.Equal(2919, refusal.Code);
             Assert.Empty(refunding.DocumentRefunds.ObservedEligibilityKeys);
@@ -454,8 +441,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 AcceptedOf(order, ticket) with { ExpectedCommercialVersion = order.CommercialVersion + 99 });
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Refund.RefundAsync(
-                    order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion));
+                () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
             Assert.Equal(2922, refusal.Code);
             Assert.Equal(ElectronicTicketStatus.Issued, (await FirstTicketAsync(order.Id)).StatusSummary);
@@ -474,8 +460,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 AcceptedOf(order, ticket) with { PricingSource = PricingSource.OrderingDerived });
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Refund.RefundAsync(
-                    order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion));
+                () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
             Assert.Equal(2926, refusal.Code);
             Assert.Equal(ElectronicTicketStatus.Issued, (await FirstTicketAsync(order.Id)).StatusSummary);
@@ -493,8 +478,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Quote(harness, order, ticket);
             harness.RefundValues.ThrowOnRequest = true;
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), before.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), before.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
             var refunded = await FirstTicketAsync(order.Id);
@@ -520,8 +504,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion));
 
             var record = Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
             var request = Assert.Single(harness.RefundValues.ObservedRequests);
@@ -545,7 +528,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            var quote = await harness.Refund.QuoteAsync(order.Id, ticket.Id);
+            var quote = await harness.Refund.QuoteAsync(order.Id, ticket.Id, ticket.RefundableCouponIds().ToList());
 
             var after = await ReloadAsync(order.Id);
 
@@ -580,8 +563,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 AcceptedOf(order, ticket) with { PricingLines = incoherent });
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Refund.RefundAsync(
-                    order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion));
+                () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
             Assert.Equal(2770, refusal.Code);
 
@@ -619,8 +601,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 AcceptedOf(order, ticket) with { PricingLines = borrowed });
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Refund.RefundAsync(
-                    order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion));
+                () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
             Assert.Equal(2934, refusal.Code);
 
@@ -639,8 +620,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 AcceptedOf(order, ticket) with { ApprovedRefundAmount = RefundedFare });
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Refund.RefundAsync(
-                    order.Id, ticket.Id, QuoteId, NewKey(), order.CommercialVersion));
+                () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
             Assert.Equal(2935, refusal.Code);
 
@@ -658,8 +638,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Quote(harness, order, ticket);
 
-            var outcome = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, NewKey(), before.CommercialVersion);
+            var outcome = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), before.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
             var lines = after.PricingLines.Where(line => line.PriceChangeSetId == outcome.PriceChangeSetId).ToList();
@@ -691,14 +670,13 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Quote(harness, order, ticket);
             harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Unknown;
 
-            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+            await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
 
             harness.DocumentRefunds.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
             harness.RefundValues.RecoveredAsDispatched = true;
             harness.RefundValues.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
 
-            var recovered = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+            var recovered = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
 
             var refunded = await FirstTicketAsync(order.Id);
             var record = Assert.Single(refunded.Refunds);
@@ -728,14 +706,13 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Quote(harness, order, ticket);
             harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Unknown;
 
-            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+            await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
 
             harness.DocumentRefunds.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
             harness.RefundValues.RecoveredAsDispatched = true;
             harness.RefundValues.RecoveryOutcome = ProviderOperationOutcome.Unknown;
 
-            var recovered = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+            var recovered = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
 
             var after = await ReloadAsync(order.Id);
             var refunded = await FirstTicketAsync(order.Id);
@@ -766,13 +743,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Quote(harness, order, ticket);
             harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Unknown;
 
-            await harness.Refund.RefundAsync(order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+            await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
 
             harness.DocumentRefunds.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
             harness.RefundValues.RecoveredAsDispatched = false;
 
-            var recovered = await harness.Refund.RefundAsync(
-                order.Id, ticket.Id, QuoteId, key, before.CommercialVersion);
+            var recovered = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
 
             var record = Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
 
@@ -806,6 +782,35 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(order.CustomerTotal, after.CustomerTotal);
             Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Refund);
         }
+
+        private static RefundExecution Execution(
+            long orderId,
+            ElectronicTicket ticket,
+            string quotedRefundId,
+            string idempotencyKey,
+            int? expectedCommercialVersion)
+            => Execution(
+                orderId,
+                ticket,
+                ticket.RefundableCouponIds().ToList(),
+                quotedRefundId,
+                idempotencyKey,
+                expectedCommercialVersion);
+
+        private static RefundExecution Execution(
+            long orderId,
+            ElectronicTicket ticket,
+            IReadOnlyList<long> ticketCouponIds,
+            string quotedRefundId,
+            string idempotencyKey,
+            int? expectedCommercialVersion)
+            => new(
+                orderId,
+                ticket.Id,
+                ticketCouponIds,
+                idempotencyKey,
+                expectedCommercialVersion,
+                quotedRefundId);
 
         private static void Quote(OrderSliceHarness harness, Order order, ElectronicTicket ticket)
             => harness.RefundQuotes.Quote(QuoteOf(order, ticket), AcceptedOf(order, ticket));

@@ -17,5 +17,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
         DateTimeOffset ExpiresAt,
         IReadOnlyList<long> TicketCouponIds,
         IReadOnlyList<AcceptedRefundPricingLine> PricingLines,
-        string? SourcePricingReference);
+        string? SourcePricingReference,
+        string? SourceRefundType,
+        string? SourceEvidence);
 }

@@ -1,5 +1,6 @@
 using AeroTech.Framework.Core.Domain.Entities;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects;
 
 namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
 {
@@ -16,7 +17,11 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
             long ticketId,
             long operationId,
             string quotedRefundId,
+            PricingSource pricingSource,
             string? sourcePricingReference,
+            string? sourceRefundType,
+            string? sourceEvidence,
+            ManualRefundAuthority? manualAuthority,
             decimal approvedAmount,
             int currencyId,
             string approvedDisposition,
@@ -30,7 +35,11 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
             TicketId = ticketId;
             OperationId = operationId;
             QuotedRefundId = quotedRefundId;
+            PricingSource = pricingSource;
             SourcePricingReference = sourcePricingReference;
+            SourceRefundType = sourceRefundType;
+            SourceEvidence = sourceEvidence;
+            ManualAuthority = manualAuthority;
             ApprovedAmount = approvedAmount;
             CurrencyId = currencyId;
             ApprovedDisposition = approvedDisposition;
@@ -48,7 +57,17 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
 
         public string QuotedRefundId { get; private set; } = default!;
 
+        public PricingSource PricingSource { get; private set; }
+
         public string? SourcePricingReference { get; private set; }
+
+        public string? SourceRefundType { get; private set; }
+
+        public string? SourceEvidence { get; private set; }
+
+        public ManualRefundAuthority? ManualAuthority { get; private set; }
+
+        public bool IsManual => PricingSource == PricingSource.Manual;
 
         public decimal ApprovedAmount { get; private set; }
 

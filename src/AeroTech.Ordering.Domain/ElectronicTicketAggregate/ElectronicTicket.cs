@@ -3,6 +3,7 @@ using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
@@ -212,64 +213,106 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
 
         public bool IsFullyUnused => _coupons.All(coupon => coupon.FinancialStatus == TicketCouponFinancialStatus.Open);
 
-        public void EnsureFullUnusedRefundIsSupported(IReadOnlyCollection<long> couponIds)
+        public IReadOnlyCollection<long> RefundableCouponIds()
+            => _coupons
+                .Where(coupon => coupon.FinancialStatus == TicketCouponFinancialStatus.Open)
+                .Select(coupon => coupon.Id)
+                .Order()
+                .ToList();
+
+        public void EnsureRefundScopeIsEligible(IReadOnlyCollection<long> couponIds)
         {
             if (StatusSummary is ElectronicTicketStatus.Refunded
                 or ElectronicTicketStatus.Voided
                 or ElectronicTicketStatus.Exchanged)
                 throw ExceptionFactory.DocumentNotRefundable(DocumentNumber, StatusSummary);
 
-            if (StatusSummary != ElectronicTicketStatus.Issued)
+            if (StatusSummary is not (ElectronicTicketStatus.Issued or ElectronicTicketStatus.PartiallyUsed))
                 throw ExceptionFactory.PartialRefundNotSupported(DocumentNumber, StatusSummary);
 
-            foreach (var coupon in _coupons)
+            if (couponIds.Count == 0)
+                throw ExceptionFactory.RefundScopeIsEmpty(DocumentNumber);
+
+            foreach (var couponId in couponIds)
             {
+                var coupon = _coupons.FirstOrDefault(candidate => candidate.Id == couponId)
+                             ?? throw ExceptionFactory.RefundScopeCouponNotOnDocument(couponId, DocumentNumber);
+
                 if (coupon.FinancialStatus != TicketCouponFinancialStatus.Open)
-                    throw ExceptionFactory.PartialRefundNotSupported(DocumentNumber, coupon.FinancialStatus);
+                    throw ExceptionFactory.CouponIsNotRefundable(coupon.CouponNumber, coupon.FinancialStatus);
 
                 if (coupon.ControlStatus != TicketCouponControlStatus.Local)
                     throw ExceptionFactory.CouponControlForbidsRefund(coupon.CouponNumber, coupon.ControlStatus);
             }
+        }
 
-            if (!_coupons.Select(coupon => coupon.Id).ToHashSet().SetEquals(couponIds))
-                throw ExceptionFactory.RefundScopeMustCoverTheWholeDocument(DocumentNumber);
+        public IReadOnlyCollection<long> ServiceIdsClosedByRefundOf(IReadOnlyCollection<long> couponIds)
+        {
+            var surviving = _coupons
+                .Where(coupon => !couponIds.Contains(coupon.Id))
+                .Where(coupon => coupon.FinancialStatus
+                    is TicketCouponFinancialStatus.Open
+                    or TicketCouponFinancialStatus.Used)
+                .Select(coupon => coupon.CurrentOrderServiceId)
+                .ToHashSet();
+
+            return _coupons
+                .Where(coupon => couponIds.Contains(coupon.Id))
+                .Select(coupon => coupon.CurrentOrderServiceId)
+                .Distinct()
+                .Where(serviceId => !surviving.Contains(serviceId))
+                .ToList();
+        }
+
+        private ElectronicTicketStatus DeriveStatusSummary()
+        {
+            if (_coupons.Any(coupon => coupon.FinancialStatus == TicketCouponFinancialStatus.Open))
+                return _coupons.Any(coupon => coupon.FinancialStatus != TicketCouponFinancialStatus.Open)
+                    ? ElectronicTicketStatus.PartiallyUsed
+                    : ElectronicTicketStatus.Issued;
+
+            return _coupons.All(coupon => coupon.FinancialStatus == TicketCouponFinancialStatus.Used)
+                ? ElectronicTicketStatus.Used
+                : ElectronicTicketStatus.Refunded;
         }
 
         public DocumentRefundRecord Refund(
             long operationId,
             IReadOnlyCollection<long> couponIds,
-            string quotedRefundId,
-            string? sourcePricingReference,
-            decimal approvedAmount,
-            string approvedDisposition,
-            string? dispositionReference,
+            AcceptedRefundProvenance provenance,
             string? providerReference,
             long? refundedBy,
             string? actorScope,
             IIdGenerator idGenerator,
             IClock clock)
         {
-            EnsureFullUnusedRefundIsSupported(couponIds);
+            ArgumentNullException.ThrowIfNull(provenance);
 
-            if (approvedAmount < 0m)
-                throw ExceptionFactory.RefundAmountMustBeNonNegative(approvedAmount);
+            EnsureRefundScopeIsEligible(couponIds);
+
+            if (provenance.ApprovedAmount < 0m)
+                throw ExceptionFactory.RefundAmountMustBeNonNegative(provenance.ApprovedAmount);
 
             var record = new DocumentRefundRecord(
                 idGenerator.NewId(),
                 Id,
                 operationId,
-                quotedRefundId,
-                sourcePricingReference,
-                approvedAmount,
+                provenance.QuotedRefundId,
+                provenance.PricingSource,
+                provenance.SourcePricingReference,
+                provenance.SourceRefundType,
+                provenance.SourceEvidence,
+                provenance.ManualAuthority,
+                provenance.ApprovedAmount,
                 CurrencyId,
-                approvedDisposition,
-                dispositionReference,
+                provenance.ApprovedDisposition,
+                provenance.DispositionReference,
                 providerReference,
                 refundedBy,
                 actorScope,
                 clock.GetDateTime());
 
-            foreach (var coupon in _coupons)
+            foreach (var coupon in _coupons.Where(candidate => couponIds.Contains(candidate.Id)))
             {
                 coupon.Refund();
                 record.AddCoupon(idGenerator.NewId(), coupon.Id, coupon.CouponNumber, coupon.CurrentOrderServiceId);
@@ -277,7 +320,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
 
             _refunds.Add(record);
 
-            StatusSummary = ElectronicTicketStatus.Refunded;
+            StatusSummary = DeriveStatusSummary();
             DocumentVersion++;
 
             return record;
