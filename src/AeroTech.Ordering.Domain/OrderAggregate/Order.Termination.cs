@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
@@ -58,7 +58,11 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 reversedLines));
         }
 
-        private OrderPriceChangeSet? CancelAllServices(DateTimeOffset cancelledAt, IIdGenerator idGenerator)
+        private OrderPriceChangeSet? CancelAllServices(
+            DateTimeOffset cancelledAt,
+            long cancelledBy,
+            long? operationId,
+            IIdGenerator idGenerator)
         {
             var serviceIds = _orderServices.Select(service => service.Id).ToList();
 
@@ -67,7 +71,14 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
             RollUpCancelledItems(serviceIds);
 
-            return ReverseOutstandingValue(OrderChangeType.Cancel, PriceChangeReason.Cancellation, cancelledAt, idGenerator);
+            return ReverseOutstandingValue(
+                OrderChangeType.Cancel,
+                PriceChangeReason.Cancellation,
+                PricingSource.OrderingDerived,
+                cancelledBy,
+                operationId,
+                cancelledAt,
+                idGenerator);
         }
 
         private void RollUpCancelledItems(IReadOnlyCollection<long> serviceIds)
@@ -92,6 +103,9 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
         private OrderPriceChangeSet? ReverseOutstandingValue(
             OrderChangeType changeType,
             PriceChangeReason reason,
+            PricingSource source,
+            long? actorId,
+            long? operationId,
             DateTimeOffset occurredAt,
             IIdGenerator idGenerator)
         {
@@ -107,7 +121,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 reversals.Add(ReversalOf(line, outstandingSale, OutstandingOriginalOf(line), null));
             }
 
-            return CommitReversals(reversals, changeType, reason, occurredAt, idGenerator);
+            return CommitReversals(reversals, changeType, reason, source, actorId, operationId, occurredAt, idGenerator);
         }
 
         private OrderPriceChangeSet? ReverseServiceValue(
@@ -163,7 +177,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 reversals.Add(ReversalOf(line, saleAmount, originalAmount, originalAllocationId));
             }
 
-            return CommitReversals(reversals, changeType, reason, occurredAt, idGenerator);
+            return CommitReversals(reversals, changeType, reason, PricingSource.PricingEngine, null, null, occurredAt, idGenerator);
         }
 
         private static decimal DefensibleOriginalAmount(OrderPricingLine line, decimal saleAmount)
@@ -209,12 +223,21 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             IReadOnlyList<AcceptedPricingLineArgs> reversals,
             OrderChangeType changeType,
             PriceChangeReason reason,
+            PricingSource source,
+            long? actorId,
+            long? operationId,
             DateTimeOffset occurredAt,
             IIdGenerator idGenerator)
             => reversals.Count == 0
                 ? null
                 : CommitPriceChange(
-                    new AcceptedPriceChangeArgs(changeType, reason, PricingSource.PricingEngine, reversals),
+                    new AcceptedPriceChangeArgs(
+                        changeType,
+                        reason,
+                        source,
+                        reversals,
+                        ActorId: actorId,
+                        OperationId: operationId),
                     idGenerator,
                     occurredAt);
     }

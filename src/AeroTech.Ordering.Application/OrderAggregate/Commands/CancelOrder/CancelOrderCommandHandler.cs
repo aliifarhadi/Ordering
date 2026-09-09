@@ -19,10 +19,21 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CancelOrder
         {
             var outcome = await _cancelService.CancelAsync(
                 command.OrderId,
+                command.Reason,
                 _identityService.RequiredCurrentUserId,
+                command.IdempotencyKey,
+                command.ExpectedCommercialVersion,
                 cancellationToken);
 
-            return new CancelOrderResult(outcome.OrderId, outcome.Status, outcome.ReleaseTaskIds);
+            return new CancelOrderResult(
+                outcome.OrderId,
+                outcome.OperationId,
+                outcome.Status,
+                outcome.CommercialSummary,
+                outcome.CommercialVersion,
+                outcome.CancelledServiceIds,
+                outcome.ReservationReleaseOutcome,
+                outcome.IsReplay);
         }
     }
 }

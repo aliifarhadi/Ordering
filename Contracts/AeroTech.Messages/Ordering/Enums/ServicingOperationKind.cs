@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace AeroTech.Messages.Ordering.Enums
 {
@@ -29,6 +29,21 @@ namespace AeroTech.Messages.Ordering.Enums
         Expire = 8,
 
         [Display(Name = "ADD SERVICE")]
-        AddService = 9
+        AddService = 9,
+
+        [Display(Name = "REFUND")]
+        Refund = 10,
+
+        [Display(Name = "EXCHANGE")]
+        Exchange = 11,
+
+        [Display(Name = "REVALIDATE")]
+        Revalidate = 12,
+
+        [Display(Name = "CANCEL REFUND")]
+        CancelRefund = 13,
+
+        [Display(Name = "REMOVE SERVICE")]
+        RemoveService = 14
     }
 }

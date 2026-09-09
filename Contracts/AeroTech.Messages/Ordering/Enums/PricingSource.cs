@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace AeroTech.Messages.Ordering.Enums
 {
@@ -8,5 +8,6 @@ namespace AeroTech.Messages.Ordering.Enums
         [Display(Name = "Pricing Engine")] PricingEngine = 2,
         [Display(Name = "Supplier")] Supplier = 3,
         [Display(Name = "Manual")] Manual = 4,
+        [Display(Name = "Ordering Derived")] OrderingDerived = 5,
     }
 }

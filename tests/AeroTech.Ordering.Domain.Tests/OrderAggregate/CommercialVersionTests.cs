@@ -1,3 +1,4 @@
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
 using AeroTech.Ordering.Domain.Tests._Shared;
@@ -65,15 +66,18 @@ namespace AeroTech.Ordering.Domain.Tests.OrderAggregate
         }
 
         [Fact]
-        public void A_full_reserve_pay_issue_cancel_life_reaches_commercial_version_two()
+        public void A_ticketed_order_is_refused_by_the_pre_ticket_cancel_path()
         {
             var order = Paid();
             order.RequestIssue();
             order.CompleteIssue(Array.Empty<IssuedServiceLink>(), _ids, _clock);
 
-            order.Cancel(VoidReason.CustomerRequest, 7, _clock.GetDateTime(), _ids);
+            Assert.Throws<BusinessException>(
+                () => order.Cancel(VoidReason.CustomerRequest, 7, _clock.GetDateTime(), _ids));
 
-            Assert.Equal(2, order.CommercialVersion);
+            Assert.Equal(OrderStatus.Ticketed, order.Status);
+            Assert.Equal(1, order.CommercialVersion);
+            Assert.Empty(order.PriceChangeSets.Where(set => set.Reason == PriceChangeReason.Cancellation));
         }
 
         private OrderPaymentSummary PaidSummary(Domain.OrderAggregate.Order order)

@@ -1,193 +1,228 @@
-using AeroTech.Ordering.Domain._Shared.Resources;
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
-using AeroTech.Ordering.Application.FulfillmentTaskAggregate;
-using AeroTech.Ordering.Application.FulfillmentTaskAggregate.Execution;
-using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
-using AeroTech.Ordering.Domain.FulfillmentTaskAggregate.Contracts;
+using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Application.OrderAggregate.Operations;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
+using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
+using AeroTech.Ordering.Domain.FulfillmentReservationAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
-using AeroTech.Ordering.Domain.TrafficDocumentAggregate;
-using AeroTech.Ordering.Domain.TrafficDocumentAggregate.Contracts;
-using AeroTech.Messages.Ordering.Enums;
-using Microsoft.Extensions.Options;
+using AeroTech.Ordering.Domain.OrderAggregate.Policies;
+using AeroTech.Ordering.Domain.Ports.Reservation;
+using AeroTech.Ordering.Domain._Shared.Resources;
+using Entities = AeroTech.Ordering.Domain.OrderAggregate.Entities;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
 {
     public sealed class OrderCancelService : IOrderCancelService
     {
-        private const VoidReason CancelReason = VoidReason.CustomerRequest;
+        public const string ReleaseStep = "release";
 
-        private readonly IOrderRepository _orderRepository;
-        private readonly ITrafficDocumentRepository _trafficDocumentRepository;
-        private readonly IFulfillmentTaskRepository _taskRepository;
-        private readonly IFulfillmentPlanner _planner;
-        private readonly IFulfillmentExecutor _executor;
+        private readonly IOrderRepository _orders;
+        private readonly IElectronicTicketRepository _tickets;
+        private readonly IElectronicMiscDocumentRepository _miscDocuments;
+        private readonly IFulfillmentReservationRepository _reservations;
+        private readonly IReservationPort _reservationPort;
+        private readonly IOrderOperationCoordinator _operations;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IIdGenerator _idGenerator;
         private readonly IClock _clock;
-        private readonly IUnitOfWork _unitOfWork;
-        private readonly IOrderQueryDbSynchronizer _synchronizer;
-        private readonly IDistributedLock _distributedLock;
-        private readonly FulfillmentOptions _fulfillmentOptions;
+        private readonly IOrderProjector _projector;
 
         public OrderCancelService(
-            IOrderRepository orderRepository,
-            ITrafficDocumentRepository trafficDocumentRepository,
-            IFulfillmentTaskRepository taskRepository,
-            IFulfillmentPlanner planner,
-            IFulfillmentExecutor executor,
+            IOrderRepository orders,
+            IElectronicTicketRepository tickets,
+            IElectronicMiscDocumentRepository miscDocuments,
+            IFulfillmentReservationRepository reservations,
+            IReservationPort reservationPort,
+            IOrderOperationCoordinator operations,
+            IUnitOfWork unitOfWork,
             IIdGenerator idGenerator,
             IClock clock,
-            IUnitOfWork unitOfWork,
-            IOrderQueryDbSynchronizer synchronizer,
-            IDistributedLock distributedLock,
-            IOptions<FulfillmentOptions> fulfillmentOptions)
+            IOrderProjector projector)
         {
-            _orderRepository = orderRepository;
-            _trafficDocumentRepository = trafficDocumentRepository;
-            _taskRepository = taskRepository;
-            _planner = planner;
-            _executor = executor;
+            _orders = orders;
+            _tickets = tickets;
+            _miscDocuments = miscDocuments;
+            _reservations = reservations;
+            _reservationPort = reservationPort;
+            _operations = operations;
+            _unitOfWork = unitOfWork;
             _idGenerator = idGenerator;
             _clock = clock;
-            _unitOfWork = unitOfWork;
-            _synchronizer = synchronizer;
-            _distributedLock = distributedLock;
-            _fulfillmentOptions = fulfillmentOptions.Value;
+            _projector = projector;
         }
 
-        public async Task<CancelOrderOutcome> CancelAsync(long orderId, long cancelledBy, CancellationToken cancellationToken = default)
+        public async Task<CancelOrderOutcome> CancelAsync(
+            long orderId,
+            VoidReason reason,
+            long cancelledBy,
+            string idempotencyKey,
+            int? expectedCommercialVersion,
+            CancellationToken cancellationToken = default)
         {
-            await using var lockHandle = await _distributedLock.AcquireAsync(
-                $"order-cancel:{orderId}",
-                TimeSpan.FromSeconds(_fulfillmentOptions.LockExpirySeconds),
+            ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
+
+            var order = await _orders.GetAsync(orderId, cancellationToken)
+                        ?? throw ExceptionFactory.OrderNotFound(orderId);
+
+            var operation = await _operations.BeginAsync(
+                orderId,
+                ServicingOperationKind.Cancel,
+                idempotencyKey,
+                new
+                {
+                    Operation = "Cancel",
+                    Scope = "WholeOrder",
+                    OrderId = orderId,
+                    Reason = reason.ToString()
+                },
+                expectedCommercialVersion,
                 cancellationToken);
 
-            var order = await _orderRepository.GetAsync(orderId, cancellationToken)
-                ?? throw ExceptionFactory.OrderNotFound(orderId);
+            var committed = CommittedCancel(order, operation.OperationId);
 
-            if (lockHandle is null)
-                return Outcome(order, Array.Empty<long>());
+            if (committed is not null)
+                return await ReplayAsync(order, operation, cancellationToken);
 
-            var idempotencyKey = $"cancel:{orderId}";
+            IReadOnlyList<long> scope;
+            var releaseOutcome = ProviderOperationOutcome.Confirmed;
 
-            var documents = await _trafficDocumentRepository.GetByOrderAsync(orderId, cancellationToken);
-
-            return documents.Count > 0
-                ? await CancelTicketedAsync(order, documents, cancelledBy, idempotencyKey, cancellationToken)
-                : await CancelUnticketedAsync(order, cancelledBy, idempotencyKey, cancellationToken);
-        }
-
-        private async Task<CancelOrderOutcome> CancelUnticketedAsync(Order order, long cancelledBy, string idempotencyKey, CancellationToken cancellationToken)
-        {
-            order.EnsureCanBeCancelled();
-
-            var now = _clock.GetDateTime();
-            var holdIds = ResolveHoldIds(order);
-
-            if (holdIds.Count == 0)
+            try
             {
-                order.Cancel(CancelReason, cancelledBy, now, _idGenerator);
-                await ProjectAsync(order, cancellationToken);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-                return Outcome(order, Array.Empty<long>());
+                if (expectedCommercialVersion is { } expected && expected != order.CommercialVersion)
+                    throw ExceptionFactory.OrderCommercialVersionMismatch(expected, orderId, order.CommercialVersion);
+
+                order.EnsureCanBeCancelled();
+
+                var decision = WithdrawEligibilityPolicy.Evaluate(
+                    order,
+                    await DocumentedServiceIdsAsync(orderId, cancellationToken));
+
+                if (!decision.IsAllowed)
+                    throw ExceptionFactory.OrderOperationNotEligible(
+                        ServicingOperationKind.Cancel,
+                        orderId,
+                        decision.Reasons);
+
+                scope = decision.EffectiveScopeServiceIds;
+                releaseOutcome = await ReleaseReservationsAsync(orderId, operation, cancellationToken);
+
+                order.Cancel(reason, cancelledBy, _clock.GetDateTime(), _idGenerator, operation.OperationId);
+                order.ApplyReservationReleased(scope, _clock);
+            }
+            catch
+            {
+                await TryReleaseRejectedAsync(orderId, operation, cancellationToken);
+                throw;
             }
 
-            var (taskIds, allReleased) = await ReleaseAllHoldsAsync(order, holdIds, idempotencyKey, cancellationToken);
+            if (releaseOutcome != ProviderOperationOutcome.Unknown)
+                await _operations.ResolveAsync(orderId, operation, cancellationToken);
 
-            if (allReleased)
-                order.Cancel(CancelReason, cancelledBy, now, _idGenerator);
-            else
-                order.MarkCancelUnconfirmed();
-
-            await ProjectAsync(order, cancellationToken);
+            await _projector.ProjectAsync(orderId, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return Outcome(order, taskIds);
+
+            return Outcome(order, operation, scope, releaseOutcome, isReplay: false);
         }
 
-        private async Task<CancelOrderOutcome> CancelTicketedAsync(Order order, IReadOnlyList<TrafficDocument> documents, long cancelledBy, string idempotencyKey, CancellationToken cancellationToken)
+        private async Task<IReadOnlyList<long>> DocumentedServiceIdsAsync(long orderId, CancellationToken cancellationToken)
         {
-            order.EnsureCanBeCancelled();
+            var tickets = await _tickets.ListByOrderAsync(orderId, cancellationToken);
+            var miscDocuments = await _miscDocuments.ListByOrderAsync(orderId, cancellationToken);
 
-            var now = _clock.GetDateTime();
-            var pending = documents.Where(IsPendingCancel).ToList();
-
-            foreach (var document in pending)
-                document.EnsureCanBeCancelled(now);
-
-            var taskIds = new List<long>();
-            var allConfirmed = true;
-
-            foreach (var document in pending)
-            {
-                var task = _planner.PlanVoid(order, document, CancelReason, $"{idempotencyKey}:cancel:{document.Id}");
-                await _taskRepository.AddAsync(task, cancellationToken);
-                taskIds.Add(task.Id);
-
-                var result = await _executor.ExecuteAttemptAsync(task, order, now, cancellationToken);
-
-                if (!result.Success && result.FailureKind == FulfillmentFailureKind.Permanent)
-                    throw ExceptionFactory.TicketCancellationRejectedByProvider(result.Error);
-
-                if (!result.Success)
-                {
-                    document.MarkCancelUnconfirmed(CancelReason, cancelledBy);
-                    allConfirmed = false;
-                }
-                else
-                {
-                    document.Cancel(CancelReason, cancelledBy, now);
-                }
-            }
-
-            if (allConfirmed)
-                order.Cancel(CancelReason, cancelledBy, now, _idGenerator);
-            else
-                order.MarkCancelUnconfirmed();
-
-            await ProjectAsync(order, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return Outcome(order, taskIds);
-        }
-
-        private async Task<(IReadOnlyList<long> TaskIds, bool AllReleased)> ReleaseAllHoldsAsync(Order order, IReadOnlyList<string> holdIds, string idempotencyKey, CancellationToken cancellationToken)
-        {
-            var taskIds = new List<long>();
-            var allReleased = true;
-
-            foreach (var holdId in holdIds)
-            {
-                var task = _planner.PlanCancel(order, holdId, $"{idempotencyKey}:release:{holdId}");
-                await _taskRepository.AddAsync(task, cancellationToken);
-                taskIds.Add(task.Id);
-
-                var result = await _executor.ExecuteAttemptAsync(task, order, _clock.GetDateTime(), cancellationToken);
-
-                if (!result.Success && result.FailureKind == FulfillmentFailureKind.Permanent)
-                    throw ExceptionFactory.HoldCouldNotBeReleased(result.Error);
-
-                if (!result.Success)
-                    allReleased = false;
-            }
-
-            return (taskIds, allReleased);
-        }
-
-        private static IReadOnlyList<string> ResolveHoldIds(Order order)
-            => order.OrderServices
-                .Select(service => service.HoldBatchId)
-                .Where(holdBatchId => !string.IsNullOrWhiteSpace(holdBatchId))
-                .Select(holdBatchId => holdBatchId!)
-                .Distinct()
+            var documented = tickets
+                .SelectMany(ticket => ticket.Coupons)
+                .Where(coupon => coupon.FinancialStatus != TicketCouponFinancialStatus.Void)
+                .Select(coupon => coupon.CurrentOrderServiceId)
                 .ToList();
 
-        private Task ProjectAsync(Order order, CancellationToken cancellationToken)
-            => _synchronizer.ProjectCancelledAsync(order.ToReadModelSnapshot(_clock.GetDateTime()), cancellationToken);
+            documented.AddRange(miscDocuments
+                .SelectMany(document => document.Coupons)
+                .Where(coupon => coupon.OrderServiceId is not null)
+                .Select(coupon => coupon.OrderServiceId!.Value));
 
-        private static bool IsPendingCancel(TrafficDocument document)
-            => document.Status is TrafficDocumentStatus.Issued or TrafficDocumentStatus.CancelUnconfirmed;
+            return documented.Distinct().ToList();
+        }
 
-        private static CancelOrderOutcome Outcome(Order order, IReadOnlyList<long> taskIds)
-            => new(order.Id, order.Status, taskIds);
+        private async Task<ProviderOperationOutcome> ReleaseReservationsAsync(
+            long orderId,
+            OrderOperation operation,
+            CancellationToken cancellationToken)
+        {
+            var reservations = await _reservations.ListByOrderAsync(orderId, cancellationToken);
+            var outcome = ProviderOperationOutcome.Confirmed;
+
+            foreach (var reservation in reservations.Where(candidate =>
+                         candidate.Status is not (FulfillmentReservationStatus.Released or FulfillmentReservationStatus.Rejected)))
+            {
+                reservation.MarkCancellationPending(_clock);
+
+                var result = await _reservationPort.ReleaseAsync(
+                    new ReleaseReservationRequest(
+                        _operations.ProviderOperationKey(operation, ReleaseStep),
+                        orderId,
+                        operation.OperationId,
+                        reservation.ExternalReservationRef,
+                        reservation.Services.Select(service => service.OrderServiceId).ToList()),
+                    cancellationToken);
+
+                if (result.Outcome == ProviderOperationOutcome.Confirmed)
+                    reservation.MarkReleased(_clock);
+                else
+                    outcome = result.Outcome;
+            }
+
+            return outcome;
+        }
+
+        private static Entities.OrderChange? CommittedCancel(Order order, long operationId)
+            => order.Changes.FirstOrDefault(change =>
+                change.OperationId == operationId && change.ChangeType == OrderChangeType.Cancel);
+
+        private async Task<CancelOrderOutcome> ReplayAsync(
+            Order order,
+            OrderOperation operation,
+            CancellationToken cancellationToken)
+        {
+            await _operations.ResolveAsync(order.Id, operation, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var scope = order.OrderServices
+                .Where(service => service.Status == OrderServiceStatus.Cancelled)
+                .Select(service => service.Id)
+                .ToList();
+
+            return Outcome(order, operation, scope, ProviderOperationOutcome.Confirmed, isReplay: true);
+        }
+
+        private async Task TryReleaseRejectedAsync(long orderId, OrderOperation operation, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _operations.ResolveAsync(orderId, operation, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static CancelOrderOutcome Outcome(
+            Order order,
+            OrderOperation operation,
+            IReadOnlyList<long> scope,
+            ProviderOperationOutcome releaseOutcome,
+            bool isReplay)
+            => new(
+                order.Id,
+                operation.OperationId,
+                order.Status,
+                order.CommercialSummary,
+                order.CommercialVersion,
+                order.FinancialSequence,
+                scope,
+                releaseOutcome,
+                isReplay);
     }
 }

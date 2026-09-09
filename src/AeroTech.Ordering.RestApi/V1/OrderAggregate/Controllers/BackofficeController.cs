@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.AddOrderRemark;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CancelOrder;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer.Backoffice;
@@ -6,11 +6,13 @@ using AeroTech.Ordering.Application.OrderAggregate.Commands.SplitOrder;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.UpdateLastTicketingDate;
 using AeroTech.Ordering.Application.TrafficDocumentAggregate.Commands.VoidTrafficDocument;
 using AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrdersPaginated;
+using AeroTech.Ordering.RestApi._Shared;
 using AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests;
 using Asp.Versioning;
 using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
 {
@@ -61,9 +63,18 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
         }
 
         [HttpPost("{id:long}/Cancel")]
-        public async Task<IActionResult> Cancel(long id, CancellationToken cancellationToken)
+        public async Task<IActionResult> Cancel(
+            long id,
+            [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] CancelOrderRequest? request,
+            CancellationToken cancellationToken)
         {
-            var result = await _mediator.Send(new CancelOrderCommand(id), cancellationToken);
+            var result = await _mediator.Send(
+                new CancelOrderCommand(
+                    id,
+                    IdempotencyKey.Require(Request),
+                    ExpectedCommercialVersion: request?.ExpectedCommercialVersion),
+                cancellationToken);
+
             return Ok(result);
         }
 

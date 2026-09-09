@@ -7,6 +7,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CancelOrder
         public CancelOrderCommandValidator()
         {
             RuleFor(command => command.OrderId).GreaterThan(0);
+            RuleFor(command => command.IdempotencyKey).NotEmpty();
         }
     }
 }

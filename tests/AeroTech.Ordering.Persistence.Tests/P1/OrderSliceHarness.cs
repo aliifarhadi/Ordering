@@ -1,7 +1,8 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Application.OrderAggregate.Access;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain._Shared.Contracts;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
@@ -115,6 +116,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Withdraw = new WithdrawOrderService(Orders, reservations, tickets, Reservation, Funding, coordinator, new StubIdentity(), unitOfWork, Ids, frameworkClock, projector);
             OrderChange = new OrderChangeService(Orders, Quotes, coordinator, caller, unitOfWork, Ids, frameworkClock, projector);
             AccessGuard = new OrderCustomerAccessGuard(Orders, caller);
+            Cancel = new OrderCancelService(Orders, tickets, miscDocuments, reservations, Reservation, coordinator, unitOfWork, Ids, frameworkClock, projector);
         }
 
         public SequentialIdGenerator Ids { get; }
@@ -156,6 +158,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public IOrderChangeService OrderChange { get; }
 
         public IOrderCustomerAccessGuard AccessGuard { get; }
+
+        public IOrderCancelService Cancel { get; }
 
         public ICreateOrderService Create { get; }
 

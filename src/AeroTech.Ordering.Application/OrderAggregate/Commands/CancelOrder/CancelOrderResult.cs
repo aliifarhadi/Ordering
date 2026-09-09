@@ -4,6 +4,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CancelOrder
 {
     public sealed record CancelOrderResult(
         long OrderId,
+        long OperationId,
         OrderStatus Status,
-        IReadOnlyList<long> ReleaseTaskIds);
+        CommercialSummary CommercialSummary,
+        int CommercialVersion,
+        IReadOnlyList<long> CancelledServiceIds,
+        ProviderOperationOutcome ReservationReleaseOutcome,
+        bool IsReplay);
 }

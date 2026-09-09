@@ -1,4 +1,4 @@
-using AeroTech.Ordering.Domain._Shared.Resources;
+﻿using AeroTech.Ordering.Domain._Shared.Resources;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Messages.Ordering.Enums;
@@ -9,18 +9,22 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
     {
         public void EnsureCanBeCancelled()
         {
-            if (Status is not (OrderStatus.Confirmed or OrderStatus.ReservationUnconfirmed or OrderStatus.CancelUnconfirmed or OrderStatus.Ticketed))
+            if (Status is not (OrderStatus.Confirmed or OrderStatus.ReservationUnconfirmed or OrderStatus.CancelUnconfirmed))
                 throw ExceptionFactory.OrderCannotBeCancelled(Id, Status);
         }
 
-        public void Cancel(VoidReason reason, long cancelledBy, DateTimeOffset at, IIdGenerator idGenerator)
+        public void Cancel(
+            VoidReason reason,
+            long cancelledBy,
+            DateTimeOffset at,
+            IIdGenerator idGenerator,
+            long? operationId = null)
         {
             EnsureCanBeCancelled();
 
-            var wasTicketed = Status == OrderStatus.Ticketed
-                || _orderServices.Any(service => service.TrafficDocumentId is not null);
+            var wasTicketed = _orderServices.Any(service => service.TrafficDocumentId is not null);
 
-            var changeSet = CancelAllServices(at, idGenerator);
+            var changeSet = CancelAllServices(at, cancelledBy, operationId, idGenerator);
 
             var reversalLines = changeSet is null ? [] : BuildPricingLines(changeSet.Id);
 
@@ -49,6 +53,13 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 NetOf(reversalLines),
                 CurrencyId,
                 reversalLines));
+
+            if (changeSet is not null)
+                RaisePricingChanged(
+                    _changes.Single(change => change.Id == changeSet.ChangeId),
+                    changeSet,
+                    idGenerator,
+                    at);
         }
 
         public void MarkCancelUnconfirmed()
