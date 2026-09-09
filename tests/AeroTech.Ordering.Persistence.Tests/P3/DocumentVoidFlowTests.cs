@@ -17,6 +17,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
     [Collection(OrderingDatabaseCollection.Name)]
     public sealed class DocumentVoidFlowTests
     {
+        private const VoidReason Reason = VoidReason.AgentError;
+        private const string Detail = "duplicate issuance";
+        private const long Actor = 7;
+
         private readonly OrderingDatabaseFixture _fixture;
 
         public DocumentVoidFlowTests(OrderingDatabaseFixture fixture) => _fixture = fixture;
@@ -28,7 +32,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var order = await TicketedOrderAsync(harness);
             var ticket = (await TicketsAsync(order.Id)).First();
 
-            var outcome = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, NewKey());
+            var outcome = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey());
 
             Assert.Equal(AccountableDocumentKind.ElectronicTicket, outcome.DocumentKind);
             Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
@@ -55,7 +59,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await using var voiding = NewHarness();
 
             var error = await Assert.ThrowsAsync<BusinessException>(
-                () => voiding.VoidDocument.VoidAsync(order.Id, ticket.Id, NewKey()));
+                () => voiding.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey()));
 
             Assert.Equal(2911, error.Code);
             Assert.Empty(voiding.DocumentVoids.ObservedEligibilityKeys);
@@ -78,7 +82,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await using var voiding = NewHarness();
 
             var error = await Assert.ThrowsAsync<BusinessException>(
-                () => voiding.VoidDocument.VoidAsync(order.Id, ticket.Id, NewKey()));
+                () => voiding.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey()));
 
             Assert.Equal(2910, error.Code);
             Assert.Empty(voiding.DocumentVoids.ObservedVoidKeys);
@@ -94,7 +98,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             harness.DocumentVoids.Eligibility = EligibilityOutcome.Denied;
             harness.DocumentVoids.RefundRequiredInstead = true;
 
-            var outcome = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, NewKey());
+            var outcome = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey());
 
             Assert.True(outcome.RefundRequiredInstead);
             Assert.Equal(ServicingOperationStatus.Rejected, outcome.OperationStatus);
@@ -122,7 +126,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await using var voiding = NewHarness();
 
             var error = await Assert.ThrowsAsync<BusinessException>(
-                () => voiding.VoidDocument.VoidAsync(order.Id, ticket.Id, NewKey()));
+                () => voiding.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey()));
 
             Assert.Equal(2912, error.Code);
             Assert.Empty(voiding.DocumentVoids.ObservedVoidKeys);
@@ -138,7 +142,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             harness.DocumentVoids.VoidOutcome = ProviderOperationOutcome.Unknown;
 
-            var first = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, key);
+            var first = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
 
             Assert.Equal(ServicingOperationStatus.AwaitingExternal, first.OperationStatus);
             Assert.Equal(
@@ -149,7 +153,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             harness.DocumentVoids.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
 
-            var recovered = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, key);
+            var recovered = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
 
             Assert.Equal(first.OperationId, recovered.OperationId);
             Assert.Equal(ServicingOperationStatus.Completed, recovered.OperationStatus);
@@ -171,11 +175,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var ticket = (await TicketsAsync(order.Id)).First();
             var key = NewKey();
 
-            var first = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, key);
+            var first = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
             var voidCalls = harness.DocumentVoids.ObservedVoidKeys.Count;
             var versionAfterFirst = (await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id).DocumentVersion;
 
-            var replay = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, key);
+            var replay = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
 
             Assert.True(replay.IsReplay);
             Assert.Equal(first.OperationId, replay.OperationId);
@@ -192,7 +196,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var order = await TicketedOrderWithEmdAsync(harness);
             var ticket = (await TicketsAsync(order.Id)).First();
 
-            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, NewKey());
+            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey());
 
             var document = (await DocumentsAsync(order.Id)).Single();
 
@@ -207,7 +211,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var order = await TicketedOrderWithEmdAsync(harness);
             var document = (await DocumentsAsync(order.Id)).Single();
 
-            var outcome = await harness.VoidDocument.VoidAsync(order.Id, document.Id, NewKey());
+            var outcome = await harness.VoidDocument.VoidAsync(order.Id, document.Id, Reason, Detail, Actor, NewKey());
 
             Assert.Equal(AccountableDocumentKind.ElectronicMiscDocument, outcome.DocumentKind);
             Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
@@ -227,7 +231,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var document = (await DocumentsAsync(order.Id)).Single();
             var before = (await TicketsAsync(order.Id)).Select(t => (t.Id, t.StatusSummary, t.DocumentVersion)).ToList();
 
-            await harness.VoidDocument.VoidAsync(order.Id, document.Id, NewKey());
+            await harness.VoidDocument.VoidAsync(order.Id, document.Id, Reason, Detail, Actor, NewKey());
 
             var after = (await TicketsAsync(order.Id)).Select(t => (t.Id, t.StatusSummary, t.DocumentVersion)).ToList();
 
@@ -261,7 +265,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             harness.Events.Dispatched.Clear();
 
-            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, NewKey());
+            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey());
 
             var after = await ReloadAsync(order.Id);
 
@@ -293,7 +297,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var order = await TicketedOrderAsync(harness);
             var ticket = (await TicketsAsync(order.Id)).First();
 
-            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, NewKey());
+            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey());
 
             await using var query = _fixture.NewQueryContext();
 
@@ -308,6 +312,164 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(ElectronicTicketStatus.Voided, projected.Status);
             Assert.All(projected.Coupons, coupon => Assert.Equal(TicketCouponFinancialStatus.Void, coupon.FinancialStatus));
             Assert.NotEqual(OrderStatus.Cancelled, view.Status);
+        }
+
+        [Fact]
+        public async Task A_confirmed_ticket_void_stores_its_provenance()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = (await TicketsAsync(order.Id)).First();
+
+            var issuanceOperationId = ticket.OperationId;
+            var issuanceProviderReference = ticket.ProviderReference;
+
+            var outcome = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey());
+
+            var voided = (await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id);
+            var record = voided.VoidRecord;
+
+            Assert.NotNull(record);
+            Assert.Equal(outcome.OperationId, record!.OperationId);
+            Assert.Equal(Reason, record.Reason);
+            Assert.Equal(Detail, record.ReasonDetail);
+            Assert.Equal(Actor, record.VoidedBy);
+            Assert.NotEqual(default, record.VoidedAt);
+            Assert.Equal($"VOID-{voided.DocumentNumber}", record.ProviderReference);
+
+            Assert.Equal(issuanceOperationId, voided.OperationId);
+            Assert.Equal(issuanceProviderReference, voided.ProviderReference);
+            Assert.NotEqual(issuanceOperationId, record.OperationId);
+        }
+
+        [Fact]
+        public async Task A_confirmed_miscellaneous_document_void_stores_its_provenance()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderWithEmdAsync(harness);
+            var document = (await DocumentsAsync(order.Id)).Single();
+
+            var issuanceOperationId = document.OperationId;
+            var issuanceProviderReference = document.ProviderReference;
+
+            var outcome = await harness.VoidDocument.VoidAsync(order.Id, document.Id, Reason, Detail, Actor, NewKey());
+
+            var voided = (await DocumentsAsync(order.Id)).Single();
+            var record = voided.VoidRecord;
+
+            Assert.NotNull(record);
+            Assert.Equal(outcome.OperationId, record!.OperationId);
+            Assert.Equal(Reason, record.Reason);
+            Assert.Equal(Detail, record.ReasonDetail);
+            Assert.Equal(Actor, record.VoidedBy);
+            Assert.NotEqual(default, record.VoidedAt);
+
+            Assert.Equal(issuanceOperationId, voided.OperationId);
+            Assert.Equal(issuanceProviderReference, voided.ProviderReference);
+        }
+
+        [Fact]
+        public async Task A_refused_or_uncertain_void_stores_no_provenance()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = (await TicketsAsync(order.Id)).First();
+
+            harness.DocumentVoids.VoidOutcome = ProviderOperationOutcome.Rejected;
+
+            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey());
+
+            Assert.Null((await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id).VoidRecord);
+
+            harness.DocumentVoids.VoidOutcome = ProviderOperationOutcome.Unknown;
+
+            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey());
+
+            var after = (await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id);
+
+            Assert.Null(after.VoidRecord);
+            Assert.Equal(ElectronicTicketStatus.Issued, after.StatusSummary);
+        }
+
+        [Fact]
+        public async Task A_recovered_void_records_provenance_once_under_the_original_operation()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = (await TicketsAsync(order.Id)).First();
+            var key = NewKey();
+
+            harness.DocumentVoids.VoidOutcome = ProviderOperationOutcome.Unknown;
+
+            var first = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
+
+            Assert.Null((await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id).VoidRecord);
+
+            harness.DocumentVoids.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+            var recovered = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
+
+            var voided = (await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id);
+
+            Assert.Equal(first.OperationId, recovered.OperationId);
+            Assert.Equal(first.OperationId, voided.VoidRecord!.OperationId);
+            Assert.Equal(Reason, voided.VoidRecord.Reason);
+
+            var versionAfterRecovery = voided.DocumentVersion;
+
+            var again = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
+
+            var settled = (await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id);
+
+            Assert.True(again.IsReplay);
+            Assert.Equal(versionAfterRecovery, settled.DocumentVersion);
+            Assert.Equal(first.OperationId, settled.VoidRecord!.OperationId);
+        }
+
+        [Fact]
+        public async Task A_replay_cannot_change_the_recorded_reason()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = (await TicketsAsync(order.Id)).First();
+            var key = NewKey();
+
+            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
+
+            var recorded = (await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id).VoidRecord!;
+
+            var replay = await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
+
+            var after = (await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id).VoidRecord!;
+
+            Assert.True(replay.IsReplay);
+            Assert.Equal(recorded.OperationId, after.OperationId);
+            Assert.Equal(recorded.Reason, after.Reason);
+            Assert.Equal(recorded.ReasonDetail, after.ReasonDetail);
+            Assert.Equal(recorded.VoidedAt, after.VoidedAt);
+            Assert.Equal(recorded.VoidedBy, after.VoidedBy);
+        }
+
+        [Fact]
+        public async Task The_same_key_with_a_different_reason_conflicts()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = (await TicketsAsync(order.Id)).First();
+            var key = NewKey();
+
+            await harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, key);
+
+            await Assert.ThrowsAsync<BusinessException>(
+                () => harness.VoidDocument.VoidAsync(order.Id, ticket.Id, VoidReason.Duplicate, Detail, Actor, key));
+
+            await Assert.ThrowsAsync<BusinessException>(
+                () => harness.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, "something else", Actor, key));
+
+            var record = (await TicketsAsync(order.Id)).Single(t => t.Id == ticket.Id).VoidRecord!;
+
+            Assert.Equal(Reason, record.Reason);
+            Assert.Equal(Detail, record.ReasonDetail);
         }
 
         private OrderSliceHarness NewHarness()

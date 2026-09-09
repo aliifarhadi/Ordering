@@ -2,6 +2,7 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities;
+using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
@@ -175,7 +176,15 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                 throw ExceptionFactory.EmdCouponStateForbidsVoid(coupon.CouponNumber, coupon.Status);
         }
 
-        public void Void(IClock clock)
+        public DocumentVoidRecord? VoidRecord { get; private set; }
+
+        public void Void(
+            long operationId,
+            VoidReason reason,
+            string? reasonDetail,
+            long voidedBy,
+            string? providerReference,
+            IClock clock)
         {
             EnsureCanBeVoided();
 
@@ -183,8 +192,15 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                 coupon.Void();
 
             StatusSummary = ElectronicMiscDocumentStatus.Voided;
+            VoidRecord = new DocumentVoidRecord(
+                operationId,
+                reason,
+                reasonDetail,
+                voidedBy,
+                clock.GetDateTime(),
+                providerReference);
+
             DocumentVersion++;
-            _ = clock;
         }
 
         public IReadOnlyCollection<long> VoidedServiceIds()

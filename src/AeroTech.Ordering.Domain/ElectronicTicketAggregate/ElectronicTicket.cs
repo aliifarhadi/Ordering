@@ -3,6 +3,7 @@ using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects;
+using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
@@ -172,7 +173,15 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
                 throw ExceptionFactory.DocumentVoidWindowElapsed(DocumentNumber);
         }
 
-        public void Void(IClock clock)
+        public DocumentVoidRecord? VoidRecord { get; private set; }
+
+        public void Void(
+            long operationId,
+            VoidReason reason,
+            string? reasonDetail,
+            long voidedBy,
+            string? providerReference,
+            IClock clock)
         {
             var now = clock.GetDateTime();
 
@@ -182,6 +191,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
                 coupon.Void();
 
             StatusSummary = ElectronicTicketStatus.Voided;
+            VoidRecord = new DocumentVoidRecord(operationId, reason, reasonDetail, voidedBy, now, providerReference);
             DocumentVersion++;
         }
 

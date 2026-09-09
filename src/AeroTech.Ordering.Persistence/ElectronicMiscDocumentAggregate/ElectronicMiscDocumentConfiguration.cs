@@ -1,4 +1,4 @@
-using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
+﻿using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
@@ -22,6 +22,17 @@ namespace AeroTech.Ordering.Persistence.ElectronicMiscDocumentAggregate
             builder.HasIndex(document => document.OriginalOrderId);
             builder.HasIndex(document => document.CurrentServicingOrderId);
             builder.HasIndex(document => document.OperationId);
+
+
+            builder.OwnsOne(document => document.VoidRecord, record =>
+            {
+                record.Property(value => value.OperationId).HasColumnName("VoidOperationId");
+                record.Property(value => value.Reason).HasColumnName("VoidReason");
+                record.Property(value => value.ReasonDetail).HasColumnName("VoidReasonDetail").HasMaxLength(512);
+                record.Property(value => value.VoidedBy).HasColumnName("VoidedBy");
+                record.Property(value => value.VoidedAt).HasColumnName("VoidedAt");
+                record.Property(value => value.ProviderReference).HasColumnName("VoidProviderReference").HasMaxLength(128);
+            });
 
             builder.HasMany(document => document.Coupons)
                 .WithOne()

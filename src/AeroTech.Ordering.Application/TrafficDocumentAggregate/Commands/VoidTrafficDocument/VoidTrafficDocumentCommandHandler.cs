@@ -1,3 +1,4 @@
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid;
 using MediatR;
 
@@ -6,8 +7,13 @@ namespace AeroTech.Ordering.Application.TrafficDocumentAggregate.Commands.VoidTr
     public sealed class VoidTrafficDocumentCommandHandler : IRequestHandler<VoidTrafficDocumentCommand, VoidTrafficDocumentResult>
     {
         private readonly IDocumentVoidService _voidService;
+        private readonly IIdentityService _identityService;
 
-        public VoidTrafficDocumentCommandHandler(IDocumentVoidService voidService) => _voidService = voidService;
+        public VoidTrafficDocumentCommandHandler(IDocumentVoidService voidService, IIdentityService identityService)
+        {
+            _voidService = voidService;
+            _identityService = identityService;
+        }
 
         public async Task<VoidTrafficDocumentResult> Handle(
             VoidTrafficDocumentCommand command,
@@ -16,6 +22,9 @@ namespace AeroTech.Ordering.Application.TrafficDocumentAggregate.Commands.VoidTr
             var outcome = await _voidService.VoidAsync(
                 command.OrderId,
                 command.DocumentId,
+                command.Reason,
+                command.ReasonDetail,
+                _identityService.RequiredCurrentUserId,
                 command.IdempotencyKey,
                 cancellationToken);
 

@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Repository;
+﻿using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
@@ -32,6 +32,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
         Task<DocumentVoidOutcome> VoidAsync(
             long orderId,
             long documentId,
+            VoidReason reason,
+            string? reasonDetail,
+            long voidedBy,
             string idempotencyKey,
             CancellationToken cancellationToken = default);
     }
@@ -78,6 +81,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
         public async Task<DocumentVoidOutcome> VoidAsync(
             long orderId,
             long documentId,
+            VoidReason reason,
+            string? reasonDetail,
+            long voidedBy,
             string idempotencyKey,
             CancellationToken cancellationToken = default)
         {
@@ -97,7 +103,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                     Operation = "VoidDocument",
                     OrderId = orderId,
                     DocumentKind = target.Kind.ToString(),
-                    DocumentId = documentId
+                    DocumentId = documentId,
+                    Reason = reason.ToString(),
+                    ReasonDetail = reasonDetail
                 },
                 null,
                 cancellationToken);
@@ -105,15 +113,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             if (target.IsVoided)
                 return await ReplayFinalizedAsync(order, operation, target, cancellationToken);
 
+            var provenance = new VoidProvenance(reason, reasonDetail, voidedBy);
+
             if (operation.IsReplay)
             {
-                var unfinished = await ReplayUnfinishedAsync(order, operation, target, cancellationToken);
+                var unfinished = await ReplayUnfinishedAsync(order, operation, target, provenance, cancellationToken);
 
                 if (unfinished is not null)
                     return unfinished;
             }
 
             ProviderOperationOutcome outcome;
+            string? providerReference;
 
             try
             {
@@ -151,6 +162,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                     cancellationToken);
 
                 outcome = result.Outcome;
+                providerReference = result.ProviderReference;
             }
             catch
             {
@@ -160,7 +172,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
 
             return outcome switch
             {
-                ProviderOperationOutcome.Confirmed => await FinalizeAsync(order, operation, target, cancellationToken),
+                ProviderOperationOutcome.Confirmed =>
+                    await FinalizeAsync(order, operation, target, provenance, providerReference, cancellationToken),
                 ProviderOperationOutcome.Rejected => await RejectAsync(order, operation, target, cancellationToken),
                 _ => await SuspendAsync(order, operation, target, outcome, cancellationToken)
             };
@@ -170,9 +183,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             Order order,
             OrderOperation operation,
             VoidTarget target,
+            VoidProvenance provenance,
+            string? providerReference,
             CancellationToken cancellationToken)
         {
-            target.Void(_clock);
+            target.Void(operation.OperationId, provenance, providerReference, _clock);
             order.ApplyDocumentVoid(target.AffectedServiceIds, _clock);
 
             await _operationStore.TransitionAsync(
@@ -284,6 +299,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             Order order,
             OrderOperation operation,
             VoidTarget target,
+            VoidProvenance provenance,
             CancellationToken cancellationToken)
         {
             var prior = await _operationStore.FindAsync(operation.OperationId, cancellationToken);
@@ -310,7 +326,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
 
             return recovery.Outcome switch
             {
-                ProviderOperationOutcome.Confirmed => await FinalizeAsync(order, operation, target, cancellationToken),
+                ProviderOperationOutcome.Confirmed =>
+                    await FinalizeAsync(order, operation, target, provenance, recovery.ProviderReference, cancellationToken),
                 ProviderOperationOutcome.Rejected => await RejectAsync(order, operation, target, cancellationToken),
                 _ => await ReconcileAsync(order, operation, target, recovery.Outcome, cancellationToken)
             };
@@ -380,6 +397,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                 refundRequiredInstead,
                 isReplay);
 
+        private sealed record VoidProvenance(VoidReason Reason, string? ReasonDetail, long VoidedBy);
+
         private sealed class VoidTarget
         {
             private readonly ElectronicTicket? _ticket;
@@ -423,12 +442,24 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                     _document!.EnsureCanBeVoided();
             }
 
-            public void Void(IClock clock)
+            public void Void(long operationId, VoidProvenance provenance, string? providerReference, IClock clock)
             {
                 if (_ticket is not null)
-                    _ticket.Void(clock);
+                    _ticket.Void(
+                        operationId,
+                        provenance.Reason,
+                        provenance.ReasonDetail,
+                        provenance.VoidedBy,
+                        providerReference,
+                        clock);
                 else
-                    _document!.Void(clock);
+                    _document!.Void(
+                        operationId,
+                        provenance.Reason,
+                        provenance.ReasonDetail,
+                        provenance.VoidedBy,
+                        providerReference,
+                        clock);
             }
         }
     }

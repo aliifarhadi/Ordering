@@ -1,4 +1,4 @@
-using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
+﻿using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -29,6 +29,17 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
                 .WithOne()
                 .HasForeignKey(link => link.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+
+            builder.OwnsOne(ticket => ticket.VoidRecord, record =>
+            {
+                record.Property(value => value.OperationId).HasColumnName("VoidOperationId");
+                record.Property(value => value.Reason).HasColumnName("VoidReason");
+                record.Property(value => value.ReasonDetail).HasColumnName("VoidReasonDetail").HasMaxLength(512);
+                record.Property(value => value.VoidedBy).HasColumnName("VoidedBy");
+                record.Property(value => value.VoidedAt).HasColumnName("VoidedAt");
+                record.Property(value => value.ProviderReference).HasColumnName("VoidProviderReference").HasMaxLength(128);
+            });
 
             builder.Navigation(ticket => ticket.Coupons).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(ticket => ticket.PriceLinks).UsePropertyAccessMode(PropertyAccessMode.Field);
