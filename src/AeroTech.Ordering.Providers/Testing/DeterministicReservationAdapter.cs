@@ -6,6 +6,7 @@ namespace AeroTech.Ordering.Providers.Testing
     public sealed class DeterministicReservationAdapter : IReservationPort
     {
         private readonly Dictionary<string, ReservationOutcome> _replies = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, ProviderOperationOutcome> _releaseReplies = new(StringComparer.Ordinal);
 
         public ReservationMemberStatus DefaultMemberStatus { get; set; } = ReservationMemberStatus.Confirmed;
 
@@ -41,12 +42,20 @@ namespace AeroTech.Ordering.Providers.Testing
                     .ToList()));
         }
 
+        public void ReplyToRelease(string externalReservationRef, ProviderOperationOutcome outcome)
+            => _releaseReplies[externalReservationRef] = outcome;
+
         public Task<ReservationOutcome> ReleaseAsync(ReleaseReservationRequest request, CancellationToken cancellationToken = default)
         {
             ObservedOperationKeys.Add(request.OperationKey);
 
+            var outcome = request.ExternalReservationRef is { } reference
+                          && _releaseReplies.TryGetValue(reference, out var scripted)
+                ? scripted
+                : ReleaseOutcome;
+
             return Task.FromResult(new ReservationOutcome(
-                ReleaseOutcome,
+                outcome,
                 request.ExternalReservationRef,
                 null,
                 request.OrderServiceIds

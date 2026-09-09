@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Aggregates;
+﻿using AeroTech.Framework.Core.Domain.Aggregates;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.FulfillmentReservationAggregate.Entities;
@@ -99,6 +99,15 @@ namespace AeroTech.Ordering.Domain.FulfillmentReservationAggregate
         public void MarkCancellationPending(IClock clock)
         {
             Status = FulfillmentReservationStatus.CancellationPending;
+            LastUpdatedAt = clock.GetDateTime();
+        }
+
+        public void RestoreAfterUnreleasedCancellation(IClock clock)
+        {
+            if (Status != FulfillmentReservationStatus.CancellationPending)
+                return;
+
+            RecomputeStatus();
             LastUpdatedAt = clock.GetDateTime();
         }
 
