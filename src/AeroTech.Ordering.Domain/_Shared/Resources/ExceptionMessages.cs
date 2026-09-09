@@ -299,7 +299,13 @@
 
         public const string ManualRefundRequiresAuthority = "A manual refund requires an explicit authority reference and reason.";
 
-        public const string ManualRefundSurfaceNotPermitted = "The calling surface may not authorize a manual refund of order {0}.";
+        public const string ManualRefundContextNotEligible = "The calling context is not eligible to submit a manual refund of order {0}.";
+
+        public const string ManualRefundNotAuthorized = "The authorization authority refused a manual refund of order {0}: {1}.";
+
+        public const string ManualRefundAuthorizationUnavailable = "No manual refund authorization decision is available for order {0}: {1}.";
+
+        public const string ManualRefundAuthorizationNotConfigured = "No manual refund authorization authority is configured for this deployment.";
 
         public const string RefundRequiresCouponScope = "A refund of an accountable document on order {0} requires an explicit coupon scope.";
     }

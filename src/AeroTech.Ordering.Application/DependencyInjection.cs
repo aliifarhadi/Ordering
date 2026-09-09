@@ -90,6 +90,7 @@ namespace AeroTech.Ordering.Application
             services.AddScoped<IOrderScopeCancellationService, OrderScopeCancellationService>();
             services.AddScoped<IDocumentVoidService, DocumentVoidService>();
             services.AddScoped<OrderAggregate.Services.Refund.IRefundValueMovementCoordinator, OrderAggregate.Services.Refund.RefundValueMovementCoordinator>();
+            services.AddScoped<OrderAggregate.Services.Refund.IManualRefundAuthorizer, OrderAggregate.Services.Refund.ManualRefundAuthorizer>();
             services.AddScoped<OrderAggregate.Services.Refund.IRefundService, OrderAggregate.Services.Refund.RefundService>();
 
             return services;

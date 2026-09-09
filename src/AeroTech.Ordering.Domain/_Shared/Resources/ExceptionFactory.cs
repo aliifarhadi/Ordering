@@ -727,11 +727,20 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ManualRefundRequiresAuthority(params object?[] args) =>
             new(2940, ExceptionMessages.ManualRefundRequiresAuthority, args) { HttpStatus = 422 };
 
-        public static BusinessException ManualRefundSurfaceNotPermitted(params object?[] args) =>
-            new(2941, ExceptionMessages.ManualRefundSurfaceNotPermitted, args) { HttpStatus = 403 };
+        public static BusinessException ManualRefundContextNotEligible(params object?[] args) =>
+            new(2941, ExceptionMessages.ManualRefundContextNotEligible, args) { HttpStatus = 403 };
 
         public static BusinessException RefundRequiresCouponScope(params object?[] args) =>
             new(2942, ExceptionMessages.RefundRequiresCouponScope, args) { HttpStatus = 422 };
+
+        public static BusinessException ManualRefundNotAuthorized(params object?[] args) =>
+            new(2943, ExceptionMessages.ManualRefundNotAuthorized, args) { HttpStatus = 403 };
+
+        public static BusinessException ManualRefundAuthorizationUnavailable(params object?[] args) =>
+            new(2944, ExceptionMessages.ManualRefundAuthorizationUnavailable, args) { HttpStatus = 502 };
+
+        public static BusinessException ManualRefundAuthorizationNotConfigured() =>
+            new(2945, ExceptionMessages.ManualRefundAuthorizationNotConfigured) { HttpStatus = 501 };
 
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;

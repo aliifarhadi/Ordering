@@ -130,7 +130,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             DocumentRefunds = new DeterministicDocumentRefundAdapter();
             RefundValues = new DeterministicRefundValueAdapter();
             var refundValueCoordinator = new RefundValueMovementCoordinator(RefundValues, coordinator, frameworkClock);
-            Refund = new RefundService(Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
+            ManualRefundAuthorizations = new DeterministicManualRefundAuthorizationAdapter();
+            var manualRefundAuthorizer = new ManualRefundAuthorizer(ManualRefundAuthorizations, caller);
+            Refund = new RefundService(Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
         }
 
         public SequentialIdGenerator Ids { get; }
@@ -188,6 +190,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicDocumentRefundAdapter DocumentRefunds { get; }
 
         public DeterministicRefundValueAdapter RefundValues { get; }
+
+        public DeterministicManualRefundAuthorizationAdapter ManualRefundAuthorizations { get; }
 
         public IRefundService Refund { get; }
 

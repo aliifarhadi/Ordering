@@ -6,9 +6,9 @@ using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
 {
-    public static class ManualRefundAuthorityGuard
+    public static class ManualRefundPreconditions
     {
-        public static ManualRefundAuthority Authorize(
+        public static ManualRefundAuthority EnsureContextIsEligible(
             ICallerContext caller,
             ManualRefundInstruction instruction,
             long orderId)
@@ -20,7 +20,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
 
             if (caller.AuthorizationSurface != AuthorizationSurface.Backoffice
                 || caller.ContextType != BusinessContextType.Airline)
-                throw ExceptionFactory.ManualRefundSurfaceNotPermitted(orderId);
+                throw ExceptionFactory.ManualRefundContextNotEligible(orderId);
 
             if (caller.ActorId is null)
                 throw ExceptionFactory.ManualRefundRequiresAuthority();

@@ -73,6 +73,9 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<Domain.Ports.DocumentRefund.IDocumentRefundPort>(provider => provider.GetRequiredService<DeterministicDocumentRefundAdapter>());
                 services.AddSingleton<DeterministicRefundValueAdapter>();
                 services.AddScoped<Domain.Ports.RefundValue.IRefundValuePort>(provider => provider.GetRequiredService<DeterministicRefundValueAdapter>());
+                services.AddSingleton<DeterministicManualRefundAuthorizationAdapter>();
+                services.AddScoped<Domain.Ports.ManualRefundAuthorization.IManualRefundAuthorizationPort>(
+                    provider => provider.GetRequiredService<DeterministicManualRefundAuthorizationAdapter>());
             }
             else
             {
@@ -83,6 +86,8 @@ namespace AeroTech.Ordering.Providers
                 services.AddScoped<Domain.Ports.Refund.IRefundQuotePort, Refund.Services.UnconfiguredRefundQuoteProvider>();
                 services.AddScoped<Domain.Ports.DocumentRefund.IDocumentRefundPort, DocumentRefund.Services.UnconfiguredDocumentRefundProvider>();
                 services.AddScoped<Domain.Ports.RefundValue.IRefundValuePort, RefundValue.Services.UnconfiguredRefundValueProvider>();
+                services.AddScoped<Domain.Ports.ManualRefundAuthorization.IManualRefundAuthorizationPort,
+                    ManualRefundAuthorization.Services.UnconfiguredManualRefundAuthorizationProvider>();
             }
 
             return services;

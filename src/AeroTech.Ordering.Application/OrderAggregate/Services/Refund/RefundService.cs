@@ -33,6 +33,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
         private readonly IRefundQuotePort _quotes;
         private readonly IDocumentRefundPort _documents;
         private readonly IRefundValueMovementCoordinator _valueMovement;
+        private readonly IManualRefundAuthorizer _manualAuthorizer;
         private readonly IOrderOperationCoordinator _operations;
         private readonly IServicingOperationStore _operationStore;
         private readonly ICommandReceiptStore _receipts;
@@ -48,6 +49,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             IRefundQuotePort quotes,
             IDocumentRefundPort documents,
             IRefundValueMovementCoordinator valueMovement,
+            IManualRefundAuthorizer manualAuthorizer,
             IOrderOperationCoordinator operations,
             IServicingOperationStore operationStore,
             ICommandReceiptStore receipts,
@@ -62,6 +64,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             _quotes = quotes;
             _documents = documents;
             _valueMovement = valueMovement;
+            _manualAuthorizer = manualAuthorizer;
             _operations = operations;
             _operationStore = operationStore;
             _receipts = receipts;
@@ -140,7 +143,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             var scope = execution.TicketCouponIds.Distinct().Order().ToList();
 
             var authority = execution.Manual is { } manual
-                ? ManualRefundAuthorityGuard.Authorize(_callerContext, manual, execution.OrderId)
+                ? ManualRefundPreconditions.EnsureContextIsEligible(_callerContext, manual, execution.OrderId)
                 : null;
 
             var operation = await _operations.BeginAsync(
@@ -188,6 +191,15 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                         order.CommercialVersion);
 
                 ticket.EnsureRefundScopeIsEligible(scope);
+
+                if (authority is not null)
+                    await _manualAuthorizer.AuthorizeAsync(
+                        order,
+                        operation,
+                        ticket,
+                        authority,
+                        execution.Manual!.ApprovedRefundAmount,
+                        cancellationToken);
 
                 await _operationStore.TransitionAsync(
                     operation.OperationId,

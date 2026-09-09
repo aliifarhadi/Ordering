@@ -230,6 +230,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var ticket = await FirstTicketAsync(order.Id);
             var scope = ticket.RefundableCouponIds().ToList();
 
+            harness.ManualRefundAuthorizations.Outcome = ManualRefundAuthorizationOutcome.Approved;
+
             var outcome = await harness.Refund.RefundAsync(
                 new RefundExecution(
                     order.Id,
@@ -272,6 +274,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var order = await TicketedOrderAsync(harness);
             var ticket = await FirstTicketAsync(order.Id);
             var scope = ticket.RefundableCouponIds().ToList();
+
+            harness.ManualRefundAuthorizations.Outcome = ManualRefundAuthorizationOutcome.Approved;
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(
