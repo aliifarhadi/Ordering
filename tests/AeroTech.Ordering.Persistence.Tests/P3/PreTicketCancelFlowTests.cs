@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
@@ -189,36 +189,77 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Fact]
-        public async Task A_rejected_release_leaves_no_committed_cancellation()
+        public async Task A_rejected_release_finalizes_nothing()
         {
             await using var harness = NewHarness();
             var order = await ReservedOrderAsync(harness);
 
+            var before = await SnapshotAsync(order.Id);
+
+            harness.Events.Dispatched.Clear();
             harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Rejected;
 
             var outcome = await harness.Cancel.CancelAsync(
                 order.Id, VoidReason.CustomerRequest, 7, NewKey(), order.CommercialVersion);
 
             Assert.Equal(ProviderOperationOutcome.Rejected, outcome.ReservationReleaseOutcome);
+            Assert.Equal(ServicingOperationStatus.Rejected, outcome.OperationStatus);
 
-            var reloaded = await ReloadAsync(order.Id);
+            Assert.Equal(before, await SnapshotAsync(order.Id));
+            Assert.Empty(harness.Events.Dispatched.Where(IsCancellationEvent));
 
-            Assert.Equal(OrderStatus.Cancelled, reloaded.Status);
-            Assert.Single(reloaded.PriceChangeSets, set => set.Reason == PriceChangeReason.Cancellation);
+            await using var command = _fixture.NewCommandContext();
+
+            Assert.Equal(ServicingOperationStatus.Rejected, (await command.ServicingOperations
+                .AsNoTracking()
+                .SingleAsync(row => row.Id == outcome.OperationId)).Status);
         }
 
         [Fact]
-        public async Task An_unknown_release_leaves_the_operation_unresolved_for_reconciliation()
+        public async Task A_rejected_replay_returns_the_rejection_without_calling_the_provider_again()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var key = NewKey();
+
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Rejected;
+
+            var first = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            var releaseCalls = ReleaseKeys(harness);
+            var before = await SnapshotAsync(order.Id);
+
+            var replay = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.True(replay.IsReplay);
+            Assert.Equal(first.OperationId, replay.OperationId);
+            Assert.Equal(ProviderOperationOutcome.Rejected, replay.ReservationReleaseOutcome);
+            Assert.Equal(releaseCalls, ReleaseKeys(harness));
+            Assert.Empty(harness.Reservation.ObservedRecoveryKeys);
+            Assert.Equal(before, await SnapshotAsync(order.Id));
+        }
+
+        [Fact]
+        public async Task An_unknown_release_finalizes_nothing_and_stays_reconcilable()
         {
             await using var harness = NewHarness();
             var order = await ReservedOrderAsync(harness);
 
+            var before = await SnapshotAsync(order.Id);
+
+            harness.Events.Dispatched.Clear();
             harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
 
             var outcome = await harness.Cancel.CancelAsync(
                 order.Id, VoidReason.CustomerRequest, 7, NewKey(), order.CommercialVersion);
 
             Assert.Equal(ProviderOperationOutcome.Unknown, outcome.ReservationReleaseOutcome);
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, outcome.OperationStatus);
+
+            Assert.Equal(before, await SnapshotAsync(order.Id));
+            Assert.Empty(harness.Events.Dispatched.Where(IsCancellationEvent));
 
             await using var command = _fixture.NewCommandContext();
 
@@ -227,6 +268,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 .SingleAsync(row => row.OrderId == order.Id && row.OperationId == outcome.OperationId);
 
             Assert.Null(claim.ResolvedAt);
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, (await command.ServicingOperations
+                .AsNoTracking()
+                .SingleAsync(row => row.Id == outcome.OperationId)).Status);
         }
 
         [Fact]
@@ -237,25 +282,84 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var key = NewKey();
 
             harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
+            harness.Reservation.RecoveryOutcome = ProviderOperationOutcome.Unknown;
 
             var first = await harness.Cancel.CancelAsync(
                 order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
 
-            var releaseKeys = harness.Reservation.ObservedOperationKeys
-                .Where(observed => observed.StartsWith("release", StringComparison.Ordinal))
-                .ToList();
+            var releaseCalls = ReleaseKeys(harness);
+            var before = await SnapshotAsync(order.Id);
 
             var replay = await harness.Cancel.CancelAsync(
                 order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
 
             Assert.True(replay.IsReplay);
             Assert.Equal(first.OperationId, replay.OperationId);
-            Assert.Equal(
-                releaseKeys,
-                harness.Reservation.ObservedOperationKeys
-                    .Where(observed => observed.StartsWith("release", StringComparison.Ordinal))
-                    .ToList());
-            Assert.Single(releaseKeys.Distinct());
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, replay.OperationStatus);
+            Assert.Equal(releaseCalls, ReleaseKeys(harness));
+            Assert.Single(releaseCalls.Distinct());
+            Assert.Equal(before, await SnapshotAsync(order.Id));
+
+            Assert.All(
+                harness.Reservation.ObservedRecoveryKeys,
+                recoveryKey => Assert.Equal(releaseCalls.Distinct().Single(), recoveryKey));
+        }
+
+        [Fact]
+        public async Task An_unknown_release_recovered_as_confirmed_finalizes_exactly_once()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var key = NewKey();
+
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
+
+            var first = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, first.OperationStatus);
+
+            harness.Reservation.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+            var recovered = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.Equal(first.OperationId, recovered.OperationId);
+            Assert.Equal(ServicingOperationStatus.Completed, recovered.OperationStatus);
+            Assert.Equal(OrderStatus.Cancelled, recovered.Status);
+
+            var reloaded = await ReloadAsync(order.Id);
+
+            Assert.Equal(2, reloaded.CommercialVersion);
+            Assert.Single(reloaded.PriceChangeSets, set => set.Reason == PriceChangeReason.Cancellation);
+            Assert.Single(reloaded.Changes, change => change.ChangeType == OrderChangeType.Cancel);
+            Assert.Equal(0m, reloaded.CustomerTotal);
+
+            var again = await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, key, order.CommercialVersion);
+
+            Assert.True(again.IsReplay);
+            Assert.Equal(first.OperationId, again.OperationId);
+
+            var final = await ReloadAsync(order.Id);
+
+            Assert.Single(final.PriceChangeSets, set => set.Reason == PriceChangeReason.Cancellation);
+            Assert.Equal(2, final.CommercialVersion);
+        }
+
+        [Fact]
+        public async Task A_rejected_release_does_not_publish_cancellation_or_pricing_events()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+
+            harness.Events.Dispatched.Clear();
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Rejected;
+
+            await harness.Cancel.CancelAsync(
+                order.Id, VoidReason.CustomerRequest, 7, NewKey(), order.CommercialVersion);
+
+            Assert.DoesNotContain(harness.Events.Dispatched, IsCancellationEvent);
         }
 
         [Fact]
@@ -277,6 +381,53 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(2, view.CommercialVersion);
             Assert.Contains(view.PricingHistory, set => set.Reason == PriceChangeReason.Cancellation);
         }
+
+        private static bool IsCancellationEvent(Framework.Core.Domain.Events.IDomainEvent domainEvent)
+            => domainEvent.GetType().Name is "OrderCancelled" or "OrderPricingChanged";
+
+        private static IReadOnlyList<string> ReleaseKeys(OrderSliceHarness harness)
+            => harness.Reservation.ObservedOperationKeys
+                .Where(observed => observed.StartsWith(
+                    Application.OrderAggregate.Services.Cancel.OrderCancelService.ReleaseStep,
+                    StringComparison.Ordinal))
+                .ToList();
+
+        private async Task<CancelStateSnapshot> SnapshotAsync(long orderId)
+        {
+            var order = await ReloadAsync(orderId);
+
+            await using var query = _fixture.NewQueryContext();
+
+            var details = await query.OrderDetails.AsNoTracking().SingleAsync(row => row.Id == orderId);
+
+            return new CancelStateSnapshot(
+                order.Status,
+                order.CommercialSummary,
+                order.CommercialVersion,
+                order.FinancialSequence,
+                order.ObligationVersion,
+                order.CustomerTotal,
+                order.PriceChangeSets.Count,
+                order.PricingLines.Count,
+                order.Changes.Count,
+                order.OrderServices.Count(service => service.Status == OrderServiceStatus.Cancelled),
+                details.ProjectionRevision,
+                details.SnapshotJson);
+        }
+
+        private sealed record CancelStateSnapshot(
+            OrderStatus Status,
+            CommercialSummary CommercialSummary,
+            int CommercialVersion,
+            long FinancialSequence,
+            long ObligationVersion,
+            decimal CustomerTotal,
+            int PriceChangeSets,
+            int PricingLines,
+            int Changes,
+            int CancelledServices,
+            long ProjectionRevision,
+            string SnapshotJson);
 
         private OrderSliceHarness NewHarness()
             => new(_fixture, TestCallerContexts.AgencyUser(11, $"subject-{Guid.NewGuid():N}"));

@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
 {
@@ -22,5 +22,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
         long FinancialSequence,
         IReadOnlyList<long> CancelledServiceIds,
         ProviderOperationOutcome ReservationReleaseOutcome,
+        ServicingOperationStatus OperationStatus,
         bool IsReplay);
 }

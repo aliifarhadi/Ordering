@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.Reservation;
 
 namespace AeroTech.Ordering.Providers.Testing
@@ -13,7 +13,11 @@ namespace AeroTech.Ordering.Providers.Testing
 
         public ProviderOperationOutcome ReleaseOutcome { get; set; } = ProviderOperationOutcome.Confirmed;
 
+        public ProviderOperationOutcome RecoveryOutcome { get; set; } = ProviderOperationOutcome.Unknown;
+
         public List<string> ObservedOperationKeys { get; } = new();
+
+        public List<string> ObservedRecoveryKeys { get; } = new();
 
         public void ReplyTo(string operationKey, ReservationOutcome outcome) => _replies[operationKey] = outcome;
 
@@ -51,6 +55,10 @@ namespace AeroTech.Ordering.Providers.Testing
         }
 
         public Task<ReservationOutcome> RecoverAsync(RecoverReservationRequest request, CancellationToken cancellationToken = default)
-            => Task.FromResult(new ReservationOutcome(ProviderOperationOutcome.Unknown, null, null, []));
+        {
+            ObservedRecoveryKeys.Add(request.OperationKey);
+
+            return Task.FromResult(new ReservationOutcome(RecoveryOutcome, null, null, []));
+        }
     }
 }

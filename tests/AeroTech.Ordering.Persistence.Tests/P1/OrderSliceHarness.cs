@@ -116,7 +116,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Withdraw = new WithdrawOrderService(Orders, reservations, tickets, Reservation, Funding, coordinator, new StubIdentity(), unitOfWork, Ids, frameworkClock, projector);
             OrderChange = new OrderChangeService(Orders, Quotes, coordinator, caller, unitOfWork, Ids, frameworkClock, projector);
             AccessGuard = new OrderCustomerAccessGuard(Orders, caller);
-            Cancel = new OrderCancelService(Orders, tickets, miscDocuments, reservations, Reservation, coordinator, unitOfWork, Ids, frameworkClock, projector);
+            Cancel = new OrderCancelService(Orders, tickets, miscDocuments, reservations, Reservation, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
         }
 
         public SequentialIdGenerator Ids { get; }

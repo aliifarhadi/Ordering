@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
 using MediatR;
 
@@ -33,6 +33,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.CancelOrder
                 outcome.CommercialVersion,
                 outcome.CancelledServiceIds,
                 outcome.ReservationReleaseOutcome,
+                outcome.OperationStatus,
                 outcome.IsReplay);
         }
     }

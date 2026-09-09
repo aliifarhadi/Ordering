@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Repository;
+﻿using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
@@ -9,6 +9,7 @@ using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Ports.Reservation;
+using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Entities = AeroTech.Ordering.Domain.OrderAggregate.Entities;
 
@@ -24,6 +25,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
         private readonly IFulfillmentReservationRepository _reservations;
         private readonly IReservationPort _reservationPort;
         private readonly IOrderOperationCoordinator _operations;
+        private readonly IServicingOperationStore _operationStore;
+        private readonly ICommandReceiptStore _receipts;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IIdGenerator _idGenerator;
         private readonly IClock _clock;
@@ -36,6 +39,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             IFulfillmentReservationRepository reservations,
             IReservationPort reservationPort,
             IOrderOperationCoordinator operations,
+            IServicingOperationStore operationStore,
+            ICommandReceiptStore receipts,
             IUnitOfWork unitOfWork,
             IIdGenerator idGenerator,
             IClock clock,
@@ -47,6 +52,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             _reservations = reservations;
             _reservationPort = reservationPort;
             _operations = operations;
+            _operationStore = operationStore;
+            _receipts = receipts;
             _unitOfWork = unitOfWork;
             _idGenerator = idGenerator;
             _clock = clock;
@@ -80,13 +87,19 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 expectedCommercialVersion,
                 cancellationToken);
 
-            var committed = CommittedCancel(order, operation.OperationId);
+            if (CommittedCancel(order, operation.OperationId) is not null)
+                return await ReplayFinalizedAsync(order, operation, cancellationToken);
 
-            if (committed is not null)
-                return await ReplayAsync(order, operation, cancellationToken);
+            if (operation.IsReplay)
+            {
+                var unfinished = await ReplayUnfinishedAsync(order, operation, reason, cancelledBy, cancellationToken);
+
+                if (unfinished is not null)
+                    return unfinished;
+            }
 
             IReadOnlyList<long> scope;
-            var releaseOutcome = ProviderOperationOutcome.Confirmed;
+            ProviderOperationOutcome releaseOutcome;
 
             try
             {
@@ -106,10 +119,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                         decision.Reasons);
 
                 scope = decision.EffectiveScopeServiceIds;
-                releaseOutcome = await ReleaseReservationsAsync(orderId, operation, cancellationToken);
 
-                order.Cancel(reason, cancelledBy, _clock.GetDateTime(), _idGenerator, operation.OperationId);
-                order.ApplyReservationReleased(scope, _clock);
+                await _operationStore.TransitionAsync(
+                    operation.OperationId,
+                    ServicingOperationStatus.Executing,
+                    operation.ClaimGeneration,
+                    cancellationToken);
+
+                releaseOutcome = await ReleaseReservationsAsync(orderId, operation, cancellationToken);
             }
             catch
             {
@@ -117,13 +134,208 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 throw;
             }
 
-            if (releaseOutcome != ProviderOperationOutcome.Unknown)
-                await _operations.ResolveAsync(orderId, operation, cancellationToken);
+            return releaseOutcome switch
+            {
+                ProviderOperationOutcome.Confirmed =>
+                    await FinalizeAsync(order, operation, scope, reason, cancelledBy, cancellationToken),
+                ProviderOperationOutcome.Rejected =>
+                    await RejectAsync(order, operation, cancellationToken),
+                _ =>
+                    await SuspendAsync(order, operation, releaseOutcome, cancellationToken)
+            };
+        }
 
-            await _projector.ProjectAsync(orderId, cancellationToken);
+        private async Task<CancelOrderOutcome> FinalizeAsync(
+            Order order,
+            OrderOperation operation,
+            IReadOnlyList<long> scope,
+            VoidReason reason,
+            long cancelledBy,
+            CancellationToken cancellationToken)
+        {
+            order.Cancel(reason, cancelledBy, _clock.GetDateTime(), _idGenerator, operation.OperationId);
+            order.ApplyReservationReleased(scope, _clock);
+
+            await _operationStore.TransitionAsync(
+                operation.OperationId,
+                ServicingOperationStatus.Completed,
+                operation.ClaimGeneration,
+                cancellationToken);
+
+            await _receipts.SetStatusAsync(operation.ReceiptId, CommandReceiptStatus.Completed, cancellationToken);
+            await _operations.ResolveAsync(order.Id, operation, cancellationToken);
+
+            await _projector.ProjectAsync(order.Id, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Outcome(order, operation, scope, releaseOutcome, isReplay: false);
+            return Outcome(
+                order,
+                operation,
+                scope,
+                ProviderOperationOutcome.Confirmed,
+                ServicingOperationStatus.Completed,
+                isReplay: false);
+        }
+
+        private async Task<CancelOrderOutcome> RejectAsync(
+            Order order,
+            OrderOperation operation,
+            CancellationToken cancellationToken)
+        {
+            await _operationStore.TransitionAsync(
+                operation.OperationId,
+                ServicingOperationStatus.Rejected,
+                operation.ClaimGeneration,
+                cancellationToken);
+
+            await _receipts.SetStatusAsync(operation.ReceiptId, CommandReceiptStatus.Rejected, cancellationToken);
+            await _operations.ResolveAsync(order.Id, operation, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            return Outcome(
+                order,
+                operation,
+                [],
+                ProviderOperationOutcome.Rejected,
+                ServicingOperationStatus.Rejected,
+                isReplay: false);
+        }
+
+        private async Task<CancelOrderOutcome> SuspendAsync(
+            Order order,
+            OrderOperation operation,
+            ProviderOperationOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            await _operationStore.TransitionAsync(
+                operation.OperationId,
+                ServicingOperationStatus.AwaitingExternal,
+                operation.ClaimGeneration,
+                cancellationToken);
+
+            await _receipts.SetStatusAsync(
+                operation.ReceiptId,
+                outcome == ProviderOperationOutcome.Unknown
+                    ? CommandReceiptStatus.Unknown
+                    : CommandReceiptStatus.Pending,
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            return Outcome(
+                order,
+                operation,
+                [],
+                outcome,
+                ServicingOperationStatus.AwaitingExternal,
+                isReplay: false);
+        }
+
+        private async Task<CancelOrderOutcome?> ReplayUnfinishedAsync(
+            Order order,
+            OrderOperation operation,
+            VoidReason reason,
+            long cancelledBy,
+            CancellationToken cancellationToken)
+        {
+            var prior = await _operationStore.FindAsync(operation.OperationId, cancellationToken);
+
+            if (prior is null)
+                return null;
+
+            if (prior.Status == ServicingOperationStatus.Rejected)
+                return Outcome(
+                    order,
+                    operation,
+                    [],
+                    ProviderOperationOutcome.Rejected,
+                    prior.Status,
+                    isReplay: true);
+
+            if (prior.Status is not (ServicingOperationStatus.Executing
+                or ServicingOperationStatus.AwaitingExternal
+                or ServicingOperationStatus.NeedsReconciliation))
+                return null;
+
+            var recovery = await _reservationPort.RecoverAsync(
+                new RecoverReservationRequest(
+                    _operations.ProviderOperationKey(operation, ReleaseStep),
+                    order.Id,
+                    operation.OperationId),
+                cancellationToken);
+
+            if (recovery.Outcome == ProviderOperationOutcome.Rejected)
+                return await RejectAsync(order, operation, cancellationToken);
+
+            if (recovery.Outcome != ProviderOperationOutcome.Confirmed)
+                return await ReconcileAsync(order, operation, recovery.Outcome, cancellationToken);
+
+            var decision = WithdrawEligibilityPolicy.Evaluate(
+                order,
+                await DocumentedServiceIdsAsync(order.Id, cancellationToken));
+
+            if (!decision.IsAllowed || !CanStillBeCancelled(order))
+                return await ReconcileAsync(order, operation, ProviderOperationOutcome.Unknown, cancellationToken);
+
+            await MarkReservationsReleasedAsync(order.Id, cancellationToken);
+
+            return await FinalizeAsync(
+                order,
+                operation,
+                decision.EffectiveScopeServiceIds,
+                reason,
+                cancelledBy,
+                cancellationToken);
+        }
+
+        private async Task<CancelOrderOutcome> ReconcileAsync(
+            Order order,
+            OrderOperation operation,
+            ProviderOperationOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            await _operationStore.TransitionAsync(
+                operation.OperationId,
+                ServicingOperationStatus.NeedsReconciliation,
+                operation.ClaimGeneration,
+                cancellationToken);
+
+            await _receipts.SetStatusAsync(
+                operation.ReceiptId,
+                CommandReceiptStatus.NeedsReconciliation,
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            return Outcome(
+                order,
+                operation,
+                [],
+                outcome,
+                ServicingOperationStatus.NeedsReconciliation,
+                isReplay: true);
+        }
+
+        private async Task MarkReservationsReleasedAsync(long orderId, CancellationToken cancellationToken)
+        {
+            var reservations = await _reservations.ListByOrderAsync(orderId, cancellationToken);
+
+            foreach (var reservation in reservations.Where(candidate =>
+                         candidate.Status is not (FulfillmentReservationStatus.Released or FulfillmentReservationStatus.Rejected)))
+                reservation.MarkReleased(_clock);
+        }
+
+        private static bool CanStillBeCancelled(Order order)
+        {
+            try
+            {
+                order.EnsureCanBeCancelled();
+                return true;
+            }
+            catch (Framework.Core.Domain.Exceptions.BusinessException)
+            {
+                return false;
+            }
         }
 
         private async Task<IReadOnlyList<long>> DocumentedServiceIdsAsync(long orderId, CancellationToken cancellationToken)
@@ -169,7 +381,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
 
                 if (result.Outcome == ProviderOperationOutcome.Confirmed)
                     reservation.MarkReleased(_clock);
-                else
+                else if (outcome != ProviderOperationOutcome.Unknown)
                     outcome = result.Outcome;
             }
 
@@ -180,7 +392,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             => order.Changes.FirstOrDefault(change =>
                 change.OperationId == operationId && change.ChangeType == OrderChangeType.Cancel);
 
-        private async Task<CancelOrderOutcome> ReplayAsync(
+        private async Task<CancelOrderOutcome> ReplayFinalizedAsync(
             Order order,
             OrderOperation operation,
             CancellationToken cancellationToken)
@@ -193,7 +405,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 .Select(service => service.Id)
                 .ToList();
 
-            return Outcome(order, operation, scope, ProviderOperationOutcome.Confirmed, isReplay: true);
+            return Outcome(
+                order,
+                operation,
+                scope,
+                ProviderOperationOutcome.Confirmed,
+                ServicingOperationStatus.Completed,
+                isReplay: true);
         }
 
         private async Task TryReleaseRejectedAsync(long orderId, OrderOperation operation, CancellationToken cancellationToken)
@@ -213,6 +431,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             OrderOperation operation,
             IReadOnlyList<long> scope,
             ProviderOperationOutcome releaseOutcome,
+            ServicingOperationStatus operationStatus,
             bool isReplay)
             => new(
                 order.Id,
@@ -223,6 +442,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 order.FinancialSequence,
                 scope,
                 releaseOutcome,
+                operationStatus,
                 isReplay);
     }
 }
