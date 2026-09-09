@@ -29,7 +29,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var item = order.Items.First();
             var scope = order.ServiceIdsOfItem(item.Id).ToList();
 
-            QuoteCredit(harness, order, scope);
+            QuoteCredit(harness, order, scope, OrderChangeType.Cancel);
 
             var outcome = await harness.ScopeCancel.CancelItemAsync(
                 order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion);
@@ -66,7 +66,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Assert.NotEmpty(untouched);
 
-            QuoteCredit(harness, order, scope);
+            QuoteCredit(harness, order, scope, OrderChangeType.Cancel);
 
             await harness.ScopeCancel.CancelItemAsync(order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion);
 
@@ -100,7 +100,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Assert.NotEmpty(siblings);
 
-            QuoteCredit(harness, order, [removed.Id]);
+            QuoteCredit(harness, order, [removed.Id], OrderChangeType.RemoveService);
 
             var outcome = await harness.ScopeCancel.RemoveServicesAsync(
                 order.Id, [removed.Id], QuoteId, NewKey(), order.CommercialVersion);
@@ -133,7 +133,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var item = order.Items.First();
             var scope = order.ServiceIdsOfItem(item.Id).ToList();
 
-            QuoteCredit(harness, order, scope);
+            QuoteCredit(harness, order, scope, OrderChangeType.RemoveService);
 
             var outcome = await harness.ScopeCancel.RemoveServicesAsync(
                 order.Id, scope, QuoteId, NewKey(), order.CommercialVersion);
@@ -166,7 +166,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var item = ticketed.Items.First();
             var scope = ticketed.ServiceIdsOfItem(item.Id).ToList();
 
-            QuoteCredit(harness, ticketed, scope);
+            QuoteCredit(harness, ticketed, scope, OrderChangeType.Cancel);
 
             var before = await SnapshotAsync(order.Id);
 
@@ -186,7 +186,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var order = await ReservedOrderAsync(harness);
             var item = order.Items.First();
 
-            QuoteCredit(harness, order, order.ServiceIdsOfItem(item.Id).ToList());
+            QuoteCredit(harness, order, order.ServiceIdsOfItem(item.Id).ToList(), OrderChangeType.Cancel);
 
             var before = await SnapshotAsync(order.Id);
 
@@ -208,7 +208,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var key = NewKey();
             var expected = order.CommercialVersion;
 
-            QuoteCredit(harness, order, scope);
+            QuoteCredit(harness, order, scope, OrderChangeType.Cancel);
 
             var first = await harness.ScopeCancel.CancelItemAsync(order.Id, item.Id, QuoteId, key, expected);
             var releaseCalls = ReleaseKeys(harness);
@@ -235,7 +235,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var order = await ReservedOrderAsync(harness);
             var item = order.Items.First();
 
-            QuoteCredit(harness, order, order.ServiceIdsOfItem(item.Id).ToList());
+            QuoteCredit(harness, order, order.ServiceIdsOfItem(item.Id).ToList(), OrderChangeType.Cancel);
 
             var before = await SnapshotAsync(order.Id);
 
@@ -245,7 +245,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion);
 
             Assert.Equal(ServicingOperationStatus.Rejected, outcome.OperationStatus);
-            Assert.Equal(0, harness.CancellationQuotes.CallCount);
+            Assert.Equal(1, harness.CancellationQuotes.CallCount);
             Assert.Equal(before, await SnapshotAsync(order.Id));
         }
 
@@ -258,14 +258,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var scope = order.ServiceIdsOfItem(item.Id).ToList();
             var key = NewKey();
 
-            QuoteCredit(harness, order, scope);
+            QuoteCredit(harness, order, scope, OrderChangeType.Cancel);
 
             harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
 
             var first = await harness.ScopeCancel.CancelItemAsync(order.Id, item.Id, QuoteId, key, order.CommercialVersion);
 
             Assert.Equal(ServicingOperationStatus.AwaitingExternal, first.OperationStatus);
-            Assert.Equal(0, harness.CancellationQuotes.CallCount);
+            Assert.Equal(1, harness.CancellationQuotes.CallCount);
 
             var releaseCalls = ReleaseKeys(harness);
 
@@ -301,12 +301,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Assert.NotEqual(authorized, allocationDerived);
 
-            harness.CancellationQuotes.Quote(new AcceptedScopeCancellation(
-                "AirPrice",
-                QuoteId,
-                PricingSource.PricingEngine,
-                scope,
-                [Credit(authorized, order.CurrencyId)]));
+            harness.CancellationQuotes.Quote(
+                Bound(order, OrderChangeType.Cancel, scope, [Credit(authorized, order.CurrencyId)]));
 
             var outcome = await harness.ScopeCancel.CancelItemAsync(
                 order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion);
@@ -328,10 +324,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var item = order.Items.First();
             var scope = order.ServiceIdsOfItem(item.Id).ToList();
 
-            harness.CancellationQuotes.Quote(new AcceptedScopeCancellation(
-                "AirPrice",
-                QuoteId,
-                PricingSource.PricingEngine,
+            harness.CancellationQuotes.Quote(Bound(
+                order,
+                OrderChangeType.Cancel,
                 scope,
                 [
                     Credit(100_000m, order.CurrencyId),
@@ -375,7 +370,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             if (covering is null)
                 return;
 
-            QuoteCredit(harness, order, [air.Id]);
+            QuoteCredit(harness, order, [air.Id], OrderChangeType.RemoveService);
 
             await Assert.ThrowsAsync<BusinessException>(
                 () => harness.ScopeCancel.RemoveServicesAsync(
@@ -389,7 +384,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var order = await ReservedOrderAsync(harness);
             var all = order.OrderServices.Select(service => service.Id).ToList();
 
-            QuoteCredit(harness, order, all);
+            QuoteCredit(harness, order, all, OrderChangeType.RemoveService);
 
             var before = await SnapshotAsync(order.Id);
 
@@ -400,13 +395,274 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(before, await SnapshotAsync(order.Id));
         }
 
-        private static void QuoteCredit(OrderSliceHarness harness, Order order, IReadOnlyList<long> scope)
-            => harness.CancellationQuotes.Quote(new AcceptedScopeCancellation(
+        [Fact]
+        public async Task An_accepted_quote_covering_a_different_scope_is_rejected_before_inventory_release()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var item = order.Items.First();
+            var scope = order.ServiceIdsOfItem(item.Id).ToList();
+            var extra = order.OrderServices.First(service => !scope.Contains(service.Id)).Id;
+
+            harness.CancellationQuotes.Quote(Bound(
+                order,
+                OrderChangeType.Cancel,
+                [.. scope, extra],
+                [Credit(1_000m, order.CurrencyId)]));
+
+            var before = await SnapshotAsync(order.Id);
+
+            var error = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.ScopeCancel.CancelItemAsync(
+                    order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
+
+            Assert.Equal(2909, error.Code);
+            Assert.Empty(ReleaseKeys(harness));
+            Assert.Equal(before, await SnapshotAsync(order.Id));
+        }
+
+        [Fact]
+        public async Task An_accepted_quote_missing_a_requested_service_is_rejected_before_inventory_release()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var scope = order.OrderServices.Take(2).Select(service => service.Id).ToList();
+
+            Assert.Equal(2, scope.Count);
+
+            harness.CancellationQuotes.Quote(Bound(
+                order,
+                OrderChangeType.RemoveService,
+                [scope[0]],
+                [Credit(1_000m, order.CurrencyId)]));
+
+            var before = await SnapshotAsync(order.Id);
+
+            var error = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.ScopeCancel.RemoveServicesAsync(
+                    order.Id, scope, QuoteId, NewKey(), order.CommercialVersion));
+
+            Assert.Equal(2909, error.Code);
+            Assert.Empty(ReleaseKeys(harness));
+            Assert.Equal(before, await SnapshotAsync(order.Id));
+        }
+
+        [Fact]
+        public async Task An_accepted_quote_for_another_operation_or_order_is_rejected_before_inventory_release()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var item = order.Items.First();
+            var scope = order.ServiceIdsOfItem(item.Id).ToList();
+
+            harness.CancellationQuotes.Quote(Bound(
+                order,
+                OrderChangeType.RemoveService,
+                scope,
+                [Credit(1_000m, order.CurrencyId)]));
+
+            var wrongIntent = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.ScopeCancel.CancelItemAsync(
+                    order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
+
+            Assert.Equal(2908, wrongIntent.Code);
+
+            harness.CancellationQuotes.Quote(Bound(
+                order,
+                OrderChangeType.Cancel,
+                scope,
+                [Credit(1_000m, order.CurrencyId)],
+                orderId: order.Id + 1));
+
+            var wrongOrder = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.ScopeCancel.CancelItemAsync(
+                    order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
+
+            Assert.Equal(2908, wrongOrder.Code);
+
+            harness.CancellationQuotes.Quote(Bound(
+                order,
+                OrderChangeType.Cancel,
+                scope,
+                [Credit(1_000m, order.CurrencyId)],
+                expectedCommercialVersion: order.CommercialVersion + 5));
+
+            var wrongVersion = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.ScopeCancel.CancelItemAsync(
+                    order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
+
+            Assert.Equal(2908, wrongVersion.Code);
+
+            harness.CancellationQuotes.Quote(Bound(
+                order,
+                OrderChangeType.Cancel,
+                scope,
+                [Credit(1_000m, order.CurrencyId)],
+                currencyId: order.CurrencyId + 7));
+
+            var wrongCurrency = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.ScopeCancel.CancelItemAsync(
+                    order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
+
+            Assert.Equal(2908, wrongCurrency.Code);
+            Assert.Empty(ReleaseKeys(harness));
+        }
+
+        [Fact]
+        public async Task A_partial_release_is_satisfied_and_never_touches_unaffected_members()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var item = order.Items.First();
+            var scope = order.ServiceIdsOfItem(item.Id).ToList();
+            var untouched = order.OrderServices.Where(s => !scope.Contains(s.Id)).Select(s => s.Id).ToList();
+            var key = NewKey();
+            var expected = order.CommercialVersion;
+
+            QuoteCredit(harness, order, scope, OrderChangeType.Cancel);
+
+            var outcome = await harness.ScopeCancel.CancelItemAsync(order.Id, item.Id, QuoteId, key, expected);
+
+            Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
+
+            await using (var command = _fixture.NewCommandContext())
+            {
+                var reservation = (await new FulfillmentReservationRepository(command).ListByOrderAsync(order.Id)).Single();
+
+                Assert.Equal(FulfillmentReservationStatus.Mixed, reservation.Status);
+                Assert.Equal(untouched.OrderBy(id => id), reservation.OutstandingServiceIds().OrderBy(id => id));
+            }
+
+            var releaseCalls = ReleaseKeys(harness);
+            var recoveryCalls = harness.Reservation.ObservedRecoveryKeys.Count;
+
+            var replay = await harness.ScopeCancel.CancelItemAsync(order.Id, item.Id, QuoteId, key, expected);
+
+            Assert.True(replay.IsReplay);
+            Assert.Equal(ServicingOperationStatus.Completed, replay.OperationStatus);
+            Assert.Equal(releaseCalls, ReleaseKeys(harness));
+            Assert.Equal(recoveryCalls, harness.Reservation.ObservedRecoveryKeys.Count);
+
+            await using var verify = _fixture.NewCommandContext();
+
+            var after = (await new FulfillmentReservationRepository(verify).ListByOrderAsync(order.Id)).Single();
+
+            Assert.Equal(FulfillmentReservationStatus.Mixed, after.Status);
+            Assert.Equal(untouched.OrderBy(id => id), after.OutstandingServiceIds().OrderBy(id => id));
+        }
+
+        [Fact]
+        public async Task A_seat_that_depends_on_an_air_service_blocks_its_removal_before_inventory_release()
+        {
+            await using var harness = NewHarness();
+            var order = await harness.CreateOrderAsync();
+
+            var air = order.OrderServices.First();
+
+            order.AddProduct(
+                ProductAdditionFactory.Args(ProductAdditionFactory.Seat(order)),
+                harness.Ids,
+                harness.Clock);
+
+            await harness.UnitOfWork.SaveChangesAsync();
+            await harness.Reserve.ReserveAsync(order.Id, NewKey(), null);
+
+            var reloaded = await ReloadAsync(order.Id);
+
+            Assert.Contains(
+                reloaded.OrderServices,
+                service => service.SeatDetail is { } seat && seat.AssociatedAirOrderServiceId == air.Id);
+
+            QuoteCredit(harness, reloaded, [air.Id], OrderChangeType.RemoveService);
+
+            var before = await SnapshotAsync(order.Id);
+
+            var error = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.ScopeCancel.RemoveServicesAsync(
+                    order.Id, [air.Id], QuoteId, NewKey(), reloaded.CommercialVersion));
+
+            Assert.Equal(2895, error.Code);
+            Assert.Equal(0, harness.CancellationQuotes.CallCount);
+            Assert.Empty(ReleaseKeys(harness));
+            Assert.Equal(before, await SnapshotAsync(order.Id));
+        }
+
+        [Fact]
+        public async Task Removing_the_last_service_publishes_removal_semantics_not_cancellation()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var item = order.Items.First();
+            var scope = order.ServiceIdsOfItem(item.Id).ToList();
+
+            harness.Events.Dispatched.Clear();
+
+            QuoteCredit(harness, order, scope, OrderChangeType.RemoveService);
+
+            await harness.ScopeCancel.RemoveServicesAsync(
+                order.Id, scope, QuoteId, NewKey(), order.CommercialVersion);
+
+            var names = harness.Events.Dispatched.Select(e => e.GetType().Name).ToList();
+
+            Assert.Contains("OrderServicesRemoved", names);
+            Assert.DoesNotContain("OrderItemCancelled", names);
+            Assert.DoesNotContain("OrderCancelled", names);
+
+            var removed = harness.Events.Dispatched
+                .OfType<Domain.OrderAggregate.DomainEvents.OrderServicesRemoved>()
+                .Single();
+
+            Assert.Equal(OrderChangeType.RemoveService, removed.Intent);
+            Assert.Equal(scope.OrderBy(id => id), removed.RemovedServiceIds.OrderBy(id => id));
+            Assert.Contains(item.Id, removed.RolledUpOrderItemIds);
+        }
+
+        [Fact]
+        public async Task Cancelling_an_item_publishes_cancellation_semantics()
+        {
+            await using var harness = NewHarness();
+            var order = await ReservedOrderAsync(harness);
+            var item = order.Items.First();
+            var scope = order.ServiceIdsOfItem(item.Id).ToList();
+
+            harness.Events.Dispatched.Clear();
+
+            QuoteCredit(harness, order, scope, OrderChangeType.Cancel);
+
+            await harness.ScopeCancel.CancelItemAsync(order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion);
+
+            var names = harness.Events.Dispatched.Select(e => e.GetType().Name).ToList();
+
+            Assert.Contains("OrderItemCancelled", names);
+            Assert.DoesNotContain("OrderServicesRemoved", names);
+        }
+
+        private static void QuoteCredit(
+            OrderSliceHarness harness,
+            Order order,
+            IReadOnlyList<long> scope,
+            OrderChangeType intent)
+            => harness.CancellationQuotes.Quote(
+                Bound(order, intent, scope, [Credit(1_000m, order.CurrencyId)]));
+
+        private static AcceptedScopeCancellation Bound(
+            Order order,
+            OrderChangeType intent,
+            IReadOnlyList<long> scope,
+            IReadOnlyList<AcceptedCancellationPricingLine> lines,
+            long? orderId = null,
+            int? expectedCommercialVersion = null,
+            int? currencyId = null)
+            => new(
                 "AirPrice",
                 QuoteId,
                 PricingSource.PricingEngine,
+                orderId ?? order.Id,
+                expectedCommercialVersion ?? order.CommercialVersion,
+                intent,
+                currencyId ?? order.CurrencyId,
                 scope,
-                [Credit(1_000m, order.CurrencyId)]));
+                lines);
 
         private static AcceptedCancellationPricingLine Credit(decimal amount, int currencyId)
             => new(

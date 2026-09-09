@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.ScopeCancellation
@@ -7,6 +7,10 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.ScopeCancellati
         string SourceSystem,
         string QuotedCancellationId,
         PricingSource PricingSource,
+        long OrderId,
+        int ExpectedCommercialVersion,
+        OrderChangeType Intent,
+        int SaleCurrencyId,
         IReadOnlyList<long> CancelledOrderServiceIds,
         IReadOnlyList<AcceptedCancellationPricingLine> PricingLines,
         string? SourcePricingReference = null);

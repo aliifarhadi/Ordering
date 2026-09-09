@@ -243,5 +243,7 @@
         public const string OrderCancellationQuoteSourceNotConfigured = "No authoritative order cancellation quote source is configured for this deployment.";
         public const string OrderScopeCancellationRequiresQuote = "A scoped cancellation on order {0} requires a quoted cancellation identity.";
         public const string OrderChangeVariantIsAmbiguous = "An order change must request exactly one of add service, cancel order item or remove services; {0} were supplied.";
+        public const string AcceptedCancellationDoesNotMatchTheRequest = "The accepted cancellation quote does not match the request: {0}.";
+        public const string AcceptedCancellationScopeMismatch = "The accepted cancellation covers a different service scope than the one requested.";
     }
 }

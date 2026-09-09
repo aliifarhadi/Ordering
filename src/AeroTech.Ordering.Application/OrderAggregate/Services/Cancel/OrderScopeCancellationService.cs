@@ -5,6 +5,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.ScopeCancellation;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.Ports.OrderChange;
@@ -193,6 +194,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             }
 
             ProviderOperationOutcome releaseOutcome;
+            AcceptedScopeCancellation accepted;
 
             try
             {
@@ -211,6 +213,27 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                     operation.ClaimGeneration,
                     cancellationToken);
 
+                accepted = await _quotes.AcceptQuotedCancellationAsync(
+                    new AcceptedQuotedCancellationSelection(
+                        _operations.ProviderOperationKey(operation, QuoteStep),
+                        orderId,
+                        operation.OperationId,
+                        quotedCancellationId,
+                        intent,
+                        expectedCommercialVersion.Value,
+                        orderItemId,
+                        scope,
+                        order.CurrencyId),
+                    cancellationToken);
+
+                EnsureAcceptedBindsToTheRequest(
+                    accepted,
+                    order,
+                    intent,
+                    scope,
+                    quotedCancellationId,
+                    expectedCommercialVersion.Value);
+
                 releaseOutcome = await _release.ReleaseAsync(orderId, operation, scope, cancellationToken);
             }
             catch
@@ -225,15 +248,34 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             if (releaseOutcome != ProviderOperationOutcome.Confirmed)
                 return await SuspendAsync(order, operation, intent, releaseOutcome, cancellationToken);
 
-            return await FinalizeAsync(
-                order,
-                operation,
-                intent,
-                orderItemId,
-                scope,
-                quotedCancellationId,
-                expectedCommercialVersion.Value,
-                cancellationToken);
+            return await FinalizeAsync(order, operation, intent, orderItemId, accepted, cancellationToken);
+        }
+
+        private void EnsureAcceptedBindsToTheRequest(
+            AcceptedScopeCancellation accepted,
+            Order order,
+            OrderChangeType intent,
+            IReadOnlyCollection<long> scope,
+            string quotedCancellationId,
+            int expectedCommercialVersion)
+        {
+            if (!string.Equals(accepted.QuotedCancellationId, quotedCancellationId, StringComparison.Ordinal))
+                throw ExceptionFactory.AcceptedCancellationDoesNotMatchTheRequest("quoted cancellation identity");
+
+            if (accepted.OrderId != order.Id)
+                throw ExceptionFactory.AcceptedCancellationDoesNotMatchTheRequest("order");
+
+            if (accepted.ExpectedCommercialVersion != expectedCommercialVersion)
+                throw ExceptionFactory.AcceptedCancellationDoesNotMatchTheRequest("commercial version");
+
+            if (accepted.Intent != intent)
+                throw ExceptionFactory.AcceptedCancellationDoesNotMatchTheRequest("operation intent");
+
+            if (accepted.SaleCurrencyId != order.CurrencyId)
+                throw ExceptionFactory.AcceptedCancellationDoesNotMatchTheRequest("sale currency");
+
+            if (!accepted.CancelledOrderServiceIds.Distinct().ToHashSet().SetEquals(scope))
+                throw ExceptionFactory.AcceptedCancellationScopeMismatch();
         }
 
         private async Task<ScopeCancellationOutcome> FinalizeAsync(
@@ -241,31 +283,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             OrderOperation operation,
             OrderChangeType intent,
             long? orderItemId,
-            IReadOnlyList<long> scope,
-            string quotedCancellationId,
-            int expectedCommercialVersion,
+            AcceptedScopeCancellation accepted,
             CancellationToken cancellationToken)
         {
             CancelledScope cancelled;
 
             try
             {
-                var accepted = await _quotes.AcceptQuotedCancellationAsync(
-                    new AcceptedQuotedCancellationSelection(
-                        _operations.ProviderOperationKey(operation, QuoteStep),
-                        order.Id,
-                        operation.OperationId,
-                        quotedCancellationId,
-                        intent,
-                        expectedCommercialVersion,
-                        orderItemId,
-                        scope,
-                        order.CurrencyId),
-                    cancellationToken);
-
                 cancelled = order.CancelScope(
                     new AcceptedScopeCancellationArgs(
-                        accepted with { CancelledOrderServiceIds = scope },
+                        accepted,
                         intent,
                         operation.OperationId,
                         orderItemId,

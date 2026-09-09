@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.ScopeCancellation;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
@@ -78,12 +78,12 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             foreach (var service in _orderServices.Where(candidate =>
                          candidate.Status != OrderServiceStatus.Cancelled && !serviceIds.Contains(candidate.Id)))
             {
-                var covered = service.CoveredServices
-                    .Select(coverage => coverage.CoveredOrderServiceId)
+                var orphaned = Policies.ServiceDependencyPolicy
+                    .DependenciesOf(service)
                     .FirstOrDefault(serviceIds.Contains);
 
-                if (covered != 0)
-                    throw ExceptionFactory.CancellationScopeHasDependentService(covered, service.Id);
+                if (orphaned != 0)
+                    throw ExceptionFactory.CancellationScopeHasDependentService(orphaned, service.Id);
             }
         }
 
@@ -182,25 +182,44 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 .Select(item => item.Id)
                 .ToList();
 
-            Causes(new OrderScopeCancelled(
-                idGenerator.NewId().ToString(),
-                Id.ToString(),
-                now,
-                Id,
-                OwnerAirlineId,
-                CustomerId,
-                staged.Change.Id,
-                staged.Change.ChangeType,
-                staged.Change.OperationId,
-                CommercialVersion,
-                NextEventOrdinal(),
-                CommercialSummary,
-                Status,
-                staged.ServiceIds,
-                cancelledItemIds,
-                changeSet?.Id,
-                CurrencyId,
-                CustomerTotal));
+            if (staged.Change.ChangeType == OrderChangeType.Cancel)
+                Causes(new OrderItemCancelled(
+                    idGenerator.NewId().ToString(),
+                    Id.ToString(),
+                    now,
+                    Id,
+                    OwnerAirlineId,
+                    CustomerId,
+                    staged.Change.Id,
+                    staged.Change.OperationId,
+                    CommercialVersion,
+                    NextEventOrdinal(),
+                    CommercialSummary,
+                    Status,
+                    cancelledItemIds,
+                    staged.ServiceIds,
+                    changeSet?.Id,
+                    CurrencyId,
+                    CustomerTotal));
+            else
+                Causes(new OrderServicesRemoved(
+                    idGenerator.NewId().ToString(),
+                    Id.ToString(),
+                    now,
+                    Id,
+                    OwnerAirlineId,
+                    CustomerId,
+                    staged.Change.Id,
+                    staged.Change.OperationId,
+                    CommercialVersion,
+                    NextEventOrdinal(),
+                    CommercialSummary,
+                    Status,
+                    staged.ServiceIds,
+                    cancelledItemIds,
+                    changeSet?.Id,
+                    CurrencyId,
+                    CustomerTotal));
 
             if (changeSet is not null)
                 RaisePricingChanged(staged.Change, changeSet, idGenerator, now);

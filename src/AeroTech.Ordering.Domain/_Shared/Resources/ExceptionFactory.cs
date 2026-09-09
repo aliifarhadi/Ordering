@@ -631,6 +631,12 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException OrderChangeVariantIsAmbiguous(params object?[] args) =>
             new(2907, ExceptionMessages.OrderChangeVariantIsAmbiguous, args) { HttpStatus = 422 };
 
+        public static BusinessException AcceptedCancellationDoesNotMatchTheRequest(params object?[] args) =>
+            new(2908, ExceptionMessages.AcceptedCancellationDoesNotMatchTheRequest, args) { HttpStatus = 409 };
+
+        public static BusinessException AcceptedCancellationScopeMismatch() =>
+            new(2909, ExceptionMessages.AcceptedCancellationScopeMismatch) { HttpStatus = 409 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }
