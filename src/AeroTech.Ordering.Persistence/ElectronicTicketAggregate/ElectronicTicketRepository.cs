@@ -19,6 +19,11 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
         public async Task<IReadOnlyList<ElectronicTicket>> ListByOperationAsync(long operationId, CancellationToken cancellationToken = default)
             => await Query().Where(ticket => ticket.OperationId == operationId).ToListAsync(cancellationToken);
 
+        public Task<ElectronicTicket?> FindByDocumentNumberAsync(
+            string documentNumber,
+            CancellationToken cancellationToken = default)
+            => Query().SingleOrDefaultAsync(ticket => ticket.DocumentNumber == documentNumber, cancellationToken);
+
         public async Task AddAsync(ElectronicTicket ticket, CancellationToken cancellationToken = default)
             => await _dbContext.Set<ElectronicTicket>().AddAsync(ticket, cancellationToken);
 
@@ -30,6 +35,8 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
                 .ThenInclude(record => record.Coupons)
                 .Include(ticket => ticket.RefundCorrections)
                 .ThenInclude(record => record.Coupons)
-                .Include(ticket => ticket.Revalidations);
+                .Include(ticket => ticket.Revalidations)
+                .Include(ticket => ticket.Exchanges)
+                .ThenInclude(record => record.Coupons);
     }
 }

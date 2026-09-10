@@ -33,6 +33,9 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public static Order CreateWithThroughFare(SequentialIdGenerator ids, TestClock clock)
             => Order.Create(Args(), AcceptedSource(clock, throughFare: true), OwnerAirlineId, ids, clock);
 
+        public static Order CreateOneWay(SequentialIdGenerator ids, TestClock clock)
+            => Order.Create(Args(), AcceptedSource(clock, oneWay: true), OwnerAirlineId, ids, clock);
+
         public static CreateOrderArgs Args() => new(
             CustomerId: 42,
             Channel: SalesChannel.BackOffice,
@@ -64,17 +67,27 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             CountryOfResidenceId: 1,
             Documents: []);
 
-        public static AcceptedOrderSource AcceptedSource(TestClock clock, bool throughFare = false)
+        public static AcceptedOrderSource AcceptedSource(TestClock clock, bool throughFare = false, bool oneWay = false)
         {
             var inboundFareId = throughFare ? OutboundAirFareId : InboundAirFareId;
             var outbound = clock.GetDateTime().AddDays(30);
             var inbound = clock.GetDateTime().AddDays(37);
 
-            var journeys = new[]
+            var journeys = new List<AcceptedJourney>
             {
-                Journey("B1", 1, 100, 200, OutboundFlightId, "W5 1234", outbound, BoundDirection.Outbound, OutboundAirFareId),
-                Journey("B2", 2, 200, 100, InboundFlightId, "W5 4321", inbound, BoundDirection.Inbound, inboundFareId)
+                Journey("B1", 1, 100, 200, OutboundFlightId, "W5 1234", outbound, BoundDirection.Outbound, OutboundAirFareId)
             };
+
+            if (!oneWay)
+                journeys.Add(Journey("B2", 2, 200, 100, InboundFlightId, "W5 4321", inbound, BoundDirection.Inbound, inboundFareId));
+
+            var legs = new List<(string JourneyRef, long FlightId, long FareId, decimal Fare, decimal Tax)>
+            {
+                ("B1", OutboundFlightId, OutboundAirFareId, OutboundFare, OutboundTax)
+            };
+
+            if (!oneWay)
+                legs.Add(("B2", InboundFlightId, inboundFareId, InboundFare, InboundTax));
 
             var products = new List<AcceptedProduct>();
             var pricingLines = new List<AcceptedSourcePricingLine>();
@@ -83,11 +96,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             {
                 var byProduct = new Dictionary<string, List<AcceptedService>>(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var leg in new[]
-                         {
-                             ("B1", OutboundFlightId, OutboundAirFareId, OutboundFare, OutboundTax),
-                             ("B2", InboundFlightId, inboundFareId, InboundFare, InboundTax)
-                         })
+                foreach (var leg in legs)
                 {
                     var (journeyRef, flightId, fareId, fare, tax) = leg;
                     var productRef = ProductRef(travellerRef, fareId);

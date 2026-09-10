@@ -35,6 +35,24 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
             ControlStatus = TicketCouponControlStatus.Local;
         }
 
+        internal TicketCoupon(
+            long id,
+            long ticketId,
+            int couponNumber,
+            long orderServiceId,
+            long journeySegmentId,
+            IssuedSegmentSnapshot issuedSegment,
+            string? fareBasis,
+            decimal issuanceValue,
+            int currencyId,
+            long predecessorTicketCouponId)
+            : this(id, ticketId, couponNumber, orderServiceId, journeySegmentId, issuedSegment, fareBasis, issuanceValue, currencyId)
+        {
+            PredecessorTicketCouponId = predecessorTicketCouponId;
+        }
+
+        public long? PredecessorTicketCouponId { get; private set; }
+
         public long TicketId { get; private set; }
 
         public int CouponNumber { get; private set; }
@@ -66,6 +84,8 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
         internal void RestoreFromRefund() => FinancialStatus = TicketCouponFinancialStatus.Open;
 
         internal void RebindToService(long orderServiceId) => CurrentOrderServiceId = orderServiceId;
+
+        internal void MarkExchanged() => FinancialStatus = TicketCouponFinancialStatus.Exchanged;
 
         internal void RecordProviderStatus(string? providerCouponStatusCode, TicketCouponControlStatus controlStatus)
         {

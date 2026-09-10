@@ -86,7 +86,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 accepted.Replacement.Segment, args.ReplacementOrderSegmentId, itineraryId, idGenerator);
 
             var service = StageReplacementService(
-                accepted, args.ReplacementOrderServiceId, replaced, segment.Id, idGenerator, now);
+                accepted.Replacement, args.ReplacementOrderServiceId, replaced, segment.Id, idGenerator, now);
 
             var change = StageOrderChange(
                 new AcceptedPriceChangeArgs(
@@ -172,14 +172,13 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
         }
 
         private OrderService StageReplacementService(
-            AcceptedVoluntaryChange accepted,
+            AcceptedChangeReplacement replacement,
             long serviceId,
             OrderService replaced,
             long segmentId,
             IIdGenerator idGenerator,
             DateTimeOffset now)
         {
-            var replacement = accepted.Replacement;
 
             var service = new OrderService(new CreateOrderServiceArgs(
                 serviceId,

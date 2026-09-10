@@ -365,6 +365,40 @@
 
         public const string AcceptedChangePlanNotFound = "No durable accepted change plan exists for operation {0}.";
 
+        public const string ExchangeRequiresSingleCouponTicket = "Document {0} carries {1} coupons; only a single-coupon exchange is supported in this phase.";
+
+        public const string ExchangeRequiresFullyUnusedTicket = "Coupon {0} of document {1} is {2}; only a fully unused document can be exchanged in this phase.";
+
+        public const string DocumentAlreadyExchanged = "Document {0} has already been exchanged into document {1}.";
+
+        public const string ExchangeBlockedByAssociatedMiscDocument = "Coupon {0} carries an associated miscellaneous document {1} that must be serviced before an exchange.";
+
+        public const string AcceptedExchangeDoesNotMatchTheRequest = "The accepted exchange does not match the requested {0}.";
+
+        public const string ExchangeQuoteExpired = "Exchange quote {0} expired at {1}.";
+
+        public const string ExchangePricingMalformed = "The accepted exchange {0} carries malformed pricing: {1}.";
+
+        public const string ExchangeTransferOutsidePredecessorDocument = "Pricing line {0} is not carried by predecessor document {1} and cannot be transferred.";
+
+        public const string ExchangeSuccessorAttributionUnresolved = "Successor document attribution {0} does not resolve to an accepted exchange pricing line.";
+
+        public const string ExchangeQuoteSourceNotConfigured = "No exchange quote authority is configured for this deployment.";
+
+        public const string DocumentExchangeSourceNotConfigured = "No accountable document exchange provider is configured for this deployment.";
+
+        public const string OrderExchangeRequiresQuote = "An exchange on order {0} requires an accepted exchange quote.";
+
+        public const string AcceptedExchangePlanNotFound = "No durable accepted exchange plan exists for operation {0}.";
+
+        public const string ExchangeQuoteVariantIsAmbiguous = "A change quote request must name exactly one variant; {0} were supplied.";
+
+        public const string AccountableDocumentAmbiguous = "Order service {0} is covered by more than one accountable document on order {1}.";
+
+        public const string CouponControlForbidsExchange = "Coupon {0} is under {1} control; document control must be local before an exchange.";
+
+        public const string DocumentNotExchangeable = "Document {0} is {1}; only an issued document can be exchanged.";
+
         public const string RefundRequiresCouponScope = "A refund of an accountable document on order {0} requires an explicit coupon scope.";
     }
 }

@@ -19,6 +19,7 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
             builder.HasIndex(ticket => ticket.OriginalOrderId);
             builder.HasIndex(ticket => ticket.CurrentServicingOrderId);
             builder.HasIndex(ticket => new { ticket.OperationId, ticket.TravelerId }).IsUnique();
+            builder.HasIndex(ticket => ticket.PredecessorElectronicTicketId);
 
             builder.HasMany(ticket => ticket.Coupons)
                 .WithOne()
@@ -45,6 +46,11 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
                 .HasForeignKey(record => record.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            builder.HasMany(ticket => ticket.Exchanges)
+                .WithOne()
+                .HasForeignKey(record => record.PredecessorElectronicTicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+
 
             builder.OwnsOne(ticket => ticket.VoidRecord, record =>
             {
@@ -61,6 +67,7 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
             builder.Navigation(ticket => ticket.Refunds).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(ticket => ticket.RefundCorrections).UsePropertyAccessMode(PropertyAccessMode.Field);
             builder.Navigation(ticket => ticket.Revalidations).UsePropertyAccessMode(PropertyAccessMode.Field);
+            builder.Navigation(ticket => ticket.Exchanges).UsePropertyAccessMode(PropertyAccessMode.Field);
         }
     }
 
@@ -76,6 +83,7 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
 
             builder.HasIndex(coupon => new { coupon.TicketId, coupon.CouponNumber }).IsUnique();
             builder.HasIndex(coupon => coupon.CurrentOrderServiceId);
+            builder.HasIndex(coupon => coupon.PredecessorTicketCouponId).IsUnique();
 
             builder.OwnsOne(coupon => coupon.IssuedSegment, segment =>
             {

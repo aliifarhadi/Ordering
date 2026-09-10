@@ -97,6 +97,12 @@ namespace AeroTech.Ordering.Providers
                 services.AddSingleton<DeterministicManualRefundAuthorizationAdapter>();
                 services.AddScoped<Domain.Ports.ManualRefundAuthorization.IManualRefundAuthorizationPort>(
                     provider => provider.GetRequiredService<DeterministicManualRefundAuthorizationAdapter>());
+                services.AddSingleton<DeterministicExchangeQuoteAdapter>();
+                services.AddScoped<Domain.Ports.Exchange.IExchangeQuotePort>(
+                    provider => provider.GetRequiredService<DeterministicExchangeQuoteAdapter>());
+                services.AddSingleton<DeterministicDocumentExchangeAdapter>();
+                services.AddScoped<Domain.Ports.DocumentExchange.IDocumentExchangePort>(
+                    provider => provider.GetRequiredService<DeterministicDocumentExchangeAdapter>());
             }
             else
             {
@@ -123,6 +129,10 @@ namespace AeroTech.Ordering.Providers
                     DocumentChange.Services.UnconfiguredDocumentChangeEligibilityProvider>();
                 services.AddScoped<Domain.Ports.DocumentRevalidation.IDocumentRevalidationPort,
                     DocumentRevalidation.Services.UnconfiguredDocumentRevalidationProvider>();
+                services.AddScoped<Domain.Ports.Exchange.IExchangeQuotePort,
+                    Exchange.Services.UnconfiguredExchangeQuoteProvider>();
+                services.AddScoped<Domain.Ports.DocumentExchange.IDocumentExchangePort,
+                    DocumentExchange.Services.UnconfiguredDocumentExchangeProvider>();
             }
 
             return services;

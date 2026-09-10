@@ -829,6 +829,60 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException AcceptedChangePlanNotFound(params object?[] args) =>
             new(2974, ExceptionMessages.AcceptedChangePlanNotFound, args) { HttpStatus = 500 };
 
+        public static BusinessException ExchangeRequiresSingleCouponTicket(params object?[] args) =>
+            new(2975, ExceptionMessages.ExchangeRequiresSingleCouponTicket, args) { HttpStatus = 422 };
+
+        public static BusinessException ExchangeRequiresFullyUnusedTicket(params object?[] args) =>
+            new(2976, ExceptionMessages.ExchangeRequiresFullyUnusedTicket, args) { HttpStatus = 422 };
+
+        public static BusinessException DocumentAlreadyExchanged(params object?[] args) =>
+            new(2977, ExceptionMessages.DocumentAlreadyExchanged, args) { HttpStatus = 409 };
+
+        public static BusinessException ExchangeBlockedByAssociatedMiscDocument(params object?[] args) =>
+            new(2978, ExceptionMessages.ExchangeBlockedByAssociatedMiscDocument, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedExchangeDoesNotMatchTheRequest(params object?[] args) =>
+            new(2979, ExceptionMessages.AcceptedExchangeDoesNotMatchTheRequest, args) { HttpStatus = 409 };
+
+        public static BusinessException ExchangeQuoteExpired(params object?[] args) =>
+            new(2980, ExceptionMessages.ExchangeQuoteExpired, args) { HttpStatus = 409 };
+
+        public static BusinessException ExchangePricingMalformed(params object?[] args) =>
+            new(2981, ExceptionMessages.ExchangePricingMalformed, args) { HttpStatus = 422 };
+
+        public static BusinessException ExchangeTransferOutsidePredecessorDocument(params object?[] args) =>
+            new(2982, ExceptionMessages.ExchangeTransferOutsidePredecessorDocument, args) { HttpStatus = 422 };
+
+        public static BusinessException ExchangeSuccessorAttributionUnresolved(params object?[] args) =>
+            new(2983, ExceptionMessages.ExchangeSuccessorAttributionUnresolved, args) { HttpStatus = 422 };
+
+        public static BusinessException ExchangeQuoteSourceNotConfigured() =>
+            new(2984, ExceptionMessages.ExchangeQuoteSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException DocumentExchangeSourceNotConfigured() =>
+            new(2985, ExceptionMessages.DocumentExchangeSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException OrderExchangeRequiresQuote(params object?[] args) =>
+            new(2986, ExceptionMessages.OrderExchangeRequiresQuote, args) { HttpStatus = 422 };
+
+        public static BusinessException AcceptedExchangePlanNotFound(params object?[] args) =>
+            new(2987, ExceptionMessages.AcceptedExchangePlanNotFound, args) { HttpStatus = 500 };
+
+        public static BusinessException ExchangeQuoteVariantIsAmbiguous(params object?[] args) =>
+            new(2988, ExceptionMessages.ExchangeQuoteVariantIsAmbiguous, args) { HttpStatus = 422 };
+
+        public static BusinessException AccountableDocumentAmbiguous(params object?[] args) =>
+            new(2989, ExceptionMessages.AccountableDocumentAmbiguous, args) { HttpStatus = 409 };
+
+        public static BusinessException CouponControlForbidsExchange(params object?[] args) =>
+            new(2990, ExceptionMessages.CouponControlForbidsExchange, args) { HttpStatus = 422 };
+
+        public static BusinessException DocumentNotExchangeable(params object?[] args) =>
+            new(2991, ExceptionMessages.DocumentNotExchangeable, args) { HttpStatus = 409 };
+
+        public static BusinessException ExchangeRejectionReplayed(int code, int httpStatus, string message) =>
+            new(code, message) { HttpStatus = httpStatus };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

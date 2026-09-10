@@ -373,6 +373,12 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long>("OriginalOrderId")
                         .HasColumnType("bigint");
 
+                    b.Property<long?>("PredecessorElectronicTicketId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("PredecessorExchangeOperationId")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("ProviderReference")
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
@@ -401,10 +407,126 @@ namespace AeroTech.Ordering.Persistence.Migrations
 
                     b.HasIndex("OriginalOrderId");
 
+                    b.HasIndex("PredecessorElectronicTicketId");
+
                     b.HasIndex("OperationId", "TravelerId")
                         .IsUnique();
 
                     b.ToTable("ElectronicTickets", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentExchangeCoupon", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("DocumentExchangeRecordId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("PredecessorCouponNumber")
+                        .HasColumnType("int");
+
+                    b.Property<long>("PredecessorTicketCouponId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("PreviousOrderServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ReplacementOrderServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SuccessorCouponNumber")
+                        .HasColumnType("int");
+
+                    b.Property<long>("SuccessorTicketCouponId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PreviousOrderServiceId");
+
+                    b.HasIndex("ReplacementOrderServiceId");
+
+                    b.HasIndex("SuccessorTicketCouponId")
+                        .IsUnique();
+
+                    b.HasIndex("DocumentExchangeRecordId", "PredecessorTicketCouponId")
+                        .IsUnique();
+
+                    b.ToTable("DocumentExchangeCoupons", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentExchangeRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ActorId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ActorScope")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTimeOffset>("ExchangedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("LastUpdateTime")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("PredecessorElectronicTicketId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ProviderReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("QuotedExchangeId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("SourcePricingReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("SuccessorDocumentNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<long>("SuccessorElectronicTicketId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TargetSelectionRef")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperationId")
+                        .IsUnique();
+
+                    b.HasIndex("PredecessorElectronicTicketId")
+                        .IsUnique();
+
+                    b.HasIndex("SuccessorElectronicTicketId")
+                        .IsUnique();
+
+                    b.ToTable("DocumentExchangeRecords", "Order");
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentPriceLink", b =>
@@ -792,6 +914,9 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long>("OrderServiceId")
                         .HasColumnType("bigint");
 
+                    b.Property<long?>("PredecessorTicketCouponId")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("ProviderCouponStatusCode")
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)");
@@ -802,6 +927,10 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CurrentOrderServiceId");
+
+                    b.HasIndex("PredecessorTicketCouponId")
+                        .IsUnique()
+                        .HasFilter("[PredecessorTicketCouponId] IS NOT NULL");
 
                     b.HasIndex("TicketId", "CouponNumber")
                         .IsUnique();
@@ -3609,6 +3738,154 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("AcceptedChangePlans", "Order");
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.AcceptedExchangePlanRow", b =>
+                {
+                    b.Property<long>("OperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AcceptedPlan")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Disposition")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DispositionDetail")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
+                    b.Property<string>("DocumentExchangeDetail")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<int?>("DocumentExchangeOutcome")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DocumentExchangeProviderReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("EligibilityDetail")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<int?>("EligibilityOutcome")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ExpectedCommercialVersion")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MonetaryOutcome")
+                        .HasColumnType("int");
+
+                    b.Property<long>("OrderId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("PredecessorCouponNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PredecessorDocumentNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<long>("PredecessorElectronicTicketId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("PredecessorOrderServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("PredecessorTicketCouponId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("PricingSource")
+                        .HasColumnType("int");
+
+                    b.Property<string>("QuotedExchangeId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int?>("RejectionCode")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RejectionHttpStatus")
+                        .HasColumnType("int");
+
+                    b.Property<long>("ReplacementOrderSegmentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ReplacementOrderServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ReservationExternalRef")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("ReservationOutcome")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SaleCurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourcePricingReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int?>("SuccessorAuthority")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SuccessorCouponNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SuccessorDocumentNumber")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<long>("SuccessorElectronicTicketId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("SuccessorIssuerCarrierId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("SuccessorIssuingOfficeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SuccessorTicketCouponId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("SuccessorVoidDeadline")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("TargetSelectionRef")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("OperationId");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("PredecessorElectronicTicketId");
+
+                    b.HasIndex("SuccessorElectronicTicketId")
+                        .IsUnique();
+
+                    b.ToTable("AcceptedExchangePlans", "Order");
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.CommandReceipt", b =>
                 {
                     b.Property<long>("Id")
@@ -3980,6 +4257,24 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         });
 
                     b.Navigation("VoidRecord");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentExchangeCoupon", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentExchangeRecord", null)
+                        .WithMany("Coupons")
+                        .HasForeignKey("DocumentExchangeRecordId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentExchangeRecord", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Domain.ElectronicTicketAggregate.ElectronicTicket", null)
+                        .WithMany("Exchanges")
+                        .HasForeignKey("PredecessorElectronicTicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentPriceLink", b =>
@@ -4933,6 +5228,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
                 {
                     b.Navigation("Coupons");
 
+                    b.Navigation("Exchanges");
+
                     b.Navigation("PriceLinks");
 
                     b.Navigation("RefundCorrections");
@@ -4940,6 +5237,11 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Navigation("Refunds");
 
                     b.Navigation("Revalidations");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentExchangeRecord", b =>
+                {
+                    b.Navigation("Coupons");
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities.DocumentRefundCorrectionRecord", b =>

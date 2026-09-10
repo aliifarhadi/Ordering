@@ -274,6 +274,15 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             DocumentCouponId = documentCouponId;
         }
 
+        internal void MarkSupersededByExchange()
+        {
+            if (DocumentStatus == OrderServiceDocumentStatus.Issued)
+                DocumentStatus = OrderServiceDocumentStatus.Exchanged;
+
+            Status = OrderServiceStatus.Cancelled;
+            CommercialStatus = OrderServiceCommercialStatus.Exchanged;
+        }
+
         internal void MarkSupersededByVoluntaryChange()
         {
             if (DocumentStatus == OrderServiceDocumentStatus.Issued)

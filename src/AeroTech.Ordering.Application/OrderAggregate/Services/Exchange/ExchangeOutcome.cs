@@ -1,0 +1,36 @@
+using AeroTech.Messages.Ordering.Enums;
+
+namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
+{
+    public sealed record ExchangeOutcome(
+        long OrderId,
+        long OperationId,
+        OrderChangeType CommercialResult,
+        ServicingOperationKind TechnicalOperation,
+        long PredecessorElectronicTicketId,
+        string PredecessorDocumentNumber,
+        int PredecessorDocumentVersion,
+        long PredecessorTicketCouponId,
+        long? SuccessorElectronicTicketId,
+        string? SuccessorDocumentNumber,
+        int? SuccessorDocumentVersion,
+        long? SuccessorTicketCouponId,
+        long ReplacedOrderServiceId,
+        long? ReplacementOrderServiceId,
+        long? OrderChangeId,
+        long? PriceChangeSetId,
+        int CommercialVersion,
+        long FinancialSequence,
+        long ObligationVersion,
+        decimal CustomerTotal,
+        DocumentExchangeEligibilityOutcome? EligibilityOutcome,
+        ProviderOperationOutcome ReservationChangeOutcome,
+        ProviderOperationOutcome DocumentExchangeOutcome,
+        string? ProviderExchangeReference,
+        ExchangeDocumentOutcome DocumentOutcome,
+        ServicingOperationStatus OperationStatus,
+        ChangeMonetaryOutcome? MonetaryOutcome,
+        bool DeferredToExpandedExchange,
+        string? DeferralReason,
+        bool IsReplay);
+}

@@ -1,4 +1,5 @@
 ﻿using AeroTech.Framework.Core.ServiceContracts;
+using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Access;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer.Ota;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;

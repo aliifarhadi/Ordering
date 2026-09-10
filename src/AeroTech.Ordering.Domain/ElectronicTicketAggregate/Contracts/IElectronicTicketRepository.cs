@@ -8,6 +8,8 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts
 
         Task<IReadOnlyList<ElectronicTicket>> ListByOperationAsync(long operationId, CancellationToken cancellationToken = default);
 
+        Task<ElectronicTicket?> FindByDocumentNumberAsync(string documentNumber, CancellationToken cancellationToken = default);
+
         Task AddAsync(ElectronicTicket ticket, CancellationToken cancellationToken = default);
     }
 }

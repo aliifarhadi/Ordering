@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Exchange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Query.OrderAggregate.View;
 
@@ -9,13 +11,12 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests
         IReadOnlyList<AcceptSelectedQuotedOffer>? AcceptSelectedQuotedOfferList = null,
         CancelOrderItem? CancelOrderItem = null,
         RemoveOrderServices? RemoveOrderServices = null,
-        AcceptQuotedChange? AcceptQuotedChange = null);
+        AcceptQuotedChange? AcceptQuotedChange = null,
+        AcceptExchange? AcceptExchange = null);
 
     public sealed record AcceptQuotedChange(
         long OrderServiceId,
         [property: Required] string QuotedChangeId);
-
-    public sealed record ChangeQuoteRequestBody(long OrderServiceId);
 
     public sealed record AcceptSelectedQuotedOffer(
         [property: Required] string QuotedOfferId,
@@ -29,15 +30,11 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests
         [property: Required] IReadOnlyList<long> OrderServiceIds,
         [property: Required] string QuotedCancellationId);
 
-    public sealed record OrderChangeResponse(long OperationId, int CommercialVersion, OrderView? Order);
-
-    public enum OrderChangeVariant
-    {
-        AddService = 1,
-        CancelOrderItem = 2,
-        RemoveOrderServices = 3,
-        AcceptQuotedChange = 4
-    }
+    public sealed record OrderChangeResponse(
+        long OperationId,
+        int CommercialVersion,
+        OrderView? Order,
+        ExchangeOutcome? Exchange = null);
 
     public static class OrderChangeRequestMapper
     {
@@ -61,6 +58,9 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests
 
             if (request.AcceptQuotedChange is not null)
                 variants.Add(OrderChangeVariant.AcceptQuotedChange);
+
+            if (request.AcceptExchange is not null)
+                variants.Add(OrderChangeVariant.AcceptExchange);
 
             return variants.Count == 1
                 ? variants[0]

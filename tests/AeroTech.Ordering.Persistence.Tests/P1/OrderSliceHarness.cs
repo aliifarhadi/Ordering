@@ -5,6 +5,7 @@ using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
 using AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Exchange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
@@ -161,6 +162,25 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 frameworkClock,
                 projector);
             Refund = new RefundService(Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
+            ExchangeQuotes = new DeterministicExchangeQuoteAdapter();
+            DocumentExchanges = new DeterministicDocumentExchangeAdapter();
+            ExchangePlans = new AcceptedExchangePlanStore(_command, frameworkClock);
+            Exchange = new ExchangeService(
+                Orders,
+                tickets,
+                new ExchangePreconditions(tickets, miscDocuments),
+                ExchangeQuotes,
+                ReservationChanges,
+                DocumentExchanges,
+                ExchangePlans,
+                coordinator,
+                operationStore,
+                receipts,
+                caller,
+                unitOfWork,
+                Ids,
+                frameworkClock,
+                projector);
         }
 
         public SequentialIdGenerator Ids { get; }
@@ -243,6 +263,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
         public IRefundService Refund { get; }
 
+        public DeterministicExchangeQuoteAdapter ExchangeQuotes { get; }
+
+        public DeterministicDocumentExchangeAdapter DocumentExchanges { get; }
+
+        public AcceptedExchangePlanStore ExchangePlans { get; }
+
+        public IExchangeService Exchange { get; }
+
         public ICreateOrderService Create { get; }
 
         public CommandReceiptStore Receipts { get; } = default!;
@@ -316,6 +344,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         }
 
         public Task<Order> CreateOrderAsync() => CreateOrderAsync(MultiPassengerOrderFactory.Create(Ids, Clock));
+
+        public Task<Order> CreateOneWayOrderAsync() => CreateOrderAsync(MultiPassengerOrderFactory.CreateOneWay(Ids, Clock));
 
         public async Task<Order> CreateOrderAsync(Order order)
         {
