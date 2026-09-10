@@ -342,7 +342,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Fact]
-        public async Task B2_a_used_coupon_fails_before_acceptance()
+        public async Task B2_a_used_coupon_leaves_the_changed_service_without_live_accountable_coverage()
         {
             await using var setup = NewHarness();
             var scenario = await TicketedAsync(_fixture, setup);
@@ -352,10 +352,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await using var harness = NewHarness();
             Register(harness, scenario);
 
+            var quoteRefusal = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.Exchange.QuoteAsync(scenario.OrderId, scenario.ChangedOrderServiceIds));
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
 
-            Assert.Equal(2976, refusal.Code);
+            Assert.Equal(2915, quoteRefusal.Code);
+            Assert.Equal(2915, refusal.Code);
+            Assert.Empty(harness.ExchangeQuotes.ObservedQuoteRequests);
             await AssertNothingHappenedAsync(harness, scenario);
         }
 

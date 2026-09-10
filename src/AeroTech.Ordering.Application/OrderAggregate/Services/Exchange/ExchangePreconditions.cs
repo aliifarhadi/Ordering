@@ -77,7 +77,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             foreach (var serviceId in changed)
             {
                 var candidates = tickets
-                    .Where(ticket => ticket.Coupons.Any(coupon => coupon.CurrentOrderServiceId == serviceId))
+                    .Where(ticket => ticket.Coupons.Any(coupon => CoversForServicing(coupon, serviceId)))
                     .ToList();
 
                 covering.Add(candidates.Count switch
@@ -92,6 +92,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 ? covering[0]
                 : throw ExceptionFactory.ExchangeScopeSpansDocuments(string.Join(", ", changed));
         }
+
+        private static bool CoversForServicing(TicketCoupon coupon, long orderServiceId)
+            => coupon.CurrentOrderServiceId == orderServiceId
+               && coupon.FinancialStatus == TicketCouponFinancialStatus.Open;
 
         private async Task EnsureNoAssociatedMiscDocumentAsync(
             long orderId,
