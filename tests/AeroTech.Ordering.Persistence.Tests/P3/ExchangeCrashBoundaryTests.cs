@@ -483,7 +483,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 first.OperationId,
                 ProviderOperationOutcome.Confirmed,
                 "EXCH-RECOVERED",
-                new SuccessorDocumentIdentity($"EXC{first.OperationId}", 1, null, DocumentAuthority.Local, null, [new SuccessorCouponIdentity(scenario.CouponId, 1)]),
+                new SuccessorDocumentIdentity($"EXC{first.OperationId}", 1, null, DocumentAuthority.Local, null, [new SuccessorCouponIdentity(1, 1)]),
                 null);
             await setup.UnitOfWork.SaveChangesAsync();
 

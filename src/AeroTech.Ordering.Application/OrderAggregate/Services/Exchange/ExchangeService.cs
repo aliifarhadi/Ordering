@@ -546,7 +546,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 var segment = AcceptedCoupon(plan, coupon).Replacement!.Segment;
 
                 return new DocumentExchangeCouponRequest(
-                    coupon.PredecessorTicketCouponId,
                     coupon.PredecessorCouponNumber,
                     coupon.Disposition,
                     coupon.ReplacementOrderServiceId!.Value,
@@ -558,7 +557,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             var current = ContinuedSegment(order, coupon);
 
             return new DocumentExchangeCouponRequest(
-                coupon.PredecessorTicketCouponId,
                 coupon.PredecessorCouponNumber,
                 coupon.Disposition,
                 coupon.PredecessorOrderServiceId,
@@ -751,13 +749,17 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             => plan.Accepted.Coupons.Single(candidate => candidate.PredecessorTicketCouponId == coupon.PredecessorTicketCouponId);
 
         private static int? HostCouponNumber(AcceptedExchangePlan plan, AcceptedExchangePlanCoupon coupon)
-            => coupon.SuccessorCouponNumber
-               ?? plan.Successor?.Coupons
-                   .FirstOrDefault(identity => identity.PredecessorTicketCouponId == coupon.PredecessorTicketCouponId)?
-                   .CouponNumber;
+            => coupon.SuccessorCouponNumber ?? ReportedCouponNumber(plan.Successor, coupon);
 
         private static int SuccessorCouponNumber(SuccessorDocumentIdentity successor, AcceptedExchangePlanCoupon coupon)
-            => successor.Coupons.Single(identity => identity.PredecessorTicketCouponId == coupon.PredecessorTicketCouponId).CouponNumber;
+            => ReportedCouponNumber(successor, coupon)
+               ?? throw ExceptionFactory.ExchangeSuccessorAttributionUnresolved(coupon.PredecessorCouponNumber);
+
+        private static int? ReportedCouponNumber(SuccessorDocumentIdentity? successor, AcceptedExchangePlanCoupon coupon)
+            => successor?.Coupons
+                .Where(identity => identity.PredecessorCouponNumber == coupon.PredecessorCouponNumber)
+                .Select(identity => (int?)identity.CouponNumber)
+                .FirstOrDefault();
 
         private async Task<bool> IsUsableSuccessorIdentityAsync(
             ElectronicTicket predecessor,
@@ -779,15 +781,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
         private static bool CoversEveryCoupon(AcceptedExchangePlan plan, SuccessorDocumentIdentity successor)
         {
-            if (successor.Coupons.Count != plan.Coupons.Count)
+            var planned = plan.Coupons.Select(coupon => coupon.PredecessorCouponNumber).ToHashSet();
+            var reported = successor.Coupons.Select(identity => identity.PredecessorCouponNumber).ToList();
+
+            if (reported.Count != planned.Count || reported.Distinct().Count() != reported.Count)
                 return false;
 
-            if (successor.Coupons.Any(identity => identity.CouponNumber < 1)
-                || successor.Coupons.Select(identity => identity.CouponNumber).Distinct().Count() != successor.Coupons.Count)
+            if (!reported.All(planned.Contains))
                 return false;
 
-            return plan.Coupons.All(coupon =>
-                successor.Coupons.Count(identity => identity.PredecessorTicketCouponId == coupon.PredecessorTicketCouponId) == 1);
+            var issued = successor.Coupons.Select(identity => identity.CouponNumber).ToList();
+
+            return issued.All(number => number >= 1) && issued.Distinct().Count() == issued.Count;
         }
 
         private static bool ContradictsDurableEvidence(AcceptedExchangePlan plan, DocumentExchangeResult result)
@@ -800,7 +805,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 foreach (var identity in known.Coupons)
                 {
                     var reportedCoupon = reported.Coupons.FirstOrDefault(candidate =>
-                        candidate.PredecessorTicketCouponId == identity.PredecessorTicketCouponId);
+                        candidate.PredecessorCouponNumber == identity.PredecessorCouponNumber);
 
                     if (reportedCoupon is not null && reportedCoupon.CouponNumber != identity.CouponNumber)
                         return true;

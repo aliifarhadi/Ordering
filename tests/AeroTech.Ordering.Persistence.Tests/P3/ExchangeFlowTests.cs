@@ -755,7 +755,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(ExchangeSourceFactory.PricingReference, exchanged.SourcePricingReference);
             Assert.Equal(outcome.PredecessorDocumentNumber, exchanged.PredecessorDocumentNumber);
             Assert.Equal(1, couponRequest.PredecessorCouponNumber);
-            Assert.Equal(scenario.CouponId, couponRequest.PredecessorTicketCouponId);
+            Assert.DoesNotContain(scenario.CouponId.ToString(), string.Join('|', exchanged.Coupons.Select(coupon => coupon.PredecessorCouponNumber)));
             Assert.Equal(ExchangeCouponDisposition.Replaced, couponRequest.Disposition);
             Assert.Equal(replacementId, couponRequest.OrderServiceId);
             Assert.Equal(ExchangeSourceFactory.ReplacementFlightNumber, couponRequest.FlightNumber);

@@ -199,7 +199,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
             foreach (var identity in successor.Coupons)
             {
                 var coupon = row.Coupons.FirstOrDefault(candidate =>
-                    candidate.PredecessorTicketCouponId == identity.PredecessorTicketCouponId);
+                    candidate.PredecessorCouponNumber == identity.PredecessorCouponNumber);
 
                 if (coupon is not null)
                     coupon.SuccessorCouponNumber = identity.CouponNumber;
@@ -221,7 +221,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         .Where(coupon => coupon.SuccessorCouponNumber is not null)
                         .OrderBy(coupon => coupon.PredecessorCouponNumber)
                         .Select(coupon => new SuccessorCouponIdentity(
-                            coupon.PredecessorTicketCouponId, coupon.SuccessorCouponNumber!.Value))
+                            coupon.PredecessorCouponNumber, coupon.SuccessorCouponNumber!.Value))
                         .ToList());
 
         private IQueryable<AcceptedExchangePlanRow> Query()

@@ -4,6 +4,7 @@ using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Arguments;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
+using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Policies;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain._Shared.Resources;
@@ -32,9 +33,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             var ticket = await ResolveAccountableDocumentAsync(order.Id, changed, cancellationToken);
             var coupons = ticket.Coupons.OrderBy(coupon => coupon.CouponNumber).ToList();
 
-            ticket.EnsureCanBeExchanged(coupons
-                .Select(coupon => new ExchangeCouponScope(coupon.Id, coupon.CurrentOrderServiceId))
-                .ToList());
+            FullyUnusedExchangePolicy.EnsureEligible(
+                ticket,
+                coupons.Select(coupon => new ExchangeCouponScope(coupon.Id, coupon.CurrentOrderServiceId)).ToList());
 
             foreach (var coupon in coupons)
             {

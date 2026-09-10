@@ -892,6 +892,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ExchangeTravellerMismatch(params object?[] args) =>
             new(2996, ExceptionMessages.ExchangeTravellerMismatch, args) { HttpStatus = 422 };
 
+        public static BusinessException CouponIsNotExchangeable(params object?[] args) =>
+            new(2997, ExceptionMessages.CouponIsNotExchangeable, args) { HttpStatus = 422 };
+
         public static BusinessException ExchangeRejectionReplayed(int code, int httpStatus, string message) =>
             new(code, message) { HttpStatus = httpStatus };
 

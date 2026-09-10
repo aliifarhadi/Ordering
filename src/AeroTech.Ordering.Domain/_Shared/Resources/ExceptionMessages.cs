@@ -365,7 +365,7 @@
 
         public const string AcceptedChangePlanNotFound = "No durable accepted change plan exists for operation {0}.";
 
-        public const string ExchangeRequiresFullyUnusedTicket = "Coupon {0} of document {1} is {2}; only a fully unused document can be exchanged in this phase.";
+        public const string ExchangeRequiresFullyUnusedTicket = "Document {0} carries used coupon {1} ({2}); the fully unused exchange capability cannot reissue a partly used document.";
 
         public const string DocumentAlreadyExchanged = "Document {0} has already been exchanged into document {1}.";
 
@@ -395,17 +395,19 @@
 
         public const string CouponControlForbidsExchange = "Coupon {0} is under {1} control; document control must be local before an exchange.";
 
-        public const string DocumentNotExchangeable = "Document {0} is {1}; only an issued document can be exchanged.";
+        public const string DocumentNotExchangeable = "Document {0} is {1} and can no longer be exchanged.";
 
         public const string ExchangePredecessorPricingEvidenceIncomplete = "Pricing line {0} carried by document {1} has no source identity and cannot be offered for exchange.";
 
-        public const string ExchangeCouponScopeIncomplete = "Document {0} carries {1} coupons but the exchange scope names {2}; every coupon must be covered exactly once.";
+        public const string ExchangeCouponScopeIncomplete = "Document {0} carries {1} coupons but the fully unused exchange scope names {2}; this capability reissues every coupon of the document exactly once.";
 
         public const string ExchangeScopeRequiresChangedServices = "An exchange on order {0} requires a non-empty set of distinct changed order services.";
 
         public const string ExchangeScopeSpansDocuments = "Order services {0} are not all covered by the same accountable document.";
 
         public const string ExchangeTravellerMismatch = "Order service {0} is not held for traveller {1} of document {2}.";
+
+        public const string CouponIsNotExchangeable = "Coupon {0} of document {1} is {2}; only an unused coupon can be exchanged.";
 
         public const string RefundRequiresCouponScope = "A refund of an accountable document on order {0} requires an explicit coupon scope.";
     }

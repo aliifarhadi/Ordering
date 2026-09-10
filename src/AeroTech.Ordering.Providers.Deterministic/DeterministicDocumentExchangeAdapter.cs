@@ -25,6 +25,12 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public bool OmitSuccessorCoupons { get; set; }
 
+        public bool DuplicatePredecessorCouponMapping { get; set; }
+
+        public bool DuplicateSuccessorCouponNumber { get; set; }
+
+        public int? UnknownPredecessorCouponNumber { get; set; }
+
         public string? SuccessorDocumentNumber { get; set; }
 
         public string? RecoveredSuccessorDocumentNumber { get; set; }
@@ -113,12 +119,29 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 IssuingOfficeId,
                 Authority,
                 null,
-                OmitSuccessorCoupons
-                    ? []
-                    : request.Coupons
-                        .OrderBy(coupon => coupon.PredecessorCouponNumber)
-                        .Select((coupon, index) => new SuccessorCouponIdentity(coupon.PredecessorTicketCouponId, index + 1))
-                        .ToList());
+                SuccessorCoupons(request));
+
+        private IReadOnlyList<SuccessorCouponIdentity> SuccessorCoupons(DocumentExchangeRequest request)
+        {
+            if (OmitSuccessorCoupons)
+                return [];
+
+            var reissued = request.Coupons
+                .OrderBy(coupon => coupon.PredecessorCouponNumber)
+                .Select((coupon, index) => new SuccessorCouponIdentity(coupon.PredecessorCouponNumber, index + 1))
+                .ToList();
+
+            if (UnknownPredecessorCouponNumber is { } unknown)
+                reissued[^1] = reissued[^1] with { PredecessorCouponNumber = unknown };
+
+            if (DuplicatePredecessorCouponMapping)
+                reissued[^1] = reissued[^1] with { PredecessorCouponNumber = reissued[0].PredecessorCouponNumber };
+
+            if (DuplicateSuccessorCouponNumber)
+                reissued[^1] = reissued[^1] with { CouponNumber = reissued[0].CouponNumber };
+
+            return reissued;
+        }
 
         private static string StableSuccessorNumber(long operationId) => $"EXC{operationId}";
 

@@ -202,7 +202,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         // ---------------------------------------------------------------- 8, 9, 19. deterministic refusals
 
         [Fact]
-        public async Task A_used_coupon_anywhere_on_the_document_fails_before_any_provider_mutation()
+        public async Task A_partly_used_document_is_refused_as_a_capability_limit_before_any_provider_call()
         {
             await using var setup = NewHarness();
             var scenario = await TicketedAsync(_fixture, setup, roundTrip: true, changedCouponNumbers: [1]);
@@ -215,11 +215,17 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await using var harness = NewHarness();
             Register(harness, scenario);
 
+            var quoteRefusal = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.Exchange.QuoteAsync(scenario.OrderId, scenario.ChangedOrderServiceIds));
             var refusal = await Assert.ThrowsAsync<BusinessException>(() => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
 
+            Assert.Equal(2976, quoteRefusal.Code);
             Assert.Equal(2976, refusal.Code);
+            Assert.Contains("capability", refusal.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(harness.ExchangeQuotes.ObservedQuoteRequests);
             Assert.Empty(harness.ExchangeQuotes.ObservedSelections);
             Assert.Empty(harness.ReservationChanges.ObservedApplies);
+            Assert.Empty(harness.DocumentExchanges.ObservedEligibilityRequests);
             Assert.Empty(harness.DocumentExchanges.ObservedRequests);
             await AssertNoLocalExchangeAsync(harness, scenario);
         }
@@ -392,7 +398,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 "EXCH-RECOVERED",
                 new SuccessorDocumentIdentity(
                     $"EXC{first.OperationId}", 1, null, DocumentAuthority.Local, null,
-                    [new SuccessorCouponIdentity(scenario.CouponIds[1], 1), new SuccessorCouponIdentity(scenario.CouponIds[2], 2)]),
+                    [new SuccessorCouponIdentity(1, 1), new SuccessorCouponIdentity(2, 2)]),
                 null);
             await setup.UnitOfWork.SaveChangesAsync();
 

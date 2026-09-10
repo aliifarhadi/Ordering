@@ -41,7 +41,6 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentExchange
         IReadOnlyList<DocumentExchangeCouponRequest> Coupons);
 
     public sealed record DocumentExchangeCouponRequest(
-        long PredecessorTicketCouponId,
         int PredecessorCouponNumber,
         ExchangeCouponDisposition Disposition,
         long OrderServiceId,
@@ -80,6 +79,6 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentExchange
         IReadOnlyList<SuccessorCouponIdentity> Coupons);
 
     public sealed record SuccessorCouponIdentity(
-        long PredecessorTicketCouponId,
+        int PredecessorCouponNumber,
         int CouponNumber);
 }

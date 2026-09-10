@@ -7,6 +7,15 @@ namespace AeroTech.Ordering.Persistence.Migrations
     /// <inheritdoc />
     public partial class P3F2MultiCouponExchange : Migration
     {
+        public const string MultiCouponDowngradeGuard = """
+            IF EXISTS (
+                SELECT 1
+                FROM [Order].[AcceptedExchangePlanCoupons]
+                GROUP BY [OperationId]
+                HAVING COUNT(*) > 1)
+                THROW 51000, 'P3F2MultiCouponExchange cannot be reverted: at least one accepted exchange plan holds several coupons, which the single-coupon schema cannot represent. Resolve or archive those plans first.', 1;
+            """;
+
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -126,6 +135,8 @@ namespace AeroTech.Ordering.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql(MultiCouponDowngradeGuard);
+
             migrationBuilder.RenameColumn(
                 name: "SuccessorOrderServiceId",
                 schema: "Order",
@@ -204,11 +215,7 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     accepted.[SuccessorTicketCouponId] = coupon.[SuccessorTicketCouponId]
                 FROM [Order].[AcceptedExchangePlans] accepted
                 INNER JOIN [Order].[AcceptedExchangePlanCoupons] coupon
-                    ON coupon.[OperationId] = accepted.[OperationId]
-                   AND coupon.[PredecessorCouponNumber] = (
-                        SELECT MIN(first.[PredecessorCouponNumber])
-                        FROM [Order].[AcceptedExchangePlanCoupons] first
-                        WHERE first.[OperationId] = accepted.[OperationId] AND first.[Disposition] = 1);
+                    ON coupon.[OperationId] = accepted.[OperationId];
                 """);
 
             migrationBuilder.DropTable(

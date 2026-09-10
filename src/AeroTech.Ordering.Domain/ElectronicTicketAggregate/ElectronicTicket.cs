@@ -416,21 +416,23 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
         public DocumentExchangeRecord? ExchangeOf(long operationId)
             => _exchanges.FirstOrDefault(record => record.OperationId == operationId);
 
-        public void EnsureCanBeExchanged(IReadOnlyList<ExchangeCouponScope> scope)
+        public void EnsureDocumentCanBeExchanged()
         {
-            ArgumentNullException.ThrowIfNull(scope);
-
             if (_exchanges.FirstOrDefault() is { } prior)
                 throw ExceptionFactory.DocumentAlreadyExchanged(DocumentNumber, prior.SuccessorDocumentNumber);
 
-            if (StatusSummary != ElectronicTicketStatus.Issued)
+            if (StatusSummary is not (ElectronicTicketStatus.Issued or ElectronicTicketStatus.PartiallyUsed))
                 throw ExceptionFactory.DocumentNotExchangeable(DocumentNumber, StatusSummary);
+        }
 
-            var scopedCouponIds = scope.Select(item => item.TicketCouponId).ToHashSet();
+        public void EnsureCouponsCanBeExchanged(IReadOnlyList<ExchangeCouponScope> scope)
+        {
+            ArgumentNullException.ThrowIfNull(scope);
 
-            if (scopedCouponIds.Count != scope.Count
-                || scopedCouponIds.Count != _coupons.Count
-                || _coupons.Any(coupon => !scopedCouponIds.Contains(coupon.Id)))
+            EnsureDocumentCanBeExchanged();
+
+            if (scope.Count == 0
+                || scope.Select(item => item.TicketCouponId).Distinct().Count() != scope.Count)
                 throw ExceptionFactory.ExchangeCouponScopeIncomplete(DocumentNumber, _coupons.Count, scope.Count);
 
             foreach (var item in scope)
@@ -441,13 +443,18 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
                     throw ExceptionFactory.ChangeCouponDoesNotCoverTheService(coupon.CouponNumber, item.OrderServiceId);
 
                 if (coupon.FinancialStatus != TicketCouponFinancialStatus.Open)
-                    throw ExceptionFactory.ExchangeRequiresFullyUnusedTicket(
+                    throw ExceptionFactory.CouponIsNotExchangeable(
                         coupon.CouponNumber, DocumentNumber, coupon.FinancialStatus);
 
                 if (coupon.ControlStatus != TicketCouponControlStatus.Local)
                     throw ExceptionFactory.CouponControlForbidsExchange(coupon.CouponNumber, coupon.ControlStatus);
             }
         }
+
+        public TicketCoupon? FirstUsedCoupon()
+            => _coupons
+                .OrderBy(coupon => coupon.CouponNumber)
+                .FirstOrDefault(coupon => coupon.FinancialStatus != TicketCouponFinancialStatus.Open);
 
         public DocumentExchangeRecord MarkExchanged(
             ExchangeProvenance provenance,
@@ -460,7 +467,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
             ArgumentNullException.ThrowIfNull(provenance);
             ArgumentNullException.ThrowIfNull(coupons);
 
-            EnsureCanBeExchanged(coupons
+            EnsureCouponsCanBeExchanged(coupons
                 .Select(lineage => new ExchangeCouponScope(
                     lineage.PredecessorTicketCouponId,
                     CouponFor(lineage.PredecessorTicketCouponId).CurrentOrderServiceId))
