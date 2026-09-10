@@ -255,6 +255,16 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
         public IReadOnlyCollection<long> CarriedPricingLineIds()
             => _priceLinks.Select(link => link.PricingLineId).Distinct().ToList();
 
+        public IReadOnlyList<CarriedPricingLink> CarriedPricingLinks()
+            => _priceLinks
+                .Select(link => new CarriedPricingLink(
+                    link.PricingLineId,
+                    link.CouponId is { } couponId ? CouponFor(couponId).CouponNumber : 0,
+                    link.AttributedValue))
+                .OrderBy(link => link.CouponNumber)
+                .ThenBy(link => link.PricingLineId)
+                .ToList();
+
         public IReadOnlyCollection<DocumentRefundRecord> Refunds => _refunds.AsReadOnly();
 
         public bool IsFullyUnused => _coupons.All(coupon => coupon.FinancialStatus == TicketCouponFinancialStatus.Open);
@@ -406,49 +416,55 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
         public DocumentExchangeRecord? ExchangeOf(long operationId)
             => _exchanges.FirstOrDefault(record => record.OperationId == operationId);
 
-        public void EnsureCanBeExchanged(long ticketCouponId, long orderServiceId)
+        public void EnsureCanBeExchanged(IReadOnlyList<ExchangeCouponScope> scope)
         {
+            ArgumentNullException.ThrowIfNull(scope);
+
             if (_exchanges.FirstOrDefault() is { } prior)
                 throw ExceptionFactory.DocumentAlreadyExchanged(DocumentNumber, prior.SuccessorDocumentNumber);
 
             if (StatusSummary != ElectronicTicketStatus.Issued)
                 throw ExceptionFactory.DocumentNotExchangeable(DocumentNumber, StatusSummary);
 
-            if (_coupons.Count != 1)
-                throw ExceptionFactory.ExchangeRequiresSingleCouponTicket(DocumentNumber, _coupons.Count);
+            var scopedCouponIds = scope.Select(item => item.TicketCouponId).ToHashSet();
 
-            var coupon = _coupons[0];
+            if (scopedCouponIds.Count != scope.Count
+                || scopedCouponIds.Count != _coupons.Count
+                || _coupons.Any(coupon => !scopedCouponIds.Contains(coupon.Id)))
+                throw ExceptionFactory.ExchangeCouponScopeIncomplete(DocumentNumber, _coupons.Count, scope.Count);
 
-            if (coupon.Id != ticketCouponId)
-                throw ExceptionFactory.RefundScopeCouponNotOnDocument(ticketCouponId, DocumentNumber);
+            foreach (var item in scope)
+            {
+                var coupon = CouponFor(item.TicketCouponId);
 
-            if (coupon.CurrentOrderServiceId != orderServiceId)
-                throw ExceptionFactory.ChangeCouponDoesNotCoverTheService(coupon.CouponNumber, orderServiceId);
+                if (coupon.CurrentOrderServiceId != item.OrderServiceId)
+                    throw ExceptionFactory.ChangeCouponDoesNotCoverTheService(coupon.CouponNumber, item.OrderServiceId);
 
-            if (coupon.FinancialStatus != TicketCouponFinancialStatus.Open)
-                throw ExceptionFactory.ExchangeRequiresFullyUnusedTicket(
-                    coupon.CouponNumber, DocumentNumber, coupon.FinancialStatus);
+                if (coupon.FinancialStatus != TicketCouponFinancialStatus.Open)
+                    throw ExceptionFactory.ExchangeRequiresFullyUnusedTicket(
+                        coupon.CouponNumber, DocumentNumber, coupon.FinancialStatus);
 
-            if (coupon.ControlStatus != TicketCouponControlStatus.Local)
-                throw ExceptionFactory.CouponControlForbidsExchange(coupon.CouponNumber, coupon.ControlStatus);
+                if (coupon.ControlStatus != TicketCouponControlStatus.Local)
+                    throw ExceptionFactory.CouponControlForbidsExchange(coupon.CouponNumber, coupon.ControlStatus);
+            }
         }
 
         public DocumentExchangeRecord MarkExchanged(
             ExchangeProvenance provenance,
-            long ticketCouponId,
             long successorTicketId,
             string successorDocumentNumber,
-            long successorTicketCouponId,
-            int successorCouponNumber,
-            long replacementOrderServiceId,
+            IReadOnlyList<ExchangedCouponLineage> coupons,
             IIdGenerator idGenerator,
             IClock clock)
         {
             ArgumentNullException.ThrowIfNull(provenance);
+            ArgumentNullException.ThrowIfNull(coupons);
 
-            var coupon = CouponFor(ticketCouponId);
-
-            EnsureCanBeExchanged(ticketCouponId, coupon.CurrentOrderServiceId);
+            EnsureCanBeExchanged(coupons
+                .Select(lineage => new ExchangeCouponScope(
+                    lineage.PredecessorTicketCouponId,
+                    CouponFor(lineage.PredecessorTicketCouponId).CurrentOrderServiceId))
+                .ToList());
 
             var record = new DocumentExchangeRecord(
                 idGenerator.NewId(),
@@ -464,16 +480,32 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
                 provenance.ActorScope,
                 clock.GetDateTime());
 
-            record.AddCoupon(
-                idGenerator.NewId(),
-                coupon.Id,
-                coupon.CouponNumber,
-                successorTicketCouponId,
-                successorCouponNumber,
-                coupon.CurrentOrderServiceId,
-                replacementOrderServiceId);
+            var exchanged = new List<ElectronicTicketExchangedCoupon>();
 
-            coupon.MarkExchanged();
+            foreach (var lineage in coupons.OrderBy(lineage => CouponFor(lineage.PredecessorTicketCouponId).CouponNumber))
+            {
+                var coupon = CouponFor(lineage.PredecessorTicketCouponId);
+
+                record.AddCoupon(
+                    idGenerator.NewId(),
+                    coupon.Id,
+                    coupon.CouponNumber,
+                    lineage.SuccessorTicketCouponId,
+                    lineage.SuccessorCouponNumber,
+                    coupon.CurrentOrderServiceId,
+                    lineage.SuccessorOrderServiceId);
+
+                exchanged.Add(new ElectronicTicketExchangedCoupon(
+                    coupon.Id,
+                    coupon.CouponNumber,
+                    lineage.SuccessorTicketCouponId,
+                    lineage.SuccessorCouponNumber,
+                    coupon.CurrentOrderServiceId,
+                    lineage.SuccessorOrderServiceId));
+
+                coupon.MarkExchanged();
+            }
+
             _exchanges.Add(record);
 
             StatusSummary = ElectronicTicketStatus.Exchanged;
@@ -490,10 +522,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
                 record.Id,
                 successorTicketId,
                 successorDocumentNumber,
-                coupon.Id,
-                successorTicketCouponId,
-                coupon.CurrentOrderServiceId,
-                replacementOrderServiceId,
+                exchanged,
                 provenance.QuotedExchangeId,
                 provenance.TargetSelectionRef,
                 DocumentVersion));
@@ -504,6 +533,13 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
         public static ElectronicTicket IssueSuccessor(SuccessorTicketIssuance issuance, IIdGenerator idGenerator, IClock clock)
         {
             ArgumentNullException.ThrowIfNull(issuance);
+
+            if (issuance.Coupons.Count == 0)
+                throw ExceptionFactory.TicketRequiresAtLeastOneCoupon();
+
+            if (issuance.Coupons.Select(coupon => coupon.CouponNumber).Distinct().Count() != issuance.Coupons.Count)
+                throw ExceptionFactory.ExchangeCouponScopeIncomplete(
+                    issuance.DocumentNumber, issuance.Coupons.Count, issuance.Coupons.Select(coupon => coupon.CouponNumber).Distinct().Count());
 
             var ticket = new ElectronicTicket(
                 issuance.TicketId,
@@ -516,36 +552,39 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
                 issuance.Authority,
                 clock.GetDateTime(),
                 issuance.VoidDeadline,
-                issuance.IssuanceValue,
+                issuance.Coupons.Sum(coupon => coupon.IssuanceValue),
                 issuance.CurrencyId)
             {
                 PredecessorElectronicTicketId = issuance.PredecessorTicketId,
                 PredecessorExchangeOperationId = issuance.ExchangeOperationId
             };
 
-            var coupon = new TicketCoupon(
-                issuance.CouponId,
-                issuance.TicketId,
-                issuance.CouponNumber,
-                issuance.OrderServiceId,
-                issuance.JourneySegmentId,
-                issuance.IssuedSegment,
-                issuance.FareBasis,
-                issuance.IssuanceValue,
-                issuance.CurrencyId,
-                issuance.PredecessorTicketCouponId);
-
-            ticket._coupons.Add(coupon);
-
-            foreach (var link in issuance.PriceLinks)
-                ticket._priceLinks.Add(new DocumentPriceLink(
-                    idGenerator.NewId(),
+            foreach (var issued in issuance.Coupons.OrderBy(coupon => coupon.CouponNumber))
+            {
+                var coupon = new TicketCoupon(
+                    issued.CouponId,
                     issuance.TicketId,
-                    coupon.Id,
-                    link.PricingLineId,
-                    link.AllocationId,
-                    link.AttributedValue,
-                    issuance.CurrencyId));
+                    issued.CouponNumber,
+                    issued.OrderServiceId,
+                    issued.JourneySegmentId,
+                    issued.IssuedSegment,
+                    issued.FareBasis,
+                    issued.IssuanceValue,
+                    issuance.CurrencyId,
+                    issued.PredecessorTicketCouponId);
+
+                ticket._coupons.Add(coupon);
+
+                foreach (var link in issued.PriceLinks)
+                    ticket._priceLinks.Add(new DocumentPriceLink(
+                        idGenerator.NewId(),
+                        issuance.TicketId,
+                        coupon.Id,
+                        link.PricingLineId,
+                        link.AllocationId,
+                        link.AttributedValue,
+                        issuance.CurrencyId));
+            }
 
             ticket.Causes(new ElectronicTicketIssued(
                 idGenerator.NewId().ToString(),

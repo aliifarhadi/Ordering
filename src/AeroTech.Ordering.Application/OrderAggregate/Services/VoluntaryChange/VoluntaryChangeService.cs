@@ -404,12 +404,15 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange
                         order.Id,
                         operation.OperationId,
                         null,
-                        plan.ReplacedOrderServiceId,
-                        plan.ReplacementOrderServiceId,
-                        plan.ReplacementOrderSegmentId,
-                        plan.Accepted.Replacement.Segment.CapacityReference,
-                        plan.Accepted.Replacement.Segment.BookingClass,
-                        plan.Accepted.Replacement.BeneficiaryTravellerIds[0]),
+                        [
+                            new ReservationChangeItem(
+                                plan.ReplacedOrderServiceId,
+                                plan.ReplacementOrderServiceId,
+                                plan.ReplacementOrderSegmentId,
+                                plan.Accepted.Replacement.Segment.CapacityReference,
+                                plan.Accepted.Replacement.Segment.BookingClass,
+                                ticket.TravelerId)
+                        ]),
                     cancellationToken);
             }
             catch

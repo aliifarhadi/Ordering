@@ -1,6 +1,5 @@
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
-using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.VoluntaryChange;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 {
@@ -9,8 +8,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         int CommercialVersion,
         long PredecessorElectronicTicketId,
         string PredecessorDocumentNumber,
-        long PredecessorOrderServiceId,
-        long PredecessorTicketCouponId,
+        IReadOnlyList<long> ChangedOrderServiceIds,
         string QuotedExchangeId,
         string SourceSystem,
         string TargetSelectionRef,
@@ -18,9 +16,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         ChangeMonetaryOutcome MonetaryOutcome,
         int SaleCurrencyId,
         DateTimeOffset ExpiresAt,
-        IReadOnlyList<long> ContinuedOrderServiceIds,
-        AcceptedChangeReplacement Replacement,
+        IReadOnlyList<AcceptedExchangeCoupon> Coupons,
         IReadOnlyList<AcceptedExchangePricingLine> PricingLines,
-        AcceptedSuccessorCoupon SuccessorCoupon,
         string? SourcePricingReference);
 }

@@ -26,6 +26,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.HasIndex(plan => plan.OrderId);
             builder.HasIndex(plan => plan.PredecessorElectronicTicketId);
             builder.HasIndex(plan => plan.SuccessorElectronicTicketId).IsUnique();
+
+            builder.HasMany(plan => plan.Coupons)
+                .WithOne()
+                .HasForeignKey(coupon => coupon.OperationId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

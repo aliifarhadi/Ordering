@@ -22,7 +22,7 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentExchange
         long OrderId,
         long OperationId,
         string PredecessorDocumentNumber,
-        int PredecessorCouponNumber,
+        IReadOnlyList<int> PredecessorCouponNumbers,
         string TargetSelectionRef,
         string? SourcePricingReference);
 
@@ -35,14 +35,19 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentExchange
         long OrderId,
         long OperationId,
         string PredecessorDocumentNumber,
-        int PredecessorCouponNumber,
         string QuotedExchangeId,
         string TargetSelectionRef,
         string? SourcePricingReference,
-        long ReplacementOrderServiceId,
-        long ReplacementOrderSegmentId,
-        string ReplacementFlightNumber,
-        DateTimeOffset ReplacementDepartureAt);
+        IReadOnlyList<DocumentExchangeCouponRequest> Coupons);
+
+    public sealed record DocumentExchangeCouponRequest(
+        long PredecessorTicketCouponId,
+        int PredecessorCouponNumber,
+        ExchangeCouponDisposition Disposition,
+        long OrderServiceId,
+        long OrderSegmentId,
+        string FlightNumber,
+        DateTimeOffset DepartureAt);
 
     public sealed record DocumentExchangeRecoveryRequest(
         string OperationKey,
@@ -68,9 +73,13 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentExchange
 
     public sealed record SuccessorDocumentIdentity(
         string DocumentNumber,
-        int CouponNumber,
         long IssuerCarrierId,
         long? IssuingOfficeId,
         DocumentAuthority Authority,
-        DateTimeOffset? VoidDeadline);
+        DateTimeOffset? VoidDeadline,
+        IReadOnlyList<SuccessorCouponIdentity> Coupons);
+
+    public sealed record SuccessorCouponIdentity(
+        long PredecessorTicketCouponId,
+        int CouponNumber);
 }

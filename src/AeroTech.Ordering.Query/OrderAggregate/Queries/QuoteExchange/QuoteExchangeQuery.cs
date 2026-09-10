@@ -1,9 +1,9 @@
 using AeroTech.Ordering.Application.OrderAggregate.Services.Exchange;
 using MediatR;
 
-namespace AeroTech.Ordering.Application.OrderAggregate.Queries.QuoteExchange
+namespace AeroTech.Ordering.Query.OrderAggregate.Queries.QuoteExchange
 {
     public sealed record QuoteExchangeQuery(
         long OrderId,
-        long PredecessorOrderServiceId) : IRequest<ExchangeQuoteOutcome>;
+        IReadOnlyList<long> ChangedOrderServiceIds) : IRequest<ExchangeQuoteOutcome>;
 }

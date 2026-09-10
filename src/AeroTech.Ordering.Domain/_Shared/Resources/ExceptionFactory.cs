@@ -829,9 +829,6 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException AcceptedChangePlanNotFound(params object?[] args) =>
             new(2974, ExceptionMessages.AcceptedChangePlanNotFound, args) { HttpStatus = 500 };
 
-        public static BusinessException ExchangeRequiresSingleCouponTicket(params object?[] args) =>
-            new(2975, ExceptionMessages.ExchangeRequiresSingleCouponTicket, args) { HttpStatus = 422 };
-
         public static BusinessException ExchangeRequiresFullyUnusedTicket(params object?[] args) =>
             new(2976, ExceptionMessages.ExchangeRequiresFullyUnusedTicket, args) { HttpStatus = 422 };
 
@@ -879,6 +876,21 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
 
         public static BusinessException DocumentNotExchangeable(params object?[] args) =>
             new(2991, ExceptionMessages.DocumentNotExchangeable, args) { HttpStatus = 409 };
+
+        public static BusinessException ExchangePredecessorPricingEvidenceIncomplete(params object?[] args) =>
+            new(2992, ExceptionMessages.ExchangePredecessorPricingEvidenceIncomplete, args) { HttpStatus = 422 };
+
+        public static BusinessException ExchangeCouponScopeIncomplete(params object?[] args) =>
+            new(2993, ExceptionMessages.ExchangeCouponScopeIncomplete, args) { HttpStatus = 422 };
+
+        public static BusinessException ExchangeScopeRequiresChangedServices(params object?[] args) =>
+            new(2994, ExceptionMessages.ExchangeScopeRequiresChangedServices, args) { HttpStatus = 422 };
+
+        public static BusinessException ExchangeScopeSpansDocuments(params object?[] args) =>
+            new(2995, ExceptionMessages.ExchangeScopeSpansDocuments, args) { HttpStatus = 422 };
+
+        public static BusinessException ExchangeTravellerMismatch(params object?[] args) =>
+            new(2996, ExceptionMessages.ExchangeTravellerMismatch, args) { HttpStatus = 422 };
 
         public static BusinessException ExchangeRejectionReplayed(int code, int httpStatus, string message) =>
             new(code, message) { HttpStatus = httpStatus };

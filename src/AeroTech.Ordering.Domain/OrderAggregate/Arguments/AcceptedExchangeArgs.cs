@@ -4,11 +4,10 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Arguments
 {
     public sealed record AcceptedExchangeArgs(
         AcceptedExchange Accepted,
-        long ReplacementOrderServiceId,
-        long ReplacementOrderSegmentId,
+        long PredecessorTravellerId,
         long SuccessorElectronicTicketId,
-        long SuccessorTicketCouponId,
-        IReadOnlyCollection<long> PredecessorCarriedPricingLineIds,
+        IReadOnlyList<ExchangeCouponAllocation> Coupons,
+        IReadOnlyDictionary<string, long> PredecessorPricingCorrelation,
         long OperationId,
         long? ActorId = null,
         string? ActorScope = null);

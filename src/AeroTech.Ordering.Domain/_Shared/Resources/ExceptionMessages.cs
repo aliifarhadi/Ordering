@@ -365,8 +365,6 @@
 
         public const string AcceptedChangePlanNotFound = "No durable accepted change plan exists for operation {0}.";
 
-        public const string ExchangeRequiresSingleCouponTicket = "Document {0} carries {1} coupons; only a single-coupon exchange is supported in this phase.";
-
         public const string ExchangeRequiresFullyUnusedTicket = "Coupon {0} of document {1} is {2}; only a fully unused document can be exchanged in this phase.";
 
         public const string DocumentAlreadyExchanged = "Document {0} has already been exchanged into document {1}.";
@@ -379,7 +377,7 @@
 
         public const string ExchangePricingMalformed = "The accepted exchange {0} carries malformed pricing: {1}.";
 
-        public const string ExchangeTransferOutsidePredecessorDocument = "Pricing line {0} is not carried by predecessor document {1} and cannot be transferred.";
+        public const string ExchangeTransferOutsidePredecessorDocument = "Transfer evidence {0} is not carried by predecessor document {1} and cannot be transferred.";
 
         public const string ExchangeSuccessorAttributionUnresolved = "Successor document attribution {0} does not resolve to an accepted exchange pricing line.";
 
@@ -398,6 +396,16 @@
         public const string CouponControlForbidsExchange = "Coupon {0} is under {1} control; document control must be local before an exchange.";
 
         public const string DocumentNotExchangeable = "Document {0} is {1}; only an issued document can be exchanged.";
+
+        public const string ExchangePredecessorPricingEvidenceIncomplete = "Pricing line {0} carried by document {1} has no source identity and cannot be offered for exchange.";
+
+        public const string ExchangeCouponScopeIncomplete = "Document {0} carries {1} coupons but the exchange scope names {2}; every coupon must be covered exactly once.";
+
+        public const string ExchangeScopeRequiresChangedServices = "An exchange on order {0} requires a non-empty set of distinct changed order services.";
+
+        public const string ExchangeScopeSpansDocuments = "Order services {0} are not all covered by the same accountable document.";
+
+        public const string ExchangeTravellerMismatch = "Order service {0} is not held for traveller {1} of document {2}.";
 
         public const string RefundRequiresCouponScope = "A refund of an accountable document on order {0} requires an explicit coupon scope.";
     }

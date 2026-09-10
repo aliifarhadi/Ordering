@@ -4,7 +4,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
     {
         Task<ExchangeQuoteOutcome> QuoteAsync(
             long orderId,
-            long predecessorOrderServiceId,
+            IReadOnlyList<long> changedOrderServiceIds,
             CancellationToken cancellationToken = default);
 
         Task<ExchangeOutcome> ExchangeAsync(

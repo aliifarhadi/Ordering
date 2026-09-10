@@ -69,7 +69,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
             long successorTicketCouponId,
             int successorCouponNumber,
             long previousOrderServiceId,
-            long replacementOrderServiceId)
+            long successorOrderServiceId)
             => _coupons.Add(new DocumentExchangeCoupon(
                 id,
                 Id,
@@ -78,6 +78,6 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
                 successorTicketCouponId,
                 successorCouponNumber,
                 previousOrderServiceId,
-                replacementOrderServiceId));
+                successorOrderServiceId));
     }
 }

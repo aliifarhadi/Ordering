@@ -1,11 +1,10 @@
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
-using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
-using AeroTech.Ordering.Domain.OrderAggregate.Entities;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 {
     public sealed record ExchangeScope(
-        OrderService PredecessorService,
         ElectronicTicket PredecessorTicket,
-        TicketCoupon PredecessorCoupon);
+        IReadOnlyList<long> ChangedOrderServiceIds,
+        IReadOnlyList<PredecessorCouponEvidence> Coupons);
 }

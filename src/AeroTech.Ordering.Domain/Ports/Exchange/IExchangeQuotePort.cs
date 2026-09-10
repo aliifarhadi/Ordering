@@ -15,8 +15,9 @@ namespace AeroTech.Ordering.Domain.Ports.Exchange
         long OrderId,
         int CommercialVersion,
         long PredecessorElectronicTicketId,
-        long PredecessorOrderServiceId,
-        long PredecessorTicketCouponId,
+        IReadOnlyList<long> ChangedOrderServiceIds,
+        IReadOnlyList<PredecessorCouponEvidence> PredecessorCoupons,
+        IReadOnlyList<PredecessorPricingEvidence> PredecessorPricing,
         int SaleCurrencyId);
 
     public sealed record AcceptedQuotedExchangeSelection(
@@ -26,7 +27,6 @@ namespace AeroTech.Ordering.Domain.Ports.Exchange
         string QuotedExchangeId,
         int ExpectedCommercialVersion,
         long PredecessorElectronicTicketId,
-        long PredecessorOrderServiceId,
-        long PredecessorTicketCouponId,
+        IReadOnlyList<long> ChangedOrderServiceIds,
         int SaleCurrencyId);
 }

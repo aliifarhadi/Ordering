@@ -250,6 +250,12 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             TicketCouponId = ticketCouponId;
         }
 
+        internal void RebindAccountableDocument(long electronicTicketId, long ticketCouponId)
+        {
+            ElectronicTicketId = electronicTicketId;
+            TicketCouponId = ticketCouponId;
+        }
+
         internal void MarkMiscellaneousDocumented(long electronicMiscDocumentId, long emdCouponId)
         {
             DocumentStatus = OrderServiceDocumentStatus.Issued;

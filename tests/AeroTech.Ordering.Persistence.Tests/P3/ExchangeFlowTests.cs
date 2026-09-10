@@ -31,7 +31,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var scenario = await TicketedAsync(_fixture, harness);
             var operationsBefore = await OperationCountAsync(scenario.OrderId);
 
-            var quote = await harness.Exchange.QuoteAsync(scenario.OrderId, scenario.ServiceId);
+            var quote = await harness.Exchange.QuoteAsync(scenario.OrderId, scenario.ChangedOrderServiceIds);
 
             var after = await ReloadAsync(_fixture, scenario.OrderId);
             var ticket = await TicketAsync(_fixture, scenario.OrderId, scenario.TicketId);
@@ -40,7 +40,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(ChangeMonetaryOutcome.Even, quote.MonetaryOutcome);
             Assert.Equal(ExchangeSourceFactory.TargetRef, quote.TargetSelectionRef);
             Assert.Equal(scenario.TicketId, quote.PredecessorElectronicTicketId);
+            Assert.Equal(scenario.ChangedOrderServiceIds, quote.ChangedOrderServiceIds);
             Assert.NotEmpty(quote.PricingLines);
+            Assert.Single(quote.Coupons);
 
             Assert.Equal(operationsBefore, await OperationCountAsync(scenario.OrderId));
             Assert.Equal(scenario.CommercialVersion, after.CommercialVersion);
@@ -56,6 +58,31 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single(await TicketsAsync(_fixture, scenario.OrderId), candidate => candidate.Id == scenario.TicketId);
         }
 
+        [Fact]
+        public async Task The_quote_request_correlates_predecessor_pricing_without_local_pricing_line_ids()
+        {
+            await using var harness = NewHarness();
+            var scenario = await TicketedAsync(_fixture, harness);
+            var order = await ReloadAsync(_fixture, scenario.OrderId);
+            var predecessor = await TicketAsync(_fixture, scenario.OrderId, scenario.TicketId);
+            var request = Assert.Single(harness.ExchangeQuotes.ObservedQuoteRequests);
+            var localIds = order.PricingLines.Select(line => line.Id.ToString()).ToList();
+
+            Assert.Equal(predecessor.PriceLinks.Count, request.PredecessorPricing.Count);
+            Assert.All(request.PredecessorPricing, evidence => Assert.StartsWith("XPL-", evidence.CorrelationRef));
+            Assert.All(request.PredecessorPricing, evidence => Assert.DoesNotContain(localIds, id => evidence.CorrelationRef.Contains(id)));
+            Assert.All(request.PredecessorPricing, evidence => Assert.False(string.IsNullOrWhiteSpace(evidence.SourceLineRef)));
+            Assert.Equal(request.PredecessorPricing.Count, request.PredecessorPricing.Select(evidence => evidence.CorrelationRef).Distinct().Count());
+            Assert.All(scenario.Accepted.PricingLines, line => Assert.Contains(request.PredecessorPricing, evidence => evidence.CorrelationRef == line.PredecessorCorrelationRef));
+
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var after = await ReloadAsync(_fixture, scenario.OrderId);
+            var lines = after.PricingLines.Where(line => line.PriceChangeSetId == outcome.PriceChangeSetId).ToList();
+
+            Assert.All(lines, line => Assert.Contains(line.OriginalPricingLineId!.Value, predecessor.CarriedPricingLineIds()));
+            Assert.Equal(request.PredecessorPricing.Count * 2, lines.Count);
+        }
+
         // ---------------------------------------------------------------- happy path: J, K, L, §71
 
         [Fact]
@@ -69,6 +96,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             var predecessor = await TicketAsync(_fixture, scenario.OrderId, scenario.TicketId);
             var successor = await FindTicketAsync(_fixture, outcome.SuccessorElectronicTicketId!.Value);
+            var couponOutcome = Assert.Single(outcome.Coupons);
 
             Assert.NotNull(successor);
             Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
@@ -97,14 +125,15 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var successorCoupon = Assert.Single(successor.Coupons);
 
             Assert.Equal(scenario.CouponId, successorCoupon.PredecessorTicketCouponId);
-            Assert.Equal(outcome.SuccessorTicketCouponId, successorCoupon.Id);
+            Assert.Equal(couponOutcome.SuccessorTicketCouponId, successorCoupon.Id);
             Assert.Equal(1, successorCoupon.CouponNumber);
+            Assert.Equal(couponOutcome.SuccessorCouponNumber, successorCoupon.CouponNumber);
             Assert.Equal(TicketCouponFinancialStatus.Open, successorCoupon.FinancialStatus);
             Assert.Equal(TicketCouponControlStatus.Local, successorCoupon.ControlStatus);
-            Assert.Equal(outcome.ReplacementOrderServiceId, successorCoupon.OrderServiceId);
-            Assert.Equal(outcome.ReplacementOrderServiceId, successorCoupon.CurrentOrderServiceId);
+            Assert.Equal(couponOutcome.OrderServiceId, successorCoupon.OrderServiceId);
+            Assert.Equal(couponOutcome.OrderServiceId, successorCoupon.CurrentOrderServiceId);
             Assert.Equal(ExchangeSourceFactory.SuccessorFareBasis, successorCoupon.FareBasisSnapshot);
-            Assert.Equal(scenario.Accepted.SuccessorCoupon.IssuanceValue, successorCoupon.IssuanceValue);
+            Assert.Equal(scenario.Accepted.Coupons.Single().Successor.IssuanceValue, successorCoupon.IssuanceValue);
             Assert.Equal(ExchangeSourceFactory.ReplacementFlightNumber, successorCoupon.IssuedSegment.FlightNumber);
 
             var record = Assert.Single(predecessor.Exchanges);
@@ -128,15 +157,16 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(successorCoupon.Id, mapping.SuccessorTicketCouponId);
             Assert.Equal(1, mapping.SuccessorCouponNumber);
             Assert.Equal(scenario.ServiceId, mapping.PreviousOrderServiceId);
-            Assert.Equal(outcome.ReplacementOrderServiceId, mapping.ReplacementOrderServiceId);
+            Assert.Equal(couponOutcome.OrderServiceId, mapping.SuccessorOrderServiceId);
 
             Assert.Equal(scenario.TicketId, outcome.PredecessorElectronicTicketId);
             Assert.Equal(predecessor.DocumentNumber, outcome.PredecessorDocumentNumber);
             Assert.Equal(predecessor.DocumentVersion, outcome.PredecessorDocumentVersion);
-            Assert.Equal(scenario.CouponId, outcome.PredecessorTicketCouponId);
+            Assert.Equal(scenario.CouponId, couponOutcome.PredecessorTicketCouponId);
             Assert.Equal(successor.DocumentNumber, outcome.SuccessorDocumentNumber);
             Assert.Equal(1, outcome.SuccessorDocumentVersion);
-            Assert.Equal(scenario.ServiceId, outcome.ReplacedOrderServiceId);
+            Assert.Equal(scenario.ServiceId, couponOutcome.ReplacedOrderServiceId);
+            Assert.Equal(ExchangeCouponDisposition.Replaced, couponOutcome.Disposition);
             Assert.Equal(ProviderOperationOutcome.Confirmed, outcome.ReservationChangeOutcome);
             Assert.Equal(ProviderOperationOutcome.Confirmed, outcome.DocumentExchangeOutcome);
             Assert.Equal(DocumentExchangeEligibilityOutcome.Eligible, outcome.EligibilityOutcome);
@@ -154,8 +184,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
 
             var after = await ReloadAsync(_fixture, scenario.OrderId);
+            var replacementId = Assert.Single(outcome.Coupons).OrderServiceId;
             var replaced = after.OrderServices.Single(service => service.Id == scenario.ServiceId);
-            var replacement = after.OrderServices.Single(service => service.Id == outcome.ReplacementOrderServiceId);
+            var replacement = after.OrderServices.Single(service => service.Id == replacementId);
 
             Assert.Equal(OrderServiceDocumentStatus.Exchanged, replaced.DocumentStatus);
             Assert.Equal(OrderServiceCommercialStatus.Exchanged, replaced.CommercialStatus);
@@ -170,7 +201,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.NotEqual(scenario.ServiceId, replacement.Id);
             Assert.Equal(OrderServiceDocumentStatus.Issued, replacement.DocumentStatus);
             Assert.Equal(outcome.SuccessorElectronicTicketId, replacement.ElectronicTicketId);
-            Assert.Equal(outcome.SuccessorTicketCouponId, replacement.TicketCouponId);
+            Assert.Equal(Assert.Single(outcome.Coupons).SuccessorTicketCouponId, replacement.TicketCouponId);
             Assert.Equal(replaced.OrderItemId, replacement.OrderItemId);
             Assert.True(replacement.IsAirTransport);
             Assert.Equal(statusBefore, replacement.Status);
@@ -221,7 +252,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.All(lines, line => Assert.Equal(PricingLineRole.Transfer, line.LineRole));
             Assert.All(lines, line => Assert.Equal(ExchangeSourceFactory.TransferGroup, line.TransferGroupId));
             Assert.All(lines, line => Assert.Contains(line.OriginalPricingLineId!.Value, carried));
-            Assert.Contains(lines, line => line.LineRole == PricingLineRole.Transfer);
             Assert.Equal(0m, lines.Where(line => line.Effect == PricingEffect.CustomerBalance).Sum(line => line.SignedSaleAmount));
             Assert.DoesNotContain(after.PriceChangeSets, set => set.Source == PricingSource.OrderingDerived && set.ChangeId == change.Id);
 
@@ -243,10 +273,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var successor = (await FindTicketAsync(_fixture, outcome.SuccessorElectronicTicketId!.Value))!;
             var successorCoupon = Assert.Single(successor.Coupons);
             var exchangeLines = after.PricingLines.Where(line => line.PriceChangeSetId == outcome.PriceChangeSetId).ToList();
+            var attributions = scenario.Accepted.Coupons.Single().Successor.PriceLinks;
 
-            Assert.Equal(scenario.Accepted.SuccessorCoupon.PriceLinks.Count, successor.PriceLinks.Count);
+            Assert.Equal(attributions.Count, successor.PriceLinks.Count);
 
-            foreach (var attribution in scenario.Accepted.SuccessorCoupon.PriceLinks)
+            foreach (var attribution in attributions)
             {
                 var line = Assert.Single(exchangeLines, candidate => candidate.SourceLineRef == attribution.SourceLineRef);
                 var link = Assert.Single(successor.PriceLinks, candidate => candidate.PricingLineId == line.Id);
@@ -327,16 +358,26 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await AssertNothingHappenedAsync(harness, scenario);
         }
 
-        [Fact]
-        public async Task B3_a_multi_coupon_predecessor_is_refused_before_acceptance()
+        [Theory]
+        [InlineData("empty", 2994)]
+        [InlineData("duplicate", 2994)]
+        [InlineData("two-documents", 2995)]
+        public async Task B3_an_invalid_changed_scope_fails_before_acceptance(string shape, int code)
         {
             await using var harness = NewHarness();
             var scenario = await TicketedAsync(_fixture, harness, roundTrip: true);
+            var other = (await TicketsAsync(_fixture, scenario.OrderId)).Single(ticket => ticket.Id != scenario.TicketId);
+            IReadOnlyList<long> changed = shape switch
+            {
+                "empty" => [],
+                "duplicate" => [scenario.ServiceId, scenario.ServiceId],
+                _ => [scenario.ServiceId, other.Coupons.First().CurrentOrderServiceId]
+            };
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
+                () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()) with { ChangedOrderServiceIds = changed }));
 
-            Assert.Equal(2975, refusal.Code);
+            Assert.Equal(code, refusal.Code);
             await AssertNothingHappenedAsync(harness, scenario);
             Assert.NotEqual(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
         }
@@ -363,17 +404,30 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         public async Task B5_an_active_dependent_ancillary_fails_before_acceptance()
         {
             await using var harness = NewHarness();
-            var scenario = await TicketedAsync(_fixture, harness, beforeReservation: async order =>
-            {
-                order.AddProduct(ProductAdditionFactory.Args(ProductAdditionFactory.Seat(order)), harness.Ids, harness.Clock);
-                await harness.UnitOfWork.SaveChangesAsync();
-            });
+            await harness.SeedPlatformAsync();
+            var created = await harness.CreateOneWayOrderAsync();
 
-            var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
+            created.AddProduct(ProductAdditionFactory.Args(ProductAdditionFactory.Seat(created)), harness.Ids, harness.Clock);
+            await harness.UnitOfWork.SaveChangesAsync();
+            await harness.Reserve.ReserveAsync(created.Id, NewKey(), null);
+            await harness.Issue.IssueAsync(created.Id, NewKey(), null);
 
+            var order = await ReloadAsync(_fixture, created.Id);
+            var ticket = (await TicketsAsync(_fixture, order.Id)).OrderBy(candidate => candidate.Id).First();
+            var changed = new[] { ticket.Coupons.Single().CurrentOrderServiceId };
+
+            Compose(harness, order, changed);
+
+            var quoteRefusal = await Assert.ThrowsAsync<BusinessException>(() => harness.Exchange.QuoteAsync(order.Id, changed));
+            var refusal = await Assert.ThrowsAsync<BusinessException>(() => harness.Exchange.ExchangeAsync(
+                new Application.OrderAggregate.Services.Exchange.ExchangeExecution(order.Id, changed, ExchangeSourceFactory.QuoteId, NewKey(), order.CommercialVersion)));
+
+            Assert.Equal(2965, quoteRefusal.Code);
             Assert.Equal(2965, refusal.Code);
-            await AssertNothingHappenedAsync(harness, scenario);
+            Assert.Empty(harness.ExchangeQuotes.ObservedQuoteRequests);
+            Assert.Empty(harness.ExchangeQuotes.ObservedSelections);
+            Assert.Empty(harness.ReservationChanges.ObservedApplies);
+            Assert.Empty((await TicketAsync(_fixture, order.Id, ticket.Id)).Exchanges);
         }
 
         [Fact]
@@ -416,8 +470,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         public async Task C2_an_accepted_result_naming_another_service_fails_before_inventory_and_replays_terminally()
         {
             await using var harness = NewHarness();
-            var scenario = await TicketedAsync(_fixture, harness, accepted => accepted with { PredecessorOrderServiceId = accepted.ContinuedOrderServiceIds[0] });
+            var scenario = await TicketedAsync(_fixture, harness);
+            var order = await ReloadAsync(_fixture, scenario.OrderId);
+            var other = order.OrderServices.First(service => service.Id != scenario.ServiceId).Id;
             var key = NewKey();
+
+            harness.ExchangeQuotes.Reshape(ExchangeSourceFactory.QuoteId, accepted => accepted with { ChangedOrderServiceIds = [other] });
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(key)));
@@ -505,18 +563,15 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             if (shape == "foreign-lineage")
             {
-                var order = await ReloadAsync(_fixture, scenario.OrderId);
                 var foreignTicket = (await TicketsAsync(_fixture, scenario.OrderId)).Single(ticket => ticket.Id != scenario.TicketId);
-                var foreignLineId = foreignTicket.CarriedPricingLineIds().First();
-                var foreign = scenario.Accepted with
-                {
-                    PricingLines = scenario.Accepted.PricingLines
-                        .Select((line, index) => index == 0 ? line with { OriginalPricingLineId = foreignLineId } : line)
-                        .ToList()
-                };
+                var foreign = ExchangePricingCorrelation.CorrelationRef(foreignTicket.Id, foreignTicket.CarriedPricingLineIds().First());
 
-                harness.ExchangeQuotes.Quote(ExchangeSourceFactory.ToQuote(scenario.Accepted), foreign);
-                Assert.NotNull(order);
+                harness.ExchangeQuotes.Reshape(ExchangeSourceFactory.QuoteId, accepted => accepted with
+                {
+                    PricingLines = accepted.PricingLines
+                        .Select((line, index) => index == 0 ? line with { PredecessorCorrelationRef = foreign } : line)
+                        .ToList()
+                });
             }
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
@@ -541,18 +596,20 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             var operationId = harness.ExchangeQuotes.ObservedSelections.Single().OperationId;
             var plan = await harness.ExchangePlans.FindAsync(operationId);
+            var planCoupon = Assert.Single(plan!.Coupons);
 
-            Assert.NotNull(plan);
-            Assert.Equal(ExchangeSourceFactory.QuoteId, plan!.QuotedExchangeId);
-            Assert.Equal(scenario.ServiceId, plan.PredecessorOrderServiceId);
+            Assert.Equal(ExchangeSourceFactory.QuoteId, plan.QuotedExchangeId);
+            Assert.Equal(scenario.ChangedOrderServiceIds, plan.ChangedOrderServiceIds);
             Assert.Equal(scenario.TicketId, plan.PredecessorElectronicTicketId);
-            Assert.Equal(scenario.CouponId, plan.PredecessorTicketCouponId);
+            Assert.Equal(scenario.CouponId, planCoupon.PredecessorTicketCouponId);
+            Assert.Equal(scenario.ServiceId, planCoupon.PredecessorOrderServiceId);
+            Assert.Equal(ExchangeCouponDisposition.Replaced, planCoupon.Disposition);
             Assert.Equal(PricingSource.PricingEngine, plan.PricingSource);
             Assert.Equal(DocumentExchangeEligibilityOutcome.Eligible, plan.EligibilityOutcome);
-            Assert.NotEqual(0, plan.ReplacementOrderServiceId);
-            Assert.NotEqual(0, plan.ReplacementOrderSegmentId);
+            Assert.NotEqual(0, planCoupon.ReplacementOrderServiceId);
+            Assert.NotEqual(0, planCoupon.ReplacementOrderSegmentId);
             Assert.NotEqual(0, plan.SuccessorElectronicTicketId);
-            Assert.NotEqual(0, plan.SuccessorTicketCouponId);
+            Assert.NotEqual(0, planCoupon.SuccessorTicketCouponId);
             Assert.Equal(AcceptedExchangeDisposition.Executable, plan.Disposition);
             Assert.Empty(harness.ReservationChanges.DispatchedKeys);
             Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
@@ -561,15 +618,16 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             var recovered = await harness.Exchange.ExchangeAsync(scenario.Execution(key));
             var successor = (await FindTicketAsync(_fixture, recovered.SuccessorElectronicTicketId!.Value))!;
+            var item = harness.ReservationChanges.ObservedApplies[^1].Items.Single();
 
             Assert.Single(harness.ExchangeQuotes.ObservedSelections);
             Assert.Single(harness.ReservationChanges.ObservedRecoveryKeys);
             Assert.Equal(2, harness.ReservationChanges.ObservedApplies.Count);
-            Assert.Equal(plan.ReplacementOrderServiceId, harness.ReservationChanges.ObservedApplies[^1].ReplacementOrderServiceId);
-            Assert.Equal(plan.ReplacementOrderSegmentId, harness.ReservationChanges.ObservedApplies[^1].ReplacementOrderSegmentId);
-            Assert.Equal(plan.ReplacementOrderServiceId, recovered.ReplacementOrderServiceId);
+            Assert.Equal(planCoupon.ReplacementOrderServiceId, item.ReplacementOrderServiceId);
+            Assert.Equal(planCoupon.ReplacementOrderSegmentId, item.ReplacementOrderSegmentId);
+            Assert.Equal(planCoupon.ReplacementOrderServiceId, Assert.Single(recovered.Coupons).OrderServiceId);
             Assert.Equal(plan.SuccessorElectronicTicketId, successor.Id);
-            Assert.Equal(plan.SuccessorTicketCouponId, Assert.Single(successor.Coupons).Id);
+            Assert.Equal(planCoupon.SuccessorTicketCouponId, Assert.Single(successor.Coupons).Id);
             Assert.Equal(ServicingOperationStatus.Completed, recovered.OperationStatus);
         }
 
@@ -633,11 +691,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             var resumed = await harness.Exchange.ExchangeAsync(scenario.Execution(key));
             var plan = await harness.ExchangePlans.FindAsync(first.OperationId);
-            var applied = Assert.Single(harness.ReservationChanges.ObservedApplies);
+            var applied = Assert.Single(harness.ReservationChanges.ObservedApplies).Items.Single();
+            var planCoupon = Assert.Single(pendingPlan.Coupons);
 
             Assert.Equal(DocumentExchangeEligibilityOutcome.Eligible, plan!.EligibilityOutcome);
-            Assert.Equal(pendingPlan.ReplacementOrderServiceId, applied.ReplacementOrderServiceId);
-            Assert.Equal(pendingPlan.ReplacementOrderSegmentId, applied.ReplacementOrderSegmentId);
+            Assert.Equal(planCoupon.ReplacementOrderServiceId, applied.ReplacementOrderServiceId);
+            Assert.Equal(planCoupon.ReplacementOrderSegmentId, applied.ReplacementOrderSegmentId);
             Assert.Equal(pendingPlan.SuccessorElectronicTicketId, resumed.SuccessorElectronicTicketId);
             Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
             Assert.Single(harness.ExchangeQuotes.ObservedSelections);
@@ -669,7 +728,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Fact]
-        public async Task Inventory_receives_only_the_accepted_replacement_under_a_stable_exchange_key()
+        public async Task Inventory_and_the_document_host_receive_only_the_accepted_scope_under_plan_level_keys()
         {
             await using var harness = NewHarness();
             var scenario = await TicketedAsync(_fixture, harness);
@@ -677,36 +736,47 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
 
             var applied = Assert.Single(harness.ReservationChanges.ObservedApplies);
+            var item = Assert.Single(applied.Items);
+            var replacementId = Assert.Single(outcome.Coupons).OrderServiceId;
 
-            Assert.Equal(scenario.ServiceId, applied.ReplacedOrderServiceId);
-            Assert.Equal(outcome.ReplacementOrderServiceId, applied.ReplacementOrderServiceId);
-            Assert.Equal(ExchangeSourceFactory.ReplacementCapacityReference, applied.ReplacementFlightCapacityId);
-            Assert.Equal(ExchangeSourceFactory.ReplacementBookingClass, applied.ReplacementBookingClass);
-            Assert.Equal($"exchange-reservation:{scenario.ServiceId}:{outcome.OperationId}", applied.OperationKey);
+            Assert.Equal(scenario.ServiceId, item.ReplacedOrderServiceId);
+            Assert.Equal(replacementId, item.ReplacementOrderServiceId);
+            Assert.Equal(ExchangeSourceFactory.ReplacementCapacityReference, item.ReplacementFlightCapacityId);
+            Assert.Equal(ExchangeSourceFactory.ReplacementBookingClass, item.ReplacementBookingClass);
+            Assert.Equal((await TicketAsync(_fixture, scenario.OrderId, scenario.TicketId)).TravelerId, item.TravelerId);
+            Assert.Equal($"exchange-reservation:{scenario.TicketId}:{outcome.OperationId}", applied.OperationKey);
 
             var exchanged = Assert.Single(harness.DocumentExchanges.ObservedRequests);
+            var couponRequest = Assert.Single(exchanged.Coupons);
 
             Assert.Equal($"document-exchange:{scenario.TicketId}:{outcome.OperationId}", exchanged.OperationKey);
             Assert.Equal(ExchangeSourceFactory.QuoteId, exchanged.QuotedExchangeId);
             Assert.Equal(ExchangeSourceFactory.TargetRef, exchanged.TargetSelectionRef);
             Assert.Equal(ExchangeSourceFactory.PricingReference, exchanged.SourcePricingReference);
-            Assert.Equal(outcome.ReplacementOrderServiceId, exchanged.ReplacementOrderServiceId);
             Assert.Equal(outcome.PredecessorDocumentNumber, exchanged.PredecessorDocumentNumber);
-            Assert.Equal(1, exchanged.PredecessorCouponNumber);
+            Assert.Equal(1, couponRequest.PredecessorCouponNumber);
+            Assert.Equal(scenario.CouponId, couponRequest.PredecessorTicketCouponId);
+            Assert.Equal(ExchangeCouponDisposition.Replaced, couponRequest.Disposition);
+            Assert.Equal(replacementId, couponRequest.OrderServiceId);
+            Assert.Equal(ExchangeSourceFactory.ReplacementFlightNumber, couponRequest.FlightNumber);
 
             var selection = Assert.Single(harness.ExchangeQuotes.ObservedSelections);
 
             Assert.Equal($"exchange-quote:{outcome.OperationId}", selection.OperationKey);
+            Assert.Equal(scenario.ChangedOrderServiceIds, selection.ChangedOrderServiceIds);
         }
 
         // ---------------------------------------------------------------- support
 
         private static AcceptedExchange Malformed(AcceptedExchange accepted, string shape)
-            => shape switch
+        {
+            var coupon = accepted.Coupons.Single();
+
+            return shape switch
             {
                 "no-transfer" => accepted with
                 {
-                    PricingLines = accepted.PricingLines.Select(line => line with { LineRole = PricingLineRole.Original, TransferGroupId = null, OriginalPricingLineId = null }).ToList()
+                    PricingLines = accepted.PricingLines.Select(line => line with { LineRole = PricingLineRole.Original, TransferGroupId = null, PredecessorCorrelationRef = null }).ToList()
                 },
                 "no-group" => accepted with
                 {
@@ -715,18 +785,16 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 "duplicate-ref" => accepted with
                 {
                     PricingLines = accepted.PricingLines.Select(line => line with { SourceLineRef = "EXC:SAME" }).ToList(),
-                    SuccessorCoupon = accepted.SuccessorCoupon with { PriceLinks = [new SuccessorDocumentPriceLink("EXC:SAME", 1m, accepted.SaleCurrencyId)] }
+                    Coupons = [coupon with { Successor = coupon.Successor with { PriceLinks = [new SuccessorDocumentPriceLink("EXC:SAME", 1m, accepted.SaleCurrencyId)] } }]
                 },
                 "ordering-derived" => accepted with { PricingSource = PricingSource.OrderingDerived },
                 "unresolved-attribution" => accepted with
                 {
-                    SuccessorCoupon = accepted.SuccessorCoupon with
-                    {
-                        PriceLinks = [.. accepted.SuccessorCoupon.PriceLinks, new SuccessorDocumentPriceLink("EXC:MISSING", 1m, accepted.SaleCurrencyId)]
-                    }
+                    Coupons = [coupon with { Successor = coupon.Successor with { PriceLinks = [.. coupon.Successor.PriceLinks, new SuccessorDocumentPriceLink("EXC:MISSING", 1m, accepted.SaleCurrencyId)] } }]
                 },
                 _ => accepted
             };
+        }
 
         private async Task AssertNothingHappenedAsync(
             OrderSliceHarness harness,

@@ -8,9 +8,9 @@ using AeroTech.Ordering.Application.OrderAggregate.Commands.IssueOrder.Backoffic
 using AeroTech.Ordering.Application.OrderAggregate.Commands.RemoveOrderServices;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.ReserveOrder.Backoffice;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.WithdrawOrder;
-using AeroTech.Ordering.Application.OrderAggregate.Queries.QuoteChange;
-using AeroTech.Ordering.Application.OrderAggregate.Queries.QuoteExchange;
-using AeroTech.Ordering.Application.OrderAggregate.Queries.QuoteRefund;
+using AeroTech.Ordering.Query.OrderAggregate.Queries.QuoteChange;
+using AeroTech.Ordering.Query.OrderAggregate.Queries.QuoteExchange;
+using AeroTech.Ordering.Query.OrderAggregate.Queries.QuoteRefund;
 using AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrderDetails;
 using AeroTech.Ordering.RestApi._Shared;
 using AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests;
@@ -91,7 +91,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             => ChangeQuoteRequestMapper.ResolveVariant(request) switch
             {
                 ChangeQuoteVariant.Exchange => Ok(await _mediator.Send(
-                    new QuoteExchangeQuery(orderId, request.QuoteExchange!.PredecessorOrderServiceId), cancellationToken)),
+                    new QuoteExchangeQuery(orderId, request.QuoteExchange!.ChangedOrderServiceIds), cancellationToken)),
                 _ => Ok(await _mediator.Send(
                     new QuoteChangeQuery(orderId, request.OrderServiceId!.Value), cancellationToken))
             };
@@ -221,7 +221,7 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
             var outcome = await _mediator.Send(
                 new AcceptExchangeCommand(
                     orderId,
-                    request.AcceptExchange!.PredecessorOrderServiceId,
+                    request.AcceptExchange!.ChangedOrderServiceIds,
                     request.AcceptExchange.QuotedExchangeId,
                     idempotencyKey,
                     request.ExpectedCommercialVersion),

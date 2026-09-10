@@ -1,11 +1,9 @@
 using AeroTech.Messages.Ordering.Enums;
-using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
-using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.VoluntaryChange;
-using AeroTech.Ordering.Domain.OrderAggregate.Entities;
+using AeroTech.Ordering.Domain.Ports.Exchange;
 
 namespace AeroTech.Ordering.Domain.Tests._Shared
 {
@@ -21,102 +19,84 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public const string ReplacementBookingClass = "Q";
         public const string ReplacementFlightNumber = "W5 1236";
 
-        public static string OutRef(long pricingLineId) => $"EXC:OUT:{pricingLineId}";
+        public static string OutRef(string correlationRef) => $"EXC:OUT:{correlationRef}";
 
-        public static string InRef(long pricingLineId) => $"EXC:IN:{pricingLineId}";
+        public static string InRef(string correlationRef) => $"EXC:IN:{correlationRef}";
 
-        public static AcceptedExchange Accepted(
-            Order order,
-            ElectronicTicket predecessor,
-            TicketCoupon coupon,
-            ChangeMonetaryOutcome monetaryOutcome = ChangeMonetaryOutcome.Even)
+        public static AcceptedExchange Compose(
+            ExchangeQuoteRequest request,
+            IReadOnlyDictionary<long, AcceptedChangeReplacement> replacements,
+            ChangeMonetaryOutcome monetaryOutcome = ChangeMonetaryOutcome.Even,
+            string quotedExchangeId = QuoteId)
         {
-            var lines = EvenTransferLines(order, predecessor, coupon);
+            var lines = EvenTransferLines(request.PredecessorPricing);
+
+            var coupons = request.PredecessorCoupons
+                .OrderBy(coupon => coupon.CouponNumber)
+                .Select(coupon =>
+                {
+                    var replaced = request.ChangedOrderServiceIds.Contains(coupon.OrderServiceId);
+
+                    return new AcceptedExchangeCoupon(
+                        coupon.TicketCouponId,
+                        coupon.CouponNumber,
+                        coupon.OrderServiceId,
+                        replaced ? ExchangeCouponDisposition.Replaced : ExchangeCouponDisposition.Continued,
+                        replaced ? replacements[coupon.OrderServiceId] : null,
+                        SuccessorCoupon(lines, request.PredecessorPricing, coupon.CouponNumber, request.SaleCurrencyId));
+                })
+                .ToList();
 
             return new AcceptedExchange(
                 SourceSystem,
-                QuoteId,
+                quotedExchangeId,
                 TargetRef,
                 PricingSource.PricingEngine,
-                order.Id,
-                order.CommercialVersion,
-                order.CurrencyId,
-                predecessor.Id,
-                coupon.CurrentOrderServiceId,
-                coupon.Id,
-                order.OrderServices
-                    .Where(service => service.Id != coupon.CurrentOrderServiceId)
-                    .Select(service => service.Id)
-                    .ToList(),
-                Replacement(order, coupon),
+                request.OrderId,
+                request.CommercialVersion,
+                request.SaleCurrencyId,
+                request.PredecessorElectronicTicketId,
+                request.ChangedOrderServiceIds,
+                coupons,
                 monetaryOutcome,
                 lines,
-                SuccessorCoupon(lines, order.CurrencyId),
                 DateTimeOffset.UtcNow.AddHours(1),
                 PricingReference);
         }
 
-        public static ExchangeQuote ToQuote(AcceptedExchange accepted)
-            => new(
-                accepted.SourceSystem,
-                accepted.QuotedExchangeId,
-                accepted.TargetSelectionRef,
-                accepted.PricingSource,
-                accepted.OrderId,
-                accepted.ExpectedCommercialVersion,
-                accepted.SaleCurrencyId,
-                accepted.PredecessorElectronicTicketId,
-                accepted.PredecessorOrderServiceId,
-                accepted.PredecessorTicketCouponId,
-                accepted.ContinuedOrderServiceIds,
-                accepted.Replacement,
-                accepted.MonetaryOutcome,
-                accepted.PricingLines,
-                accepted.SuccessorCoupon,
-                accepted.ExpiresAt,
-                accepted.SourcePricingReference);
-
         public static IReadOnlyList<AcceptedExchangePricingLine> EvenTransferLines(
-            Order order,
-            ElectronicTicket predecessor,
-            TicketCoupon coupon)
+            IReadOnlyList<PredecessorPricingEvidence> evidence)
         {
-            var carried = predecessor.CarriedPricingLineIds();
             var lines = new List<AcceptedExchangePricingLine>();
 
-            foreach (var line in order.PricingLines.Where(candidate => carried.Contains(candidate.Id)).OrderBy(candidate => candidate.Id))
+            foreach (var carried in evidence.OrderBy(item => item.CouponNumber).ThenBy(item => item.CorrelationRef, StringComparer.Ordinal))
             {
-                lines.Add(TransferLine(line, OrderPricingLineDirection.Credit, OutRef(line.Id), coupon.CurrentOrderServiceId));
-                lines.Add(TransferLine(line, OrderPricingLineDirection.Debit, InRef(line.Id), null));
+                lines.Add(TransferLine(carried, OrderPricingLineDirection.Credit, OutRef(carried.CorrelationRef)));
+                lines.Add(TransferLine(carried, OrderPricingLineDirection.Debit, InRef(carried.CorrelationRef)));
             }
 
             return lines;
         }
 
         public static AcceptedExchangePricingLine TransferLine(
-            OrderPricingLine original,
+            PredecessorPricingEvidence carried,
             OrderPricingLineDirection direction,
-            string sourceLineRef,
-            long? basisServiceId)
+            string sourceLineRef)
             => new(
-                original.ComponentType,
+                carried.ComponentType,
                 PricingEffect.CustomerBalance,
                 direction,
                 PricingLineRole.Transfer,
-                original.SaleAmount,
-                original.SaleCurrencyId,
-                original.SaleAmount,
-                original.SaleCurrencyId,
-                PricingBasisType.OrderService,
-                original.Refundability,
+                carried.SaleAmount,
+                carried.SaleCurrencyId,
+                carried.SaleAmount,
+                carried.SaleCurrencyId,
+                PricingBasisType.Order,
+                RefundabilityRule.Refundable,
                 sourceLineRef,
-                BasisReferenceId: basisServiceId,
-                OrderItemId: original.OrderItemId,
-                OriginalPricingLineId: original.Id,
+                PredecessorCorrelationRef: carried.CorrelationRef,
                 TransferGroupId: TransferGroup,
-                Code: original.Code,
-                Description: original.Description,
-                ApplicationLevel: original.ApplicationLevel);
+                Code: carried.Code);
 
         public static AcceptedExchangePricingLine PenaltyLine(int currencyId, decimal amount = 250_000m)
             => new(
@@ -135,10 +115,13 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
 
         public static AcceptedSuccessorCoupon SuccessorCoupon(
             IReadOnlyList<AcceptedExchangePricingLine> lines,
+            IReadOnlyList<PredecessorPricingEvidence> evidence,
+            int couponNumber,
             int currencyId)
         {
-            var carriedIn = lines
-                .Where(line => line.LineRole == PricingLineRole.Transfer && line.Direction == OrderPricingLineDirection.Debit)
+            var carriedIn = evidence
+                .Where(item => item.CouponNumber == couponNumber)
+                .Select(item => lines.Single(line => line.SourceLineRef == InRef(item.CorrelationRef)))
                 .ToList();
 
             return new AcceptedSuccessorCoupon(
@@ -149,17 +132,22 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                     .ToList());
         }
 
-        public static AcceptedChangeReplacement Replacement(Order order, TicketCoupon coupon)
+        public static IReadOnlyDictionary<long, AcceptedChangeReplacement> ReplacementsFor(
+            Order order,
+            IEnumerable<long> changedOrderServiceIds)
+            => changedOrderServiceIds.ToDictionary(serviceId => serviceId, serviceId => Replacement(order, serviceId));
+
+        public static AcceptedChangeReplacement Replacement(Order order, long orderServiceId)
         {
-            var service = order.OrderServices.Single(candidate => candidate.Id == coupon.CurrentOrderServiceId);
+            var service = order.OrderServices.Single(candidate => candidate.Id == orderServiceId);
             var segment = order.Segments.Single(candidate => candidate.Id == service.SoldSegmentId!.Value);
 
             return new AcceptedChangeReplacement(
-                "EXCHANGE-REPLACEMENT-1",
+                $"EXCHANGE-REPLACEMENT-{orderServiceId}",
                 service.ServiceCode,
                 service.Name,
                 new AcceptedSegment(
-                    "EXCHANGE-REPLACEMENT-SEG-1",
+                    $"EXCHANGE-REPLACEMENT-SEG-{orderServiceId}",
                     segment.Sequence,
                     segment.FlightId,
                     segment.FlightVersion,
@@ -181,7 +169,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                     ReplacementCapacityReference,
                     segment.AirFareId,
                     []),
-                new AcceptedAirTransportDetail("EXCHANGE-REPLACEMENT-SEG-1", SuccessorFareBasis),
+                new AcceptedAirTransportDetail($"EXCHANGE-REPLACEMENT-SEG-{orderServiceId}", SuccessorFareBasis),
                 service.Beneficiaries.Select(beneficiary => beneficiary.OrderTravellerId).ToList());
         }
     }

@@ -24,19 +24,9 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public string PredecessorDocumentNumber { get; set; } = null!;
 
-        public long PredecessorTicketCouponId { get; set; }
-
-        public int PredecessorCouponNumber { get; set; }
-
-        public long PredecessorOrderServiceId { get; set; }
-
-        public long ReplacementOrderServiceId { get; set; }
-
-        public long ReplacementOrderSegmentId { get; set; }
+        public long PredecessorTravellerId { get; set; }
 
         public long SuccessorElectronicTicketId { get; set; }
-
-        public long SuccessorTicketCouponId { get; set; }
 
         public int ExpectedCommercialVersion { get; set; }
 
@@ -68,8 +58,6 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public string? SuccessorDocumentNumber { get; set; }
 
-        public int? SuccessorCouponNumber { get; set; }
-
         public long? SuccessorIssuerCarrierId { get; set; }
 
         public long? SuccessorIssuingOfficeId { get; set; }
@@ -81,5 +69,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
         public DateTimeOffset CreatedAt { get; set; }
 
         public DateTimeOffset UpdatedAt { get; set; }
+
+        public List<AcceptedExchangePlanCouponRow> Coupons { get; set; } = new();
     }
 }

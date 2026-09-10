@@ -15,16 +15,12 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         int SaleCurrencyId,
         long PredecessorElectronicTicketId,
         string PredecessorDocumentNumber,
-        long PredecessorTicketCouponId,
-        int PredecessorCouponNumber,
-        long PredecessorOrderServiceId,
-        long ReplacementOrderServiceId,
-        long ReplacementOrderSegmentId,
+        long PredecessorTravellerId,
         long SuccessorElectronicTicketId,
-        long SuccessorTicketCouponId,
         int ExpectedCommercialVersion,
         ChangeMonetaryOutcome MonetaryOutcome,
         AcceptedExchange Accepted,
+        IReadOnlyList<AcceptedExchangePlanCoupon> Coupons,
         AcceptedExchangeDisposition Disposition = AcceptedExchangeDisposition.Executable,
         string? DispositionDetail = null,
         int? RejectionCode = null,
@@ -55,5 +51,11 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool IsDocumentExchangeRejected
             => DocumentExchangeOutcome == ProviderOperationOutcome.Rejected;
+
+        public IReadOnlyList<AcceptedExchangePlanCoupon> ReplacedCoupons
+            => Coupons.Where(coupon => coupon.IsReplaced).ToList();
+
+        public IReadOnlyList<long> ChangedOrderServiceIds
+            => ReplacedCoupons.Select(coupon => coupon.PredecessorOrderServiceId).ToList();
     }
 }

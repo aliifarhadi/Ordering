@@ -40,7 +40,7 @@ namespace AeroTech.Ordering.Providers.Deterministic
             return Task.FromResult(new ReservationChangeResult(
                 ApplyOutcome,
                 $"PNR-CHG-{request.OperationId}",
-                $"SEG-{request.ReplacementOrderServiceId}"));
+                string.Join(",", request.Items.Select(item => $"SEG-{item.ReplacementOrderServiceId}"))));
         }
 
         public Task<ReservationChangeRecovery> RecoverAsync(

@@ -6,9 +6,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 {
     internal sealed record ExchangeScenario(
         long OrderId,
-        long ServiceId,
+        IReadOnlyList<long> ChangedOrderServiceIds,
         long TicketId,
-        long CouponId,
+        IReadOnlyDictionary<int, long> CouponIds,
+        IReadOnlyDictionary<int, long> CouponServiceIds,
         int CommercialVersion,
         long FinancialSequence,
         long ObligationVersion,
@@ -16,7 +17,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         int DocumentVersion,
         AcceptedExchange Accepted)
     {
+        public long ServiceId => ChangedOrderServiceIds[0];
+
+        public long CouponId => CouponIds[CouponServiceIds.Single(pair => pair.Value == ServiceId).Key];
+
         public ExchangeExecution Execution(string key)
-            => new(OrderId, ServiceId, ExchangeSourceFactory.QuoteId, key, CommercialVersion);
+            => new(OrderId, ChangedOrderServiceIds, ExchangeSourceFactory.QuoteId, key, CommercialVersion);
     }
 }

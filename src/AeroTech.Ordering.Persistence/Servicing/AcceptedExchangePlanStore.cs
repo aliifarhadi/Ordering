@@ -1,10 +1,10 @@
-using AeroTech.Ordering.Domain.Servicing.Plans;
-using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
 using System.Text.Json;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
+using AeroTech.Ordering.Domain.Servicing.Plans;
+using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,8 +31,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
             long operationId,
             CancellationToken cancellationToken = default)
         {
-            var row = await _dbContext.Set<AcceptedExchangePlanRow>()
-                .FirstOrDefaultAsync(plan => plan.OperationId == operationId, cancellationToken);
+            var row = await Query().FirstOrDefaultAsync(plan => plan.OperationId == operationId, cancellationToken);
 
             if (row is null)
                 return null;
@@ -51,16 +50,23 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 row.SaleCurrencyId,
                 row.PredecessorElectronicTicketId,
                 row.PredecessorDocumentNumber,
-                row.PredecessorTicketCouponId,
-                row.PredecessorCouponNumber,
-                row.PredecessorOrderServiceId,
-                row.ReplacementOrderServiceId,
-                row.ReplacementOrderSegmentId,
+                row.PredecessorTravellerId,
                 row.SuccessorElectronicTicketId,
-                row.SuccessorTicketCouponId,
                 row.ExpectedCommercialVersion,
                 row.MonetaryOutcome,
                 accepted,
+                row.Coupons
+                    .OrderBy(coupon => coupon.PredecessorCouponNumber)
+                    .Select(coupon => new AcceptedExchangePlanCoupon(
+                        coupon.PredecessorTicketCouponId,
+                        coupon.PredecessorCouponNumber,
+                        coupon.PredecessorOrderServiceId,
+                        coupon.Disposition,
+                        coupon.SuccessorTicketCouponId,
+                        coupon.ReplacementOrderServiceId,
+                        coupon.ReplacementOrderSegmentId,
+                        coupon.SuccessorCouponNumber))
+                    .ToList(),
                 row.Disposition,
                 row.DispositionDetail,
                 row.RejectionCode,
@@ -97,13 +103,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 SaleCurrencyId = plan.SaleCurrencyId,
                 PredecessorElectronicTicketId = plan.PredecessorElectronicTicketId,
                 PredecessorDocumentNumber = plan.PredecessorDocumentNumber,
-                PredecessorTicketCouponId = plan.PredecessorTicketCouponId,
-                PredecessorCouponNumber = plan.PredecessorCouponNumber,
-                PredecessorOrderServiceId = plan.PredecessorOrderServiceId,
-                ReplacementOrderServiceId = plan.ReplacementOrderServiceId,
-                ReplacementOrderSegmentId = plan.ReplacementOrderSegmentId,
+                PredecessorTravellerId = plan.PredecessorTravellerId,
                 SuccessorElectronicTicketId = plan.SuccessorElectronicTicketId,
-                SuccessorTicketCouponId = plan.SuccessorTicketCouponId,
                 ExpectedCommercialVersion = plan.ExpectedCommercialVersion,
                 MonetaryOutcome = plan.MonetaryOutcome,
                 AcceptedPlan = JsonSerializer.Serialize(plan.Accepted, PlanOptions),
@@ -119,7 +120,21 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 DocumentExchangeProviderReference = plan.DocumentExchangeProviderReference,
                 DocumentExchangeDetail = plan.DocumentExchangeDetail,
                 CreatedAt = now,
-                UpdatedAt = now
+                UpdatedAt = now,
+                Coupons = plan.Coupons
+                    .Select(coupon => new AcceptedExchangePlanCouponRow
+                    {
+                        OperationId = plan.OperationId,
+                        PredecessorTicketCouponId = coupon.PredecessorTicketCouponId,
+                        PredecessorCouponNumber = coupon.PredecessorCouponNumber,
+                        PredecessorOrderServiceId = coupon.PredecessorOrderServiceId,
+                        Disposition = coupon.Disposition,
+                        SuccessorTicketCouponId = coupon.SuccessorTicketCouponId,
+                        ReplacementOrderServiceId = coupon.ReplacementOrderServiceId,
+                        ReplacementOrderSegmentId = coupon.ReplacementOrderSegmentId,
+                        SuccessorCouponNumber = coupon.SuccessorCouponNumber
+                    })
+                    .ToList()
             };
 
             ApplySuccessor(row, plan.Successor);
@@ -176,32 +191,46 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 return;
 
             row.SuccessorDocumentNumber = successor.DocumentNumber;
-            row.SuccessorCouponNumber = successor.CouponNumber;
             row.SuccessorIssuerCarrierId = successor.IssuerCarrierId;
             row.SuccessorIssuingOfficeId = successor.IssuingOfficeId;
             row.SuccessorAuthority = successor.Authority;
             row.SuccessorVoidDeadline = successor.VoidDeadline;
+
+            foreach (var identity in successor.Coupons)
+            {
+                var coupon = row.Coupons.FirstOrDefault(candidate =>
+                    candidate.PredecessorTicketCouponId == identity.PredecessorTicketCouponId);
+
+                if (coupon is not null)
+                    coupon.SuccessorCouponNumber = identity.CouponNumber;
+            }
         }
 
         private static SuccessorDocumentIdentity? SuccessorOf(AcceptedExchangePlanRow row)
             => row.SuccessorDocumentNumber is null
-               || row.SuccessorCouponNumber is null
                || row.SuccessorIssuerCarrierId is null
                || row.SuccessorAuthority is null
                 ? null
                 : new SuccessorDocumentIdentity(
                     row.SuccessorDocumentNumber,
-                    row.SuccessorCouponNumber.Value,
                     row.SuccessorIssuerCarrierId.Value,
                     row.SuccessorIssuingOfficeId,
                     row.SuccessorAuthority.Value,
-                    row.SuccessorVoidDeadline);
+                    row.SuccessorVoidDeadline,
+                    row.Coupons
+                        .Where(coupon => coupon.SuccessorCouponNumber is not null)
+                        .OrderBy(coupon => coupon.PredecessorCouponNumber)
+                        .Select(coupon => new SuccessorCouponIdentity(
+                            coupon.PredecessorTicketCouponId, coupon.SuccessorCouponNumber!.Value))
+                        .ToList());
+
+        private IQueryable<AcceptedExchangePlanRow> Query()
+            => _dbContext.Set<AcceptedExchangePlanRow>().Include(plan => plan.Coupons);
 
         private async Task<AcceptedExchangePlanRow> RequireAsync(
             long operationId,
             CancellationToken cancellationToken)
-            => await _dbContext.Set<AcceptedExchangePlanRow>()
-                   .FirstOrDefaultAsync(plan => plan.OperationId == operationId, cancellationToken)
+            => await Query().FirstOrDefaultAsync(plan => plan.OperationId == operationId, cancellationToken)
                ?? throw ExceptionFactory.AcceptedExchangePlanNotFound(operationId);
     }
 }

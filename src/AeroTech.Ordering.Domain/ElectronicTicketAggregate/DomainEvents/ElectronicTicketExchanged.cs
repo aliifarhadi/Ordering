@@ -1,5 +1,4 @@
 using AeroTech.Framework.Core.Domain.Events;
-using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.DomainEvents
 {
@@ -14,10 +13,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.DomainEvents
         long ExchangeRecordId,
         long SuccessorElectronicTicketId,
         string SuccessorDocumentNumber,
-        long PredecessorTicketCouponId,
-        long SuccessorTicketCouponId,
-        long PreviousOrderServiceId,
-        long ReplacementOrderServiceId,
+        IReadOnlyList<ElectronicTicketExchangedCoupon> Coupons,
         string QuotedExchangeId,
         string TargetSelectionRef,
         int DocumentVersion) : DomainEvent(EventId, AggregateId, TimeOfOccurrence);

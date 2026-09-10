@@ -5,7 +5,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.AcceptExchange
 {
     public sealed record AcceptExchangeCommand(
         long OrderId,
-        long PredecessorOrderServiceId,
+        IReadOnlyList<long> ChangedOrderServiceIds,
         string QuotedExchangeId,
         string IdempotencyKey,
         int? ExpectedCommercialVersion) : IRequest<ExchangeOutcome>;

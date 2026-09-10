@@ -438,11 +438,11 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long>("PreviousOrderServiceId")
                         .HasColumnType("bigint");
 
-                    b.Property<long>("ReplacementOrderServiceId")
-                        .HasColumnType("bigint");
-
                     b.Property<int>("SuccessorCouponNumber")
                         .HasColumnType("int");
+
+                    b.Property<long>("SuccessorOrderServiceId")
+                        .HasColumnType("bigint");
 
                     b.Property<long>("SuccessorTicketCouponId")
                         .HasColumnType("bigint");
@@ -451,7 +451,7 @@ namespace AeroTech.Ordering.Persistence.Migrations
 
                     b.HasIndex("PreviousOrderServiceId");
 
-                    b.HasIndex("ReplacementOrderServiceId");
+                    b.HasIndex("SuccessorOrderServiceId");
 
                     b.HasIndex("SuccessorTicketCouponId")
                         .IsUnique();
@@ -3651,7 +3651,38 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("InboxMessages", "dbo");
                 });
 
-            modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.AcceptedChangePlanRow", b =>
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Outbox.OutboxMessage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("MessageType")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTimeOffset>("OccurredOn")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("ProcessedOn")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessedOn");
+
+                    b.ToTable("OutboxMessages", "dbo");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Servicing.AcceptedChangePlanRow", b =>
                 {
                     b.Property<long>("OperationId")
                         .HasColumnType("bigint");
@@ -3738,7 +3769,46 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("AcceptedChangePlans", "Order");
                 });
 
-            modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.AcceptedExchangePlanRow", b =>
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Servicing.AcceptedExchangePlanCouponRow", b =>
+                {
+                    b.Property<long>("OperationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("PredecessorTicketCouponId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Disposition")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PredecessorCouponNumber")
+                        .HasColumnType("int");
+
+                    b.Property<long>("PredecessorOrderServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ReplacementOrderSegmentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ReplacementOrderServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("SuccessorCouponNumber")
+                        .HasColumnType("int");
+
+                    b.Property<long>("SuccessorTicketCouponId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("OperationId", "PredecessorTicketCouponId");
+
+                    b.HasIndex("PredecessorOrderServiceId");
+
+                    b.HasIndex("SuccessorTicketCouponId")
+                        .IsUnique();
+
+                    b.ToTable("AcceptedExchangePlanCoupons", "Order");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Servicing.AcceptedExchangePlanRow", b =>
                 {
                     b.Property<long>("OperationId")
                         .HasColumnType("bigint");
@@ -3785,9 +3855,6 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long>("OrderId")
                         .HasColumnType("bigint");
 
-                    b.Property<int>("PredecessorCouponNumber")
-                        .HasColumnType("int");
-
                     b.Property<string>("PredecessorDocumentNumber")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -3796,10 +3863,7 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long>("PredecessorElectronicTicketId")
                         .HasColumnType("bigint");
 
-                    b.Property<long>("PredecessorOrderServiceId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("PredecessorTicketCouponId")
+                    b.Property<long>("PredecessorTravellerId")
                         .HasColumnType("bigint");
 
                     b.Property<int>("PricingSource")
@@ -3815,12 +3879,6 @@ namespace AeroTech.Ordering.Persistence.Migrations
 
                     b.Property<int?>("RejectionHttpStatus")
                         .HasColumnType("int");
-
-                    b.Property<long>("ReplacementOrderSegmentId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("ReplacementOrderServiceId")
-                        .HasColumnType("bigint");
 
                     b.Property<string>("ReservationExternalRef")
                         .HasMaxLength(128)
@@ -3844,9 +3902,6 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<int?>("SuccessorAuthority")
                         .HasColumnType("int");
 
-                    b.Property<int?>("SuccessorCouponNumber")
-                        .HasColumnType("int");
-
                     b.Property<string>("SuccessorDocumentNumber")
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
@@ -3858,9 +3913,6 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<long?>("SuccessorIssuingOfficeId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("SuccessorTicketCouponId")
                         .HasColumnType("bigint");
 
                     b.Property<DateTimeOffset?>("SuccessorVoidDeadline")
@@ -3886,7 +3938,7 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("AcceptedExchangePlans", "Order");
                 });
 
-            modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.CommandReceipt", b =>
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Servicing.CommandReceipt", b =>
                 {
                     b.Property<long>("Id")
                         .HasColumnType("bigint");
@@ -3947,7 +3999,7 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("CommandReceipts", "Order");
                 });
 
-            modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.OperationOrderClaim", b =>
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Servicing.OperationOrderClaim", b =>
                 {
                     b.Property<long>("Id")
                         .HasColumnType("bigint");
@@ -3990,7 +4042,7 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.ToTable("OperationOrderClaims", "Order");
                 });
 
-            modelBuilder.Entity("AeroTech.Ordering.Persistence.Operations.ServicingOperation", b =>
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Servicing.ServicingOperation", b =>
                 {
                     b.Property<long>("Id")
                         .HasColumnType("bigint");
@@ -4038,37 +4090,6 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.HasIndex("OrderId", "Status");
 
                     b.ToTable("ServicingOperations", "Order");
-                });
-
-            modelBuilder.Entity("AeroTech.Ordering.Persistence.Outbox.OutboxMessage", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("MessageType")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<DateTimeOffset>("OccurredOn")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("Payload")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTimeOffset?>("ProcessedOn")
-                        .HasColumnType("datetimeoffset");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProcessedOn");
-
-                    b.ToTable("OutboxMessages", "dbo");
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.TrafficDocumentAggregate.Entities.EmdCoupon", b =>
@@ -5212,6 +5233,15 @@ namespace AeroTech.Ordering.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Servicing.AcceptedExchangePlanCouponRow", b =>
+                {
+                    b.HasOne("AeroTech.Ordering.Persistence.Servicing.AcceptedExchangePlanRow", null)
+                        .WithMany("Coupons")
+                        .HasForeignKey("OperationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("AeroTech.Ordering.Domain.DocumentStockAggregate.DocumentStock", b =>
                 {
                     b.Navigation("Allocations");
@@ -5387,6 +5417,11 @@ namespace AeroTech.Ordering.Persistence.Migrations
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.TrafficDocumentAggregate.TrafficDocument", b =>
+                {
+                    b.Navigation("Coupons");
+                });
+
+            modelBuilder.Entity("AeroTech.Ordering.Persistence.Servicing.AcceptedExchangePlanRow", b =>
                 {
                     b.Navigation("Coupons");
                 });

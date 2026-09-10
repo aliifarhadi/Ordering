@@ -32,47 +32,86 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
             ArgumentNullException.ThrowIfNull(accepted);
 
             if (accepted.PricingSource is PricingSource.OrderingDerived or PricingSource.Manual)
-                throw ExceptionFactory.ExchangePricingMalformed(
-                    accepted.QuotedExchangeId, $"pricing source {accepted.PricingSource} is not an exchange pricing authority");
+                throw Malformed(accepted, $"pricing source {accepted.PricingSource} is not an exchange pricing authority");
 
+            EnsureCouponScopeIsWellFormed(accepted);
+            EnsureTransferLinesAreWellFormed(accepted);
+            EnsureSuccessorAttributionIsWellFormed(accepted);
+        }
+
+        private static void EnsureCouponScopeIsWellFormed(AcceptedExchange accepted)
+        {
+            if (accepted.Coupons.Count == 0)
+                throw Malformed(accepted, "no coupon dispositions");
+
+            if (accepted.Coupons.Select(coupon => coupon.PredecessorTicketCouponId).Distinct().Count() != accepted.Coupons.Count
+                || accepted.Coupons.Select(coupon => coupon.PredecessorCouponNumber).Distinct().Count() != accepted.Coupons.Count)
+                throw Malformed(accepted, "duplicate coupon disposition");
+
+            if (accepted.Coupons.Any(coupon => coupon.IsReplaced != coupon.Replacement is not null))
+                throw Malformed(accepted, "coupon disposition does not match its replacement");
+
+            if (accepted.ChangedOrderServiceIds.Count == 0
+                || accepted.ChangedOrderServiceIds.Distinct().Count() != accepted.ChangedOrderServiceIds.Count)
+                throw Malformed(accepted, "changed services must be a non-empty distinct set");
+
+            var replacedServices = accepted.Coupons
+                .Where(coupon => coupon.IsReplaced)
+                .Select(coupon => coupon.PredecessorOrderServiceId)
+                .ToHashSet();
+
+            if (!replacedServices.SetEquals(accepted.ChangedOrderServiceIds))
+                throw Malformed(accepted, "replaced coupons do not cover the changed services");
+
+            if (accepted.Coupons.Any(coupon => coupon.Successor.IssuanceValue < 0m))
+                throw Malformed(accepted, "negative successor issuance value");
+        }
+
+        private static void EnsureTransferLinesAreWellFormed(AcceptedExchange accepted)
+        {
             if (accepted.PricingLines.Count == 0)
-                throw ExceptionFactory.ExchangePricingMalformed(accepted.QuotedExchangeId, "no pricing lines");
+                throw Malformed(accepted, "no pricing lines");
 
             if (accepted.PricingLines.All(line => line.LineRole != PricingLineRole.Transfer))
-                throw ExceptionFactory.ExchangePricingMalformed(accepted.QuotedExchangeId, "no transfer line");
+                throw Malformed(accepted, "no transfer line");
 
             if (accepted.PricingLines.Any(line =>
                     line.LineRole == PricingLineRole.Transfer && string.IsNullOrWhiteSpace(line.TransferGroupId)))
-                throw ExceptionFactory.ExchangePricingMalformed(accepted.QuotedExchangeId, "transfer line without group");
+                throw Malformed(accepted, "transfer line without group");
 
             if (accepted.PricingLines.Any(line => string.IsNullOrWhiteSpace(line.SourceLineRef)))
-                throw ExceptionFactory.ExchangePricingMalformed(accepted.QuotedExchangeId, "line without source identity");
+                throw Malformed(accepted, "line without source identity");
 
             if (accepted.PricingLines.Select(line => line.SourceLineRef).Distinct(StringComparer.Ordinal).Count()
                 != accepted.PricingLines.Count)
-                throw ExceptionFactory.ExchangePricingMalformed(accepted.QuotedExchangeId, "duplicate source identity");
-
-            var sourceRefs = accepted.PricingLines.Select(line => line.SourceLineRef).ToHashSet(StringComparer.Ordinal);
-
-            foreach (var link in accepted.SuccessorCoupon.PriceLinks)
-            {
-                if (!sourceRefs.Contains(link.SourceLineRef))
-                    throw ExceptionFactory.ExchangeSuccessorAttributionUnresolved(link.SourceLineRef);
-
-                if (link.CurrencyId != accepted.SaleCurrencyId)
-                    throw ExceptionFactory.ExchangePricingMalformed(
-                        accepted.QuotedExchangeId, "successor attribution outside the sale currency");
-            }
-
-            if (accepted.SuccessorCoupon.PriceLinks.Select(link => link.SourceLineRef).Distinct(StringComparer.Ordinal).Count()
-                != accepted.SuccessorCoupon.PriceLinks.Count)
-                throw ExceptionFactory.ExchangePricingMalformed(accepted.QuotedExchangeId, "duplicate successor attribution");
-
-            if (accepted.SuccessorCoupon.PriceLinks.Count == 0)
-                throw ExceptionFactory.ExchangePricingMalformed(accepted.QuotedExchangeId, "no successor attribution");
-
-            if (accepted.SuccessorCoupon.IssuanceValue < 0m)
-                throw ExceptionFactory.ExchangePricingMalformed(accepted.QuotedExchangeId, "negative successor issuance value");
+                throw Malformed(accepted, "duplicate source identity");
         }
+
+        private static void EnsureSuccessorAttributionIsWellFormed(AcceptedExchange accepted)
+        {
+            var sourceRefs = accepted.PricingLines.Select(line => line.SourceLineRef).ToHashSet(StringComparer.Ordinal);
+            var attributed = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var coupon in accepted.Coupons)
+            {
+                if (coupon.Successor.PriceLinks.Count == 0)
+                    throw Malformed(accepted, $"coupon {coupon.PredecessorCouponNumber} has no successor attribution");
+
+                foreach (var link in coupon.Successor.PriceLinks)
+                {
+                    if (!sourceRefs.Contains(link.SourceLineRef))
+                        throw ExceptionFactory.ExchangeSuccessorAttributionUnresolved(link.SourceLineRef);
+
+                    if (link.CurrencyId != accepted.SaleCurrencyId)
+                        throw Malformed(accepted, "successor attribution outside the sale currency");
+
+                    if (!attributed.Add(link.SourceLineRef))
+                        throw Malformed(accepted, "duplicate successor attribution");
+                }
+            }
+        }
+
+        private static Exception Malformed(AcceptedExchange accepted, string detail)
+            => ExceptionFactory.ExchangePricingMalformed(accepted.QuotedExchangeId, detail);
     }
 }

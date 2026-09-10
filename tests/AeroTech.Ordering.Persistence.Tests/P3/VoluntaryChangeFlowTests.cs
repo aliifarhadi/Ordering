@@ -209,10 +209,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             var applied = Assert.Single(harness.ReservationChanges.ObservedApplies);
 
-            Assert.Equal(target.ServiceId, applied.ReplacedOrderServiceId);
-            Assert.Equal(outcome.ReplacementOrderServiceId, applied.ReplacementOrderServiceId);
-            Assert.Equal(ReplacementCapacityReference, applied.ReplacementFlightCapacityId);
-            Assert.Equal(ReplacementBookingClass, applied.ReplacementBookingClass);
+            Assert.Equal(target.ServiceId, applied.Items.Single().ReplacedOrderServiceId);
+            Assert.Equal(outcome.ReplacementOrderServiceId, applied.Items.Single().ReplacementOrderServiceId);
+            Assert.Equal(ReplacementCapacityReference, applied.Items.Single().ReplacementFlightCapacityId);
+            Assert.Equal(ReplacementBookingClass, applied.Items.Single().ReplacementBookingClass);
             Assert.Contains($"reservation-change:{target.ServiceId}", applied.OperationKey);
             Assert.Contains(outcome.OperationId.ToString(), applied.OperationKey);
         }
@@ -544,8 +544,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(DocumentChangeEligibilityOutcome.Revalidate, plan!.EligibilityOutcome);
             Assert.True(plan.IsRevalidationEstablished);
 
-            Assert.Equal(pendingPlan!.ReplacementOrderServiceId, applied.ReplacementOrderServiceId);
-            Assert.Equal(pendingPlan.ReplacementOrderSegmentId, applied.ReplacementOrderSegmentId);
+            Assert.Equal(pendingPlan!.ReplacementOrderServiceId, applied.Items.Single().ReplacementOrderServiceId);
+            Assert.Equal(pendingPlan.ReplacementOrderSegmentId, applied.Items.Single().ReplacementOrderSegmentId);
             Assert.Equal(pendingPlan.ReplacementOrderServiceId, resumed.ReplacementOrderServiceId);
 
             Assert.Equal(1, harness.ChangeQuotes.ObservedSelections.Count);
@@ -659,8 +659,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single(harness.ReservationChanges.ObservedRecoveryKeys);
             Assert.Equal(replayApply.OperationKey, harness.ReservationChanges.ObservedRecoveryKeys.Single());
 
-            Assert.Equal(plan.ReplacementOrderServiceId, replayApply.ReplacementOrderServiceId);
-            Assert.Equal(plan.ReplacementOrderSegmentId, replayApply.ReplacementOrderSegmentId);
+            Assert.Equal(plan.ReplacementOrderServiceId, replayApply.Items.Single().ReplacementOrderServiceId);
+            Assert.Equal(plan.ReplacementOrderSegmentId, replayApply.Items.Single().ReplacementOrderSegmentId);
             Assert.Contains($"reservation-change:{target.ServiceId}", replayApply.OperationKey);
 
             Assert.Equal(eligibilityCalls, harness.DocumentChangeEligibilities.ObservedRequests.Count);

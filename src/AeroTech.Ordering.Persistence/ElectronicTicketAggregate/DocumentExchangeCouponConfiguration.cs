@@ -16,7 +16,7 @@ namespace AeroTech.Ordering.Persistence.ElectronicTicketAggregate
                 .IsUnique();
             builder.HasIndex(coupon => coupon.SuccessorTicketCouponId).IsUnique();
             builder.HasIndex(coupon => coupon.PreviousOrderServiceId);
-            builder.HasIndex(coupon => coupon.ReplacementOrderServiceId);
+            builder.HasIndex(coupon => coupon.SuccessorOrderServiceId);
         }
     }
 }

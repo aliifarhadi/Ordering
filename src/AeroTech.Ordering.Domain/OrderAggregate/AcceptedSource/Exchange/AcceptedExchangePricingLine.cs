@@ -17,7 +17,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange
         string SourceLineRef,
         long? BasisReferenceId = null,
         long? OrderItemId = null,
-        long? OriginalPricingLineId = null,
+        string? PredecessorCorrelationRef = null,
         string? TransferGroupId = null,
         string? Code = null,
         string? Description = null,

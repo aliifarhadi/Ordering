@@ -6,12 +6,19 @@ using AeroTech.Ordering.Domain.OrderAggregate.Dto;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
+using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate
 {
     public sealed partial class Order
     {
+        public IReadOnlyList<PredecessorPricingEvidence> PredecessorPricingEvidence(
+            long predecessorElectronicTicketId,
+            string predecessorDocumentNumber,
+            IReadOnlyList<CarriedPricingLink> carried)
+            => ExchangePricingCorrelation.Evidence(predecessorElectronicTicketId, predecessorDocumentNumber, carried, _pricingLines);
+
         public StagedExchange PrepareExchange(AcceptedExchangeArgs args, IIdGenerator idGenerator, IClock clock)
             => StageExchange(args, idGenerator, clock.GetDateTime());
 
@@ -28,16 +35,11 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 throw ExceptionFactory.ChangeMonetaryOutcomeNotSupported(accepted.QuotedExchangeId, unsupported);
 
             ExchangePricingPolicy.EnsureWellFormed(accepted);
-
-            var replaced = RequireChangeableAirService(accepted.PredecessorOrderServiceId);
-
-            EnsureNoActiveServiceDependsOn(replaced.Id);
-            EnsureExchangeKeepsContinuedServices(accepted);
-            EnsureExchangeKeepsTheTraveller(accepted, replaced);
+            EnsureExchangeAllocationsMatch(accepted, args.Coupons);
 
             var lines = accepted.PricingLines
                 .Select(line => MapExchangePricingLine(
-                    line, accepted.PredecessorElectronicTicketId, args.PredecessorCarriedPricingLineIds))
+                    line, accepted.PredecessorElectronicTicketId, args.PredecessorPricingCorrelation))
                 .ToList();
 
             var changeArgs = new AcceptedPriceChangeArgs(
@@ -55,64 +57,115 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             var change = StageOrderChange(changeArgs, idGenerator, now);
             var priceChange = StagePriceChange(change, changeArgs, idGenerator, now);
 
-            var itineraryId = _segments
-                .Single(segment => segment.Id == replaced.SoldSegmentId!.Value)
-                .OrderItineraryId;
-
-            var segment = StageReplacementSegment(
-                accepted.Replacement.Segment, args.ReplacementOrderSegmentId, itineraryId, idGenerator);
-
-            var service = StageReplacementService(
-                accepted.Replacement, args.ReplacementOrderServiceId, replaced, segment.Id, idGenerator, now);
+            var coupons = accepted.Coupons
+                .OrderBy(coupon => coupon.PredecessorCouponNumber)
+                .Select(coupon => StageExchangeCoupon(coupon, args, idGenerator, now))
+                .ToList();
 
             var lineIds = priceChange.Lines.ToDictionary(
                 line => line.SourceLineRef!,
                 line => line.Id,
                 StringComparer.Ordinal);
 
-            return new StagedExchange(
-                priceChange,
-                segment,
-                service,
-                replaced.Id,
-                args.SuccessorElectronicTicketId,
-                args.SuccessorTicketCouponId,
-                lineIds);
+            return new StagedExchange(priceChange, coupons, args.SuccessorElectronicTicketId, lineIds);
         }
 
-        private void EnsureExchangeKeepsContinuedServices(AcceptedExchange accepted)
+        private StagedExchangeCoupon StageExchangeCoupon(
+            AcceptedExchangeCoupon coupon,
+            AcceptedExchangeArgs args,
+            IIdGenerator idGenerator,
+            DateTimeOffset now)
         {
-            foreach (var continuedId in accepted.ContinuedOrderServiceIds)
-            {
-                if (continuedId == accepted.PredecessorOrderServiceId)
-                    throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("continued service scope");
+            var allocation = args.Coupons.Single(candidate => candidate.PredecessorTicketCouponId == coupon.PredecessorTicketCouponId);
+            var current = RequireChangeableAirService(coupon.PredecessorOrderServiceId);
 
-                if (_orderServices.All(service => service.Id != continuedId))
-                    throw ExceptionFactory.ChangeScopeServiceNotInOrder(continuedId, Id);
+            EnsureServiceIsHeldForTraveller(current, args.PredecessorTravellerId);
+
+            if (!coupon.IsReplaced)
+                return new StagedExchangeCoupon(
+                    coupon.PredecessorTicketCouponId,
+                    allocation.SuccessorTicketCouponId,
+                    ExchangeCouponDisposition.Continued,
+                    current.Id,
+                    current.SoldSegmentId!.Value,
+                    null,
+                    null,
+                    null);
+
+            var replacement = coupon.Replacement!;
+
+            EnsureNoActiveServiceDependsOn(current.Id);
+
+            if (!replacement.BeneficiaryTravellerIds.ToHashSet().SetEquals([args.PredecessorTravellerId]))
+                throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("traveller");
+
+            var itineraryId = _segments
+                .Single(segment => segment.Id == current.SoldSegmentId!.Value)
+                .OrderItineraryId;
+
+            var segment = StageReplacementSegment(
+                replacement.Segment, allocation.ReplacementOrderSegmentId!.Value, itineraryId, idGenerator);
+
+            var service = StageReplacementService(
+                replacement, allocation.ReplacementOrderServiceId!.Value, current, segment.Id, idGenerator, now);
+
+            return new StagedExchangeCoupon(
+                coupon.PredecessorTicketCouponId,
+                allocation.SuccessorTicketCouponId,
+                ExchangeCouponDisposition.Replaced,
+                service.Id,
+                segment.Id,
+                current.Id,
+                segment,
+                service);
+        }
+
+        private static void EnsureExchangeAllocationsMatch(
+            AcceptedExchange accepted,
+            IReadOnlyList<ExchangeCouponAllocation> allocations)
+        {
+            if (allocations.Count != accepted.Coupons.Count
+                || allocations.Select(allocation => allocation.PredecessorTicketCouponId).Distinct().Count() != allocations.Count
+                || allocations.Select(allocation => allocation.SuccessorTicketCouponId).Distinct().Count() != allocations.Count)
+                throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon allocation");
+
+            foreach (var coupon in accepted.Coupons)
+            {
+                var allocation = allocations.FirstOrDefault(candidate =>
+                                     candidate.PredecessorTicketCouponId == coupon.PredecessorTicketCouponId)
+                                 ?? throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon allocation");
+
+                var replacementAllocated = allocation.ReplacementOrderServiceId is not null
+                                           && allocation.ReplacementOrderSegmentId is not null;
+
+                if (replacementAllocated != coupon.IsReplaced)
+                    throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon allocation");
             }
         }
 
-        private static void EnsureExchangeKeepsTheTraveller(AcceptedExchange accepted, OrderService replaced)
+        private static void EnsureServiceIsHeldForTraveller(OrderService service, long travellerId)
         {
-            var current = replaced.Beneficiaries.Select(beneficiary => beneficiary.OrderTravellerId).ToHashSet();
+            var current = service.Beneficiaries.Select(beneficiary => beneficiary.OrderTravellerId).ToHashSet();
 
-            if (!current.SetEquals(accepted.Replacement.BeneficiaryTravellerIds))
+            if (!current.SetEquals([travellerId]))
                 throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("traveller");
         }
 
         private AcceptedPricingLineArgs MapExchangePricingLine(
             AcceptedExchangePricingLine line,
             long predecessorElectronicTicketId,
-            IReadOnlyCollection<long> predecessorCarriedPricingLineIds)
+            IReadOnlyDictionary<string, long> correlation)
         {
-            if (line.OriginalPricingLineId is { } originalId)
-            {
-                if (_pricingLines.All(candidate => candidate.Id != originalId))
-                    throw ExceptionFactory.OriginalPricingLineNotFound(originalId);
+            long? originalId = null;
 
-                if (!predecessorCarriedPricingLineIds.Contains(originalId))
+            if (line.PredecessorCorrelationRef is { } reference)
+            {
+                if (!correlation.TryGetValue(reference, out var resolved)
+                    || _pricingLines.All(candidate => candidate.Id != resolved))
                     throw ExceptionFactory.ExchangeTransferOutsidePredecessorDocument(
-                        originalId, predecessorElectronicTicketId);
+                        reference, predecessorElectronicTicketId);
+
+                originalId = resolved;
             }
 
             return new AcceptedPricingLineArgs(
@@ -134,7 +187,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
                 BasisReferenceId: line.BasisReferenceId,
                 SourceLineRef: line.SourceLineRef,
                 OccurrenceKey: line.OccurrenceKey,
-                OriginalPricingLineId: line.OriginalPricingLineId,
+                OriginalPricingLineId: originalId,
                 TransferGroupId: line.TransferGroupId,
                 SettlementPartyRef: line.SettlementPartyRef,
                 SettlementCategory: line.SettlementCategory);
@@ -145,17 +198,38 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             ArgumentNullException.ThrowIfNull(staged);
 
             var changeSet = AttachPriceChange(staged.PriceChange, now);
+            var bindings = new List<ExchangedServiceBinding>();
 
-            AddSegment(staged.Segment);
-            AddOrderService(staged.Service);
+            foreach (var coupon in staged.Coupons)
+            {
+                if (coupon.IsReplaced)
+                {
+                    AddSegment(coupon.ReplacementSegment!);
+                    AddOrderService(coupon.ReplacementService!);
 
-            _orderServices
-                .Single(service => service.Id == staged.ReplacedOrderServiceId)
-                .MarkSupersededByExchange();
+                    _orderServices
+                        .Single(service => service.Id == coupon.ReplacedOrderServiceId!.Value)
+                        .MarkSupersededByExchange();
 
-            staged.Service.Activate();
-            staged.Service.MarkReservationConfirmed();
-            staged.Service.MarkDocumented(staged.SuccessorElectronicTicketId, staged.SuccessorTicketCouponId);
+                    coupon.ReplacementService!.Activate();
+                    coupon.ReplacementService.MarkReservationConfirmed();
+                    coupon.ReplacementService.MarkDocumented(staged.SuccessorElectronicTicketId, coupon.SuccessorTicketCouponId);
+                }
+                else
+                {
+                    _orderServices
+                        .Single(service => service.Id == coupon.OrderServiceId)
+                        .RebindAccountableDocument(staged.SuccessorElectronicTicketId, coupon.SuccessorTicketCouponId);
+                }
+
+                bindings.Add(new ExchangedServiceBinding(
+                    coupon.PredecessorTicketCouponId,
+                    coupon.SuccessorTicketCouponId,
+                    coupon.Disposition,
+                    coupon.OrderServiceId,
+                    coupon.OrderSegmentId,
+                    coupon.ReplacedOrderServiceId));
+            }
 
             RecomputeCommercialSummary();
             IncrementCommercialVersion();
@@ -165,9 +239,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             return new ExchangedOrder(
                 staged.PriceChange.Change.Id,
                 changeSet.Id,
-                staged.ReplacedOrderServiceId,
-                staged.Service.Id,
-                staged.Segment.Id,
+                bindings,
                 changeSet.FinancialSequence,
                 staged.PricingLineIdsBySourceRef);
         }

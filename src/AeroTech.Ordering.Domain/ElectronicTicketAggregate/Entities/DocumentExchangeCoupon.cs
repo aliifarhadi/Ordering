@@ -16,7 +16,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
             long successorTicketCouponId,
             int successorCouponNumber,
             long previousOrderServiceId,
-            long replacementOrderServiceId)
+            long successorOrderServiceId)
         {
             Id = id;
             DocumentExchangeRecordId = documentExchangeRecordId;
@@ -25,7 +25,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
             SuccessorTicketCouponId = successorTicketCouponId;
             SuccessorCouponNumber = successorCouponNumber;
             PreviousOrderServiceId = previousOrderServiceId;
-            ReplacementOrderServiceId = replacementOrderServiceId;
+            SuccessorOrderServiceId = successorOrderServiceId;
         }
 
         public long DocumentExchangeRecordId { get; private set; }
@@ -40,6 +40,6 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities
 
         public long PreviousOrderServiceId { get; private set; }
 
-        public long ReplacementOrderServiceId { get; private set; }
+        public long SuccessorOrderServiceId { get; private set; }
     }
 }

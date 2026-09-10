@@ -18,12 +18,16 @@ namespace AeroTech.Ordering.Domain.Ports.ReservationChange
         long OrderId,
         long OperationId,
         string? ExternalReservationRef,
+        IReadOnlyList<ReservationChangeItem> Items);
+
+    public sealed record ReservationChangeItem(
         long ReplacedOrderServiceId,
         long ReplacementOrderServiceId,
         long ReplacementOrderSegmentId,
         long ReplacementFlightCapacityId,
         string? ReplacementBookingClass,
-        long TravelerId);
+        long TravelerId,
+        string? ExternalServiceRef = null);
 
     public sealed record ReservationChangeRecoveryRequest(
         string OperationKey,

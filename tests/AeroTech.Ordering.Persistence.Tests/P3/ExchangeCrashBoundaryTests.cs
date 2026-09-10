@@ -1,4 +1,5 @@
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.Persistence.Tests.P1;
@@ -50,7 +51,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var selections = harness.ExchangeQuotes.ObservedSelections;
 
             Assert.Equal(2, selections.Count);
-            Assert.Equal(selections[0], selections[1]);
+            Assert.Equal(selections[0].OperationKey, selections[1].OperationKey);
+            Assert.Equal(selections[0].ChangedOrderServiceIds, selections[1].ChangedOrderServiceIds);
             Assert.Equal($"exchange-quote:{outcome.OperationId}", selections[1].OperationKey);
             Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
         }
@@ -73,11 +75,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Theory]
-        [InlineData(ProviderOperationOutcome.Pending, CommandReceiptStatus.Pending)]
-        [InlineData(ProviderOperationOutcome.Unknown, CommandReceiptStatus.Unknown)]
-        public async Task F2_F3_N2_an_unresolved_reservation_makes_no_document_call_and_holds_the_claim(
-            ProviderOperationOutcome applyOutcome,
-            CommandReceiptStatus expectedReceipt)
+        [InlineData(ProviderOperationOutcome.Pending)]
+        [InlineData(ProviderOperationOutcome.Unknown)]
+        public async Task F2_F3_N2_an_unresolved_reservation_makes_no_document_call_and_holds_the_claim(ProviderOperationOutcome applyOutcome)
         {
             await using var harness = NewHarness();
             var scenario = await TicketedAsync(_fixture, harness);
@@ -93,7 +93,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Empty(harness.DocumentExchanges.ObservedRecoveryKeys);
             Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
             Assert.Equal(scenario.CommercialVersion, (await ReloadAsync(_fixture, scenario.OrderId)).CommercialVersion);
-            Assert.NotNull(expectedReceipt.ToString());
         }
 
         [Fact]
@@ -282,6 +281,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.True(plan!.IsDocumentExchangeConfirmed);
             Assert.Equal(outcome.SuccessorDocumentNumber, plan.Successor!.DocumentNumber);
             Assert.Equal(outcome.ProviderExchangeReference, plan.DocumentExchangeProviderReference);
+            Assert.Equal(1, Assert.Single(plan.Successor.Coupons).CouponNumber);
+            Assert.Equal(1, Assert.Single(plan.Coupons).SuccessorCouponNumber);
             Assert.Single(harness.DocumentExchanges.DispatchedKeys);
         }
 
@@ -442,6 +443,25 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await AssertNoLocalExchangeAsync(scenario);
         }
 
+        [Fact]
+        public async Task A_host_result_without_a_coupon_identity_for_every_predecessor_coupon_needs_reconciliation()
+        {
+            await using var harness = NewHarness();
+            var scenario = await TicketedAsync(_fixture, harness);
+
+            harness.DocumentExchanges.OmitSuccessorCoupons = true;
+
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var plan = await PlanAsync(harness);
+
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, outcome.OperationStatus);
+            Assert.True(plan.IsDocumentExchangeConfirmed);
+            Assert.Empty(plan.Successor!.Coupons);
+            Assert.Null(outcome.SuccessorElectronicTicketId);
+            Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
+            await AssertNoLocalExchangeAsync(scenario);
+        }
+
         // ---------------------------------------------------------------- I. document confirmed -> local commit
 
         [Fact]
@@ -463,7 +483,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 first.OperationId,
                 ProviderOperationOutcome.Confirmed,
                 "EXCH-RECOVERED",
-                new Domain.Ports.DocumentExchange.SuccessorDocumentIdentity($"EXC{first.OperationId}", 1, 1, null, DocumentAuthority.Local, null),
+                new SuccessorDocumentIdentity($"EXC{first.OperationId}", 1, null, DocumentAuthority.Local, null, [new SuccessorCouponIdentity(scenario.CouponId, 1)]),
                 null);
             await setup.UnitOfWork.SaveChangesAsync();
 
@@ -557,8 +577,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.True(replay.IsReplay);
             Assert.Equal(first.OperationId, replay.OperationId);
             Assert.Equal(first.SuccessorElectronicTicketId, replay.SuccessorElectronicTicketId);
-            Assert.Equal(first.SuccessorTicketCouponId, replay.SuccessorTicketCouponId);
-            Assert.Equal(first.ReplacementOrderServiceId, replay.ReplacementOrderServiceId);
+            Assert.Equal(first.Coupons, replay.Coupons);
             Assert.Equal(first.PriceChangeSetId, replay.PriceChangeSetId);
             Assert.Equal(first.SuccessorDocumentNumber, replay.SuccessorDocumentNumber);
             Assert.Equal(ServicingOperationStatus.Completed, replay.OperationStatus);

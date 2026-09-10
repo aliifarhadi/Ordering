@@ -13,7 +13,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.AcceptExchange
             => _exchangeService.ExchangeAsync(
                 new ExchangeExecution(
                     command.OrderId,
-                    command.PredecessorOrderServiceId,
+                    command.ChangedOrderServiceIds,
                     command.QuotedExchangeId,
                     command.IdempotencyKey,
                     command.ExpectedCommercialVersion),

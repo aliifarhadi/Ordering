@@ -1,7 +1,7 @@
 using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
 using MediatR;
 
-namespace AeroTech.Ordering.Application.OrderAggregate.Queries.QuoteRefund
+namespace AeroTech.Ordering.Query.OrderAggregate.Queries.QuoteRefund
 {
     public sealed record QuoteRefundQuery(
         long OrderId,

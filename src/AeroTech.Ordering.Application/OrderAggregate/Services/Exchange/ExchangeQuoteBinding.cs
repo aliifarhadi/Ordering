@@ -7,29 +7,20 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 {
     public static class ExchangeQuoteBinding
     {
-        public static void EnsureQuoteBindsToTheOrder(
-            ExchangeQuote quote,
-            Order order,
-            ElectronicTicket predecessor,
-            long predecessorOrderServiceId,
-            long predecessorTicketCouponId)
+        public static void EnsureQuoteBindsToTheOrder(ExchangeQuote quote, Order order, ExchangeScope scope)
             => EnsureBinds(
                 quote.OrderId,
                 quote.PredecessorElectronicTicketId,
-                quote.PredecessorOrderServiceId,
-                quote.PredecessorTicketCouponId,
+                quote.ChangedOrderServiceIds,
+                quote.Coupons,
                 quote.SaleCurrencyId,
                 order,
-                predecessor,
-                predecessorOrderServiceId,
-                predecessorTicketCouponId);
+                scope);
 
         public static void EnsureAcceptedBindsToTheRequest(
             AcceptedExchange accepted,
             Order order,
-            ElectronicTicket predecessor,
-            long predecessorOrderServiceId,
-            long predecessorTicketCouponId,
+            ExchangeScope scope,
             string quotedExchangeId,
             int expectedCommercialVersion,
             DateTimeOffset now)
@@ -49,40 +40,49 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             EnsureBinds(
                 accepted.OrderId,
                 accepted.PredecessorElectronicTicketId,
-                accepted.PredecessorOrderServiceId,
-                accepted.PredecessorTicketCouponId,
+                accepted.ChangedOrderServiceIds,
+                accepted.Coupons,
                 accepted.SaleCurrencyId,
                 order,
-                predecessor,
-                predecessorOrderServiceId,
-                predecessorTicketCouponId);
+                scope);
         }
 
         private static void EnsureBinds(
             long quotedOrderId,
             long quotedTicketId,
-            long quotedServiceId,
-            long quotedCouponId,
+            IReadOnlyList<long> quotedChangedServiceIds,
+            IReadOnlyList<AcceptedExchangeCoupon> quotedCoupons,
             int quotedCurrencyId,
             Order order,
-            ElectronicTicket predecessor,
-            long predecessorOrderServiceId,
-            long predecessorTicketCouponId)
+            ExchangeScope scope)
         {
             if (quotedOrderId != order.Id)
                 throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("order");
 
-            if (quotedTicketId != predecessor.Id)
+            if (quotedTicketId != scope.PredecessorTicket.Id)
                 throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("predecessor document");
-
-            if (quotedServiceId != predecessorOrderServiceId)
-                throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("predecessor order service");
-
-            if (quotedCouponId != predecessorTicketCouponId)
-                throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("predecessor ticket coupon");
 
             if (quotedCurrencyId != order.CurrencyId)
                 throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("sale currency");
+
+            if (!quotedChangedServiceIds.ToHashSet().SetEquals(scope.ChangedOrderServiceIds))
+                throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("changed services");
+
+            if (quotedCoupons.Count != scope.Coupons.Count)
+                throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon scope");
+
+            foreach (var coupon in scope.Coupons)
+            {
+                var quoted = quotedCoupons.FirstOrDefault(candidate => candidate.PredecessorTicketCouponId == coupon.TicketCouponId)
+                             ?? throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon scope");
+
+                if (quoted.PredecessorCouponNumber != coupon.CouponNumber
+                    || quoted.PredecessorOrderServiceId != coupon.OrderServiceId)
+                    throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon scope");
+
+                if (quoted.IsReplaced != scope.ChangedOrderServiceIds.Contains(coupon.OrderServiceId))
+                    throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon disposition");
+            }
         }
     }
 }

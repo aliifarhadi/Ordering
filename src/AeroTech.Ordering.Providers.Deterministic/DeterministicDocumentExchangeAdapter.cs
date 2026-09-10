@@ -23,11 +23,11 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public bool ReportSuccessorWhilePending { get; set; }
 
+        public bool OmitSuccessorCoupons { get; set; }
+
         public string? SuccessorDocumentNumber { get; set; }
 
         public string? RecoveredSuccessorDocumentNumber { get; set; }
-
-        public int SuccessorCouponNumber { get; set; } = 1;
 
         public long IssuerCarrierId { get; set; } = 1;
 
@@ -73,7 +73,7 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 ExchangeOutcome,
                 ExchangeOutcome == ProviderOperationOutcome.Rejected ? null : ProviderReferenceFor(request.PredecessorDocumentNumber),
                 ReportsSuccessor(ExchangeOutcome)
-                    ? Successor(SuccessorDocumentNumber ?? StableSuccessorNumber(request.OperationId))
+                    ? Successor(SuccessorDocumentNumber ?? StableSuccessorNumber(request.OperationId), request)
                     : null));
         }
 
@@ -86,7 +86,7 @@ namespace AeroTech.Ordering.Providers.Deterministic
             if (ThrowOnRecover)
                 throw new InvalidOperationException("The document exchange provider is unreachable.");
 
-            if (!_dispatched.ContainsKey(request.OperationKey))
+            if (!_dispatched.TryGetValue(request.OperationKey, out var dispatched))
                 return Task.FromResult(new DocumentExchangeRecovery(
                     false, ProviderOperationOutcome.Unknown, Detail: "no such document exchange operation"));
 
@@ -95,9 +95,9 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 RecoveryOutcome,
                 RecoveryOutcome == ProviderOperationOutcome.Rejected ? null : ProviderReferenceFor(request.PredecessorDocumentNumber),
                 ReportsSuccessor(RecoveryOutcome)
-                    ? Successor(RecoveredSuccessorDocumentNumber
-                                ?? SuccessorDocumentNumber
-                                ?? StableSuccessorNumber(request.OperationId))
+                    ? Successor(
+                        RecoveredSuccessorDocumentNumber ?? SuccessorDocumentNumber ?? StableSuccessorNumber(request.OperationId),
+                        dispatched)
                     : null));
         }
 
@@ -106,8 +106,19 @@ namespace AeroTech.Ordering.Providers.Deterministic
                || (ReportSuccessorWhilePending
                    && outcome is ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown);
 
-        private SuccessorDocumentIdentity Successor(string documentNumber)
-            => new(documentNumber, SuccessorCouponNumber, IssuerCarrierId, IssuingOfficeId, Authority, null);
+        private SuccessorDocumentIdentity Successor(string documentNumber, DocumentExchangeRequest request)
+            => new(
+                documentNumber,
+                IssuerCarrierId,
+                IssuingOfficeId,
+                Authority,
+                null,
+                OmitSuccessorCoupons
+                    ? []
+                    : request.Coupons
+                        .OrderBy(coupon => coupon.PredecessorCouponNumber)
+                        .Select((coupon, index) => new SuccessorCouponIdentity(coupon.PredecessorTicketCouponId, index + 1))
+                        .ToList());
 
         private static string StableSuccessorNumber(long operationId) => $"EXC{operationId}";
 

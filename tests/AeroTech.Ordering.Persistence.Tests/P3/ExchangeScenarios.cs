@@ -19,6 +19,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             OrderSliceHarness harness,
             Func<AcceptedExchange, AcceptedExchange>? shapeAccepted = null,
             bool roundTrip = false,
+            int[]? changedCouponNumbers = null,
             Func<Order, Task>? beforeReservation = null)
         {
             await harness.SeedPlatformAsync();
@@ -35,28 +36,38 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             var order = await ReloadAsync(fixture, created.Id);
             var ticket = (await TicketsAsync(fixture, order.Id)).OrderBy(candidate => candidate.Id).First();
-            var coupon = ticket.Coupons.OrderBy(candidate => candidate.CouponNumber).First();
+            var coupons = ticket.Coupons.OrderBy(candidate => candidate.CouponNumber).ToList();
+            var couponIds = coupons.ToDictionary(coupon => coupon.CouponNumber, coupon => coupon.Id);
+            var couponServiceIds = coupons.ToDictionary(coupon => coupon.CouponNumber, coupon => coupon.CurrentOrderServiceId);
+            var changed = (changedCouponNumbers ?? [1]).Select(number => couponServiceIds[number]).Order().ToList();
 
-            var canonical = ExchangeSourceFactory.Accepted(order, ticket, coupon);
-            var accepted = shapeAccepted is null ? canonical : shapeAccepted(canonical);
+            Compose(harness, order, changed);
 
-            harness.ExchangeQuotes.Quote(ExchangeSourceFactory.ToQuote(canonical), accepted);
+            await harness.Exchange.QuoteAsync(order.Id, changed);
+
+            if (shapeAccepted is not null)
+                harness.ExchangeQuotes.Reshape(ExchangeSourceFactory.QuoteId, shapeAccepted);
 
             return new ExchangeScenario(
                 order.Id,
-                coupon.CurrentOrderServiceId,
+                changed,
                 ticket.Id,
-                coupon.Id,
+                couponIds,
+                couponServiceIds,
                 order.CommercialVersion,
                 order.FinancialSequence,
                 order.ObligationVersion,
                 order.CustomerTotal,
                 ticket.DocumentVersion,
-                accepted);
+                harness.ExchangeQuotes.Accepted(ExchangeSourceFactory.QuoteId)!);
         }
 
+        public static void Compose(OrderSliceHarness harness, Order order, IReadOnlyList<long> changed)
+            => harness.ExchangeQuotes.Composer = request =>
+                ExchangeSourceFactory.Compose(request, ExchangeSourceFactory.ReplacementsFor(order, changed));
+
         public static void Register(OrderSliceHarness harness, ExchangeScenario scenario)
-            => harness.ExchangeQuotes.Quote(ExchangeSourceFactory.ToQuote(scenario.Accepted), scenario.Accepted);
+            => harness.ExchangeQuotes.Prime(scenario.Accepted);
 
         public static async Task<int?> SecondOperationCodeAsync(OrderSliceHarness harness, ExchangeScenario scenario)
         {
