@@ -1,4 +1,4 @@
-namespace AeroTech.Ordering.Domain.Providers.Payment
+namespace AeroTech.Ordering.Domain.Ports.Payment
 {
     public sealed record PaymentVoidRequest(
         string IdempotencyKey,

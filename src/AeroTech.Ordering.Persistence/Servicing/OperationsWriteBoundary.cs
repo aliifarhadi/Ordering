@@ -2,7 +2,7 @@ using System.Reflection;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Microsoft.EntityFrameworkCore;
 
-namespace AeroTech.Ordering.Persistence.Operations
+namespace AeroTech.Ordering.Persistence.Servicing
 {
     internal static class OperationsWriteBoundary
     {

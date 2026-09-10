@@ -1,7 +1,7 @@
 using AeroTech.Ordering.Domain.Ports.DocumentRefund;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.DocumentRefund.Services
+namespace AeroTech.Ordering.Providers.Unconfigured
 {
     public sealed class UnconfiguredDocumentRefundProvider : IDocumentRefundPort
     {

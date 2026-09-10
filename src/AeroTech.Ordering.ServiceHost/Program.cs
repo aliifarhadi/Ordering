@@ -1,3 +1,4 @@
+using AeroTech.Ordering.Providers.Deterministic;
 using AeroTech.Framework.Infrastructure;
 using AeroTech.Framework.Presentation.Extensions;
 using AeroTech.Ordering.Application;
@@ -25,6 +26,7 @@ builder.Services
     .AddFrameworkInfrastructure(builder.Configuration)
     .AddPersistence(builder.Configuration)
     .AddProviders(builder.Configuration)
+    .AddDeterministicProvidersWhenEnabled(builder.Configuration)
     .AddQuery(builder.Configuration)
     .AddSynchronizer()
     .AddConsumers(builder.Configuration)

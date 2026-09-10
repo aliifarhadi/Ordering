@@ -1,4 +1,4 @@
-namespace AeroTech.Ordering.Domain.Providers.FlightFlow
+namespace AeroTech.Ordering.Domain.Ports.FlightFlow
 {
     public sealed record ReleaseHeldSeatsRequest(string HoldId);
 }

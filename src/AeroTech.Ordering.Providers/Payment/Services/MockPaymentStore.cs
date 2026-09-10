@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using AeroTech.Ordering.Domain.Providers.Payment;
+using AeroTech.Ordering.Domain.Ports.Payment;
 
 namespace AeroTech.Ordering.Providers.Payment.Services
 {

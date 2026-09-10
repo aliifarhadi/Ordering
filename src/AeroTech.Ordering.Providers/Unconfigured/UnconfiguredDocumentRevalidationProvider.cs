@@ -1,7 +1,7 @@
 using AeroTech.Ordering.Domain.Ports.DocumentRevalidation;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.DocumentRevalidation.Services
+namespace AeroTech.Ordering.Providers.Unconfigured
 {
     public sealed class UnconfiguredDocumentRevalidationProvider : IDocumentRevalidationPort
     {

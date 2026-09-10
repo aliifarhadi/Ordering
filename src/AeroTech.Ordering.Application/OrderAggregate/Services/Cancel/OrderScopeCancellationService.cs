@@ -1,4 +1,6 @@
-﻿using AeroTech.Framework.Core.Domain.Repository;
+﻿using AeroTech.Ordering.Domain.Servicing.Operations;
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
+using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
@@ -10,8 +12,6 @@ using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.Ports.OrderChange;
 using AeroTech.Ordering.Domain._Shared.Contracts;
-using AeroTech.Ordering.Domain._Shared.Operations;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Entities = AeroTech.Ordering.Domain.OrderAggregate.Entities;
 

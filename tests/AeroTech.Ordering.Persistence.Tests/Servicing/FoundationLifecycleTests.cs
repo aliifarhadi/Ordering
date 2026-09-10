@@ -1,17 +1,17 @@
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain.ProviderInteractionAggregate;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.ReferenceData.ReadModels;
 using AeroTech.Ordering.ServiceHost.OperatorContext;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
-namespace AeroTech.Ordering.Persistence.Tests.Operations
+namespace AeroTech.Ordering.Persistence.Tests.Servicing
 {
     [Collection(OrderingDatabaseCollection.Name)]
     public sealed class FoundationLifecycleTests

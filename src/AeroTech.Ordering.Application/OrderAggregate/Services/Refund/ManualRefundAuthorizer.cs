@@ -1,3 +1,4 @@
+using AeroTech.Ordering.Domain.Servicing.Operations;
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
@@ -6,7 +7,6 @@ using AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.Ports.ManualRefundAuthorization;
 using AeroTech.Ordering.Domain._Shared.Contracts;
-using AeroTech.Ordering.Domain._Shared.Operations;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund

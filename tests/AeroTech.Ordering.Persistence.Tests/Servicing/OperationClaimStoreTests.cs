@@ -1,11 +1,11 @@
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Framework.Core.ServiceContracts;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
-namespace AeroTech.Ordering.Persistence.Tests.Operations
+namespace AeroTech.Ordering.Persistence.Tests.Servicing
 {
     [Collection(OrderingDatabaseCollection.Name)]
     public sealed class OperationClaimStoreTests

@@ -1,4 +1,10 @@
-﻿using System.Reflection;
+﻿using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
+using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
+using AeroTech.Ordering.Application.OrderAggregate.Commands.RemoveOrderServices;
+using AeroTech.Ordering.Application.OrderAggregate.Commands.CancelOrderItem;
+using AeroTech.Ordering.Application.OrderAggregate.Commands.AddOrderService;
+using AeroTech.Ordering.RestApi.V1.OrderAggregate.Responses;
+using System.Reflection;
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Ordering.Application.OrderAggregate.Access;
 using AeroTech.Ordering.Domain.OrderAggregate;
@@ -389,15 +395,26 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             if (idempotencyKey is not null)
                 httpContext.Request.Headers[IdempotencyKey.HeaderName] = idempotencyKey;
 
-            return new OtaController(
-                _provider.GetRequiredService<IMediator>(),
-                new OrderingDatabaseFixture.NullIdentityService(),
-                harness.OrderChange,
-                harness.ScopeCancel,
-                harness.AccessGuard)
+            return new OtaController(MediatorFor(harness), new OrderingDatabaseFixture.NullIdentityService(), harness.AccessGuard)
             {
                 ControllerContext = new ControllerContext { HttpContext = httpContext }
             };
+        }
+
+        private IMediator MediatorFor(OrderSliceHarness harness)
+        {
+            var services = new ServiceCollection();
+
+            services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(GetOrderDetailsQuery).Assembly));
+            services.AddSingleton(_queryContext);
+            services.AddSingleton<IRequestHandler<AddOrderServiceCommand, OrderChangeOutcome>>(
+                new AddOrderServiceCommandHandler(harness.OrderChange));
+            services.AddSingleton<IRequestHandler<CancelOrderItemCommand, ScopeCancellationOutcome>>(
+                new CancelOrderItemCommandHandler(harness.ScopeCancel));
+            services.AddSingleton<IRequestHandler<RemoveOrderServicesCommand, ScopeCancellationOutcome>>(
+                new RemoveOrderServicesCommandHandler(harness.ScopeCancel));
+
+            return services.BuildServiceProvider().GetRequiredService<IMediator>();
         }
 
         private static Task<Order> CreateOrderForAsync(OrderSliceHarness harness, long customerId)

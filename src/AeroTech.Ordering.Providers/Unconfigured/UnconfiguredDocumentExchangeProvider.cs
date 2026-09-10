@@ -1,7 +1,7 @@
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.DocumentExchange.Services
+namespace AeroTech.Ordering.Providers.Unconfigured
 {
     public sealed class UnconfiguredDocumentExchangeProvider : IDocumentExchangePort
     {

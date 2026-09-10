@@ -4,14 +4,14 @@ using AeroTech.Messages.Aegis.Enums;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Messages.Shared.Enums;
 using AeroTech.Ordering.Domain._Shared.Contracts;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.ReferenceData.ReadModels;
 using AeroTech.Ordering.ServiceHost.OperatorContext;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
-namespace AeroTech.Ordering.Persistence.Tests.Operations
+namespace AeroTech.Ordering.Persistence.Tests.Servicing
 {
     [Collection(OrderingDatabaseCollection.Name)]
     public sealed class HomeOperatorIdentityTests
@@ -163,7 +163,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Operations
             TestCallerContexts.AgencyApiClient(61, "client-api")
         ];
 
-        private async Task<Domain._Shared.Operations.Contracts.CommandReceiptResult> AcquireAsync(
+        private async Task<Domain.Servicing.Operations.Contracts.CommandReceiptResult> AcquireAsync(
             ICallerContext caller,
             string idempotencyKey,
             string requestHash = "hash")

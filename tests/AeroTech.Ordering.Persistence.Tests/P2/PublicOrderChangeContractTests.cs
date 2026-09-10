@@ -1,3 +1,8 @@
+using AeroTech.Ordering.Application.OrderAggregate.Commands.AddOrderService;
+using AeroTech.Ordering.Application.OrderAggregate.Access;
+using AeroTech.Framework.Core.ServiceContracts;
+using MediatR;
+using AeroTech.Ordering.RestApi.V1.OrderAggregate.Responses;
 using System.Reflection;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.RestApi;
@@ -98,24 +103,33 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
         }
 
         [Fact]
-        public void Both_channels_invoke_the_same_application_operation()
+        public void Every_channel_dispatches_through_the_mediator_onto_one_application_operation()
         {
-            var consumers = RestApi.GetTypes()
+            var allowedDependencies = new[] { typeof(IMediator), typeof(IIdentityService), typeof(IOrderCustomerAccessGuard) };
+
+            var controllers = RestApi.GetTypes()
                 .Where(type => type.Name.EndsWith("Controller", StringComparison.Ordinal))
-                .Where(type => type.GetConstructors()
-                    .Any(constructor => constructor.GetParameters()
-                        .Any(parameter => parameter.ParameterType == typeof(IOrderChangeService))))
-                .Select(type => type.Name)
                 .ToList();
 
-            Assert.Contains("BackofficeOrderLifecycleController", consumers);
-            Assert.Contains("OtaController", consumers);
+            Assert.Contains(controllers, type => type.Name == "BackofficeOrderLifecycleController");
+            Assert.Contains(controllers, type => type.Name == "OtaController");
 
-            var duplicates = typeof(IOrderChangeService).Assembly.GetTypes()
+            Assert.All(controllers, controller =>
+                Assert.All(
+                    controller.GetConstructors().SelectMany(constructor => constructor.GetParameters()),
+                    parameter => Assert.Contains(parameter.ParameterType, allowedDependencies)));
+
+            var handlers = typeof(AddOrderServiceCommand).Assembly.GetTypes()
+                .Where(type => type.IsClass && typeof(IRequestHandler<AddOrderServiceCommand, OrderChangeOutcome>).IsAssignableFrom(type))
+                .ToList();
+
+            Assert.Single(handlers);
+
+            var implementations = typeof(IOrderChangeService).Assembly.GetTypes()
                 .Where(type => type.IsClass && typeof(IOrderChangeService).IsAssignableFrom(type))
                 .ToList();
 
-            Assert.Single(duplicates);
+            Assert.Single(implementations);
         }
 
         [Fact]

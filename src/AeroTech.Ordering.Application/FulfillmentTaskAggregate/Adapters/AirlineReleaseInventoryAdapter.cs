@@ -1,7 +1,7 @@
 using System.Text.Json;
 using AeroTech.Ordering.Application.FulfillmentTaskAggregate.Execution;
 using AeroTech.Ordering.Domain._Shared;
-using AeroTech.Ordering.Domain.Providers.FlightFlow;
+using AeroTech.Ordering.Domain.Ports.FlightFlow;
 using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Application.FulfillmentTaskAggregate.Adapters

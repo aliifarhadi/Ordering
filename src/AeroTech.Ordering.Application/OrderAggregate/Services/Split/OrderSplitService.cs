@@ -6,7 +6,7 @@ using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain._Shared;
-using AeroTech.Ordering.Domain.Providers.FlightFlow;
+using AeroTech.Ordering.Domain.Ports.FlightFlow;
 using AeroTech.Ordering.Domain.TrafficDocumentAggregate.Contracts;
 using AeroTech.Ordering.Application.FulfillmentTaskAggregate;
 using AeroTech.Messages.Ordering.Enums;

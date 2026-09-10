@@ -1,11 +1,11 @@
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain._Shared.Contracts;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Microsoft.EntityFrameworkCore;
 
-namespace AeroTech.Ordering.Persistence.Operations
+namespace AeroTech.Ordering.Persistence.Servicing
 {
     public sealed class ServicingOperationStore : IServicingOperationStore
     {

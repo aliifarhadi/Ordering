@@ -1,7 +1,7 @@
 using AeroTech.Ordering.Providers.Payment.Options;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Domain._Shared;
-using AeroTech.Ordering.Domain.Providers.Payment;
+using AeroTech.Ordering.Domain.Ports.Payment;
 using AeroTech.Messages.Ordering.Enums;
 using Microsoft.Extensions.Options;
 

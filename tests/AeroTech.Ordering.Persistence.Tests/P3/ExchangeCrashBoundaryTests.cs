@@ -600,7 +600,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(2, (await TicketsAsync(_fixture, scenario.OrderId)).Count);
         }
 
-        private async Task<Domain._Shared.Operations.AcceptedExchangePlan> PlanAsync(OrderSliceHarness harness)
+        private async Task<Domain.Servicing.Plans.AcceptedExchangePlan> PlanAsync(OrderSliceHarness harness)
         {
             var operationId = harness.ExchangeQuotes.ObservedSelections[^1].OperationId;
             var plan = await harness.ExchangePlans.FindAsync(operationId);

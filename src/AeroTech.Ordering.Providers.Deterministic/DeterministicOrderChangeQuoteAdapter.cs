@@ -2,7 +2,7 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.ProductAddition;
 using AeroTech.Ordering.Domain.Ports.OrderChange;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.Testing
+namespace AeroTech.Ordering.Providers.Deterministic
 {
     public sealed class DeterministicOrderChangeQuoteAdapter : IOrderChangeQuoteProvider
     {

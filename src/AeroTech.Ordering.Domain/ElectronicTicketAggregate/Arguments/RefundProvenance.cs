@@ -1,9 +1,9 @@
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects;
 
-namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund
+namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Arguments
 {
-    public sealed record AcceptedRefundProvenance(
+    public sealed record RefundProvenance(
         string QuotedRefundId,
         PricingSource PricingSource,
         decimal ApprovedAmount,
@@ -12,18 +12,5 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund
         string? SourcePricingReference = null,
         string? SourceRefundType = null,
         string? SourceEvidence = null,
-        ManualRefundAuthority? ManualAuthority = null)
-    {
-        public static AcceptedRefundProvenance Of(AcceptedRefund accepted, ManualRefundAuthority? manualAuthority)
-            => new(
-                accepted.QuotedRefundId,
-                accepted.PricingSource,
-                accepted.ApprovedRefundAmount,
-                accepted.ApprovedDisposition,
-                accepted.DispositionReference,
-                accepted.SourcePricingReference,
-                accepted.SourceRefundType,
-                accepted.SourceEvidence,
-                manualAuthority);
-    }
+        ManualRefundAuthority? ManualAuthority = null);
 }

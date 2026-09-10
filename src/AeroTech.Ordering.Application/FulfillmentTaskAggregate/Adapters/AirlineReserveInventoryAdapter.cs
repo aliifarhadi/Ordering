@@ -3,7 +3,7 @@ using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Application.FulfillmentTaskAggregate.Execution;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain._Shared;
-using AeroTech.Ordering.Domain.Providers.FlightFlow;
+using AeroTech.Ordering.Domain.Ports.FlightFlow;
 using AeroTech.Messages.Ordering.Enums;
 using Microsoft.Extensions.Options;
 

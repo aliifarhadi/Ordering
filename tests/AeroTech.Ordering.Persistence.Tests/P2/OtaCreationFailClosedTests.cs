@@ -130,8 +130,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             => new(
                 _provider.GetRequiredService<IMediator>(),
                 new OrderingDatabaseFixture.NullIdentityService(),
-                harness.OrderChange,
-                harness.ScopeCancel,
                 harness.AccessGuard)
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }

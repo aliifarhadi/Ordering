@@ -22,10 +22,10 @@ using AeroTech.Ordering.Persistence.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Persistence.ElectronicTicketAggregate;
 using AeroTech.Ordering.Persistence.FulfillmentReservationAggregate;
 using AeroTech.Ordering.Persistence.OrderAggregate;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Outbox;
 using AeroTech.Ordering.Persistence.Tests._Shared;
-using AeroTech.Ordering.Providers.Testing;
+using AeroTech.Ordering.Providers.Deterministic;
 using AeroTech.Ordering.Query._Shared.DbContexts;
 using AeroTech.Ordering.ReferenceData.Persistence;
 using AeroTech.Ordering.ReferenceData.ReadModels;
@@ -125,7 +125,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             CancellationQuotes = new DeterministicOrderCancellationQuoteAdapter();
             DocumentVoids = new DeterministicDocumentVoidAdapter();
             VoidDocument = new Application.OrderAggregate.Services.DocumentVoid.DocumentVoidService(
-                Orders, tickets, miscDocuments, DocumentVoids, coordinator, operationStore, receipts, unitOfWork, frameworkClock, projector);
+                Orders, tickets, miscDocuments, DocumentVoids, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
             Cancel = new OrderCancelService(Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
             ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
 

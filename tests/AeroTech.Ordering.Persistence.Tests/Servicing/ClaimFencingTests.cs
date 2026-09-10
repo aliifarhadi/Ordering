@@ -1,11 +1,11 @@
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Framework.Core.ServiceContracts;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
-namespace AeroTech.Ordering.Persistence.Tests.Operations
+namespace AeroTech.Ordering.Persistence.Tests.Servicing
 {
     [Collection(OrderingDatabaseCollection.Name)]
     public sealed class ClaimFencingTests
@@ -121,7 +121,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Operations
                 .AnyAsync(claim => claim.OrderId == orderId && claim.IsBlocking));
         }
 
-        private static async Task<Outcome> Capture(Task<Domain._Shared.Operations.Contracts.OperationClaim> task)
+        private static async Task<Outcome> Capture(Task<Domain.Servicing.Operations.Contracts.OperationClaim> task)
         {
             try
             {
@@ -133,7 +133,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Operations
             }
         }
 
-        private sealed record Outcome(Domain._Shared.Operations.Contracts.OperationClaim? Claim, BusinessException? Error);
+        private sealed record Outcome(Domain.Servicing.Operations.Contracts.OperationClaim? Claim, BusinessException? Error);
 
         private static OperationClaimStore NewStore(OrderingDbContext context)
             => new(context, new TestIdGenerator(), new OrderingDatabaseFixture.FixedClock());

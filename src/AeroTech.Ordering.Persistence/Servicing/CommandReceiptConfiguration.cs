@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace AeroTech.Ordering.Persistence.Operations
+namespace AeroTech.Ordering.Persistence.Servicing
 {
     public sealed class CommandReceiptConfiguration : IEntityTypeConfiguration<CommandReceipt>
     {

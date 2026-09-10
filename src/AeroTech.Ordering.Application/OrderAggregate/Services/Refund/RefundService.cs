@@ -1,3 +1,6 @@
+using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Arguments;
+using AeroTech.Ordering.Domain.Servicing.Operations;
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
@@ -15,8 +18,6 @@ using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Ports.DocumentRefund;
 using AeroTech.Ordering.Domain.Ports.Refund;
 using AeroTech.Ordering.Domain._Shared.Contracts;
-using AeroTech.Ordering.Domain._Shared.Operations;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Entities = AeroTech.Ordering.Domain.OrderAggregate.Entities;
 
@@ -343,7 +344,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             var record = ticket.Refund(
                 operation.OperationId,
                 scope,
-                AcceptedRefundProvenance.Of(accepted, authority),
+                ProvenanceOf(accepted, authority),
                 providerReference,
                 _callerContext.ActorId,
                 CallerScope.For(_callerContext),
@@ -617,5 +618,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 operationStatus,
                 refundNotAvailable,
                 isReplay);
+        private static RefundProvenance ProvenanceOf(AcceptedRefund accepted, ManualRefundAuthority? authority)
+            => new(
+                accepted.QuotedRefundId,
+                accepted.PricingSource,
+                accepted.ApprovedRefundAmount,
+                accepted.ApprovedDisposition,
+                accepted.DispositionReference,
+                accepted.SourcePricingReference,
+                accepted.SourceRefundType,
+                accepted.SourceEvidence,
+                authority);
     }
 }

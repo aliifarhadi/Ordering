@@ -7,6 +7,7 @@
     <ProjectReference Include="..\AeroTech.Ordering.Query\AeroTech.Ordering.Query.csproj" />
     <ProjectReference Include="..\AeroTech.Ordering.ReferenceData\AeroTech.Ordering.ReferenceData.csproj" />
     <ProjectReference Include="..\AeroTech.Ordering.RestApi\AeroTech.Ordering.RestApi.csproj" />
+    <ProjectReference Include="..\AeroTech.Ordering.Providers.Deterministic\AeroTech.Ordering.Providers.Deterministic.csproj" />
   </ItemGroup>
 
   <ItemGroup>

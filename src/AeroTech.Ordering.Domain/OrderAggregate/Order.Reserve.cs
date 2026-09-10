@@ -3,7 +3,7 @@ using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
-using AeroTech.Ordering.Domain.Providers.FlightFlow;
+using AeroTech.Ordering.Domain.Ports.FlightFlow;
 using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate

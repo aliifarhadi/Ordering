@@ -2,7 +2,7 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.VoluntaryChange;
 using AeroTech.Ordering.Domain.Ports.ChangeQuote;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.Testing
+namespace AeroTech.Ordering.Providers.Deterministic
 {
     public sealed class DeterministicChangeQuoteAdapter : IChangeQuotePort
     {

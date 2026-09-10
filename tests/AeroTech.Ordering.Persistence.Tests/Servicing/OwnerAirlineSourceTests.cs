@@ -1,10 +1,10 @@
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using System.Reflection;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.ServiceHost.OperatorContext;
 using Xunit;
 
-namespace AeroTech.Ordering.Persistence.Tests.Operations
+namespace AeroTech.Ordering.Persistence.Tests.Servicing
 {
     public sealed class OwnerAirlineSourceTests
     {

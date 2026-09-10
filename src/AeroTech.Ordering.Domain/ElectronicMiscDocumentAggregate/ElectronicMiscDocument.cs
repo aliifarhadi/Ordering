@@ -1,6 +1,7 @@
 ﻿using AeroTech.Framework.Core.Domain.Aggregates;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities;
 using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
@@ -158,6 +159,33 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                         currencyId));
             }
 
+            document.Causes(new ElectronicMiscDocumentIssued(
+                idGenerator.NewId().ToString(),
+                document.Id.ToString(),
+                document.IssuedAt,
+                document.Id,
+                document.OriginalOrderId,
+                document.TravelerId,
+                document.OperationId,
+                document.DocumentNumber,
+                document.Type,
+                document.ReasonForIssuanceCode,
+                document.IssuerCarrierId,
+                document.IssuingOfficeId,
+                document.Authority,
+                document.CurrencyId,
+                document.IssuedTotal,
+                document.DocumentVersion,
+                document._coupons
+                    .Select(coupon => new ElectronicMiscDocumentIssuedCoupon(
+                        coupon.Id,
+                        coupon.CouponNumber,
+                        coupon.Purpose,
+                        coupon.OrderServiceId,
+                        coupon.AssociatedTicketCouponId,
+                        coupon.IssuanceValue))
+                    .ToList()));
+
             return document;
         }
 
@@ -184,9 +212,12 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
             string? reasonDetail,
             long voidedBy,
             string? providerReference,
+            IIdGenerator idGenerator,
             IClock clock)
         {
             EnsureCanBeVoided();
+
+            var now = clock.GetDateTime();
 
             foreach (var coupon in _coupons)
                 coupon.Void();
@@ -197,10 +228,25 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                 reason,
                 reasonDetail,
                 voidedBy,
-                clock.GetDateTime(),
+                now,
                 providerReference);
 
             DocumentVersion++;
+
+            Causes(new ElectronicMiscDocumentVoided(
+                idGenerator.NewId().ToString(),
+                Id.ToString(),
+                now,
+                Id,
+                CurrentServicingOrderId,
+                DocumentNumber,
+                operationId,
+                reason,
+                reasonDetail,
+                voidedBy,
+                now,
+                providerReference,
+                DocumentVersion));
         }
 
         public IReadOnlyCollection<long> VoidedServiceIds()

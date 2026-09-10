@@ -1,7 +1,7 @@
+using AeroTech.Ordering.Domain.Servicing.Operations;
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Aegis.Enums;
 using AeroTech.Messages.Shared.Enums;
-using AeroTech.Ordering.Domain._Shared.Operations;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using Xunit;
 

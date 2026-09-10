@@ -1,14 +1,14 @@
+using AeroTech.Ordering.Domain.Servicing.Plans;
+using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
 using System.Text.Json;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
-using AeroTech.Ordering.Domain._Shared.Operations;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Microsoft.EntityFrameworkCore;
 
-namespace AeroTech.Ordering.Persistence.Operations
+namespace AeroTech.Ordering.Persistence.Servicing
 {
     public sealed class AcceptedExchangePlanStore : IAcceptedExchangePlanStore
     {

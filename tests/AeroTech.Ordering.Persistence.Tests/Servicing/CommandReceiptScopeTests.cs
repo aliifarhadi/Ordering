@@ -1,10 +1,10 @@
 using AeroTech.Messages.Ordering.Enums;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
-namespace AeroTech.Ordering.Persistence.Tests.Operations
+namespace AeroTech.Ordering.Persistence.Tests.Servicing
 {
     [Collection(OrderingDatabaseCollection.Name)]
     public sealed class CommandReceiptScopeTests

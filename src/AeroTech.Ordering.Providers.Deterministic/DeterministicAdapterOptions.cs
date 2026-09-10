@@ -1,4 +1,4 @@
-namespace AeroTech.Ordering.Providers.Testing
+namespace AeroTech.Ordering.Providers.Deterministic
 {
     public static class DeterministicAdapterOptions
     {

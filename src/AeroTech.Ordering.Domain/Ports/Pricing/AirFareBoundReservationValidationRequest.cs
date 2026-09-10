@@ -2,7 +2,7 @@ using AeroTech.Messages.FlightFlow.Enums;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Messages.Shared.Enums;
 
-namespace AeroTech.Ordering.Domain.Providers.Pricing
+namespace AeroTech.Ordering.Domain.Ports.Pricing
 {
     public sealed record AirFareBoundReservationValidationRequest(
         AirFareBoundReservationSalesContext SalesContext,

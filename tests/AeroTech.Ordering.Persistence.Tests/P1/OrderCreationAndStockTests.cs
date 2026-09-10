@@ -9,7 +9,7 @@ using AeroTech.Ordering.Domain.Ports.Reservation;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence.DocumentStockAggregate;
 using AeroTech.Ordering.Persistence.Tests._Shared;
-using AeroTech.Ordering.Providers.Testing;
+using AeroTech.Ordering.Providers.Deterministic;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -75,7 +75,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             await using var verification = _fixture.NewCommandContext();
 
             Assert.Equal(1, await verification.Orders.CountAsync(order => order.Id == first.OrderId));
-            Assert.Equal(1, await verification.Set<Persistence.Operations.CommandReceipt>()
+            Assert.Equal(1, await verification.Set<Persistence.Servicing.CommandReceipt>()
                 .CountAsync(receipt => receipt.IdempotencyKey == key));
         }
 
@@ -159,9 +159,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         [Fact]
         public void The_deterministic_adapters_are_test_scaffolding_and_are_not_production_evidence()
         {
-            Assert.Equal("AeroTech.Ordering.Providers.Testing", typeof(DeterministicReservationAdapter).Namespace);
-            Assert.Equal("AeroTech.Ordering.Providers.Testing", typeof(DeterministicFundingCoverageAdapter).Namespace);
-            Assert.Equal("AeroTech.Ordering.Providers.Testing", typeof(DeterministicDocumentIssuanceAdapter).Namespace);
+            Assert.Equal("AeroTech.Ordering.Providers.Deterministic", typeof(DeterministicReservationAdapter).Namespace);
+            Assert.Equal("AeroTech.Ordering.Providers.Deterministic", typeof(DeterministicFundingCoverageAdapter).Namespace);
+            Assert.Equal("AeroTech.Ordering.Providers.Deterministic", typeof(DeterministicDocumentIssuanceAdapter).Namespace);
 
             Assert.Equal("Providers:UseDeterministicTestAdapters", DeterministicAdapterOptions.EnabledKey);
         }
@@ -182,7 +182,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             Assert.NotNull(portAssembly);
             Assert.All(implementations, type =>
-                Assert.Equal("AeroTech.Ordering.Providers.Testing", type.Namespace));
+                Assert.Equal("AeroTech.Ordering.Providers.Deterministic", type.Namespace));
         }
 
         private OrderSliceHarness NewHarness()

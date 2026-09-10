@@ -3,7 +3,7 @@ using AeroTech.Messages.Aegis.Enums;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Domain._Shared.Operations
+namespace AeroTech.Ordering.Domain.Servicing.Operations
 {
     public static class CallerScope
     {

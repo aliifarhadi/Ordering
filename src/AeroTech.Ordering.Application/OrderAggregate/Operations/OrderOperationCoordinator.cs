@@ -1,9 +1,9 @@
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using Microsoft.Extensions.Options;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Operations

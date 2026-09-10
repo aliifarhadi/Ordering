@@ -1,7 +1,7 @@
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 
-namespace AeroTech.Ordering.Domain._Shared.Operations.Contracts
+namespace AeroTech.Ordering.Domain.Servicing.Plans.Contracts
 {
     public interface IAcceptedExchangePlanStore
     {

@@ -1,3 +1,4 @@
+using AeroTech.Ordering.Domain.Servicing.Operations;
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Aegis.Enums;
 using AeroTech.Messages.Ordering.Enums;
@@ -8,7 +9,6 @@ using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.Ports.CancelRefundAuthorization;
 using AeroTech.Ordering.Domain._Shared.Contracts;
-using AeroTech.Ordering.Domain._Shared.Operations;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund

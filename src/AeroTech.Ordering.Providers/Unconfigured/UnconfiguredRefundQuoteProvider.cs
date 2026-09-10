@@ -2,7 +2,7 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain.Ports.Refund;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.Refund.Services
+namespace AeroTech.Ordering.Providers.Unconfigured
 {
     public sealed class UnconfiguredRefundQuoteProvider : IRefundQuotePort
     {

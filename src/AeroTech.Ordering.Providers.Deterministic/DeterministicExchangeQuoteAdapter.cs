@@ -2,7 +2,7 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.Ports.Exchange;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.Testing
+namespace AeroTech.Ordering.Providers.Deterministic
 {
     public sealed class DeterministicExchangeQuoteAdapter : IExchangeQuotePort
     {

@@ -1,7 +1,7 @@
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.VoluntaryChange;
 
-namespace AeroTech.Ordering.Domain._Shared.Operations
+namespace AeroTech.Ordering.Domain.Servicing.Plans
 {
     public sealed record AcceptedChangePlan(
         long OperationId,

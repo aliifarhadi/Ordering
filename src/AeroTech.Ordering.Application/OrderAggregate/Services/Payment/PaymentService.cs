@@ -8,7 +8,7 @@ using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.ValueObjects;
 using AeroTech.Ordering.Domain.PaymentAggregate.Contracts;
 using AeroTech.Ordering.Domain._Shared;
-using AeroTech.Ordering.Domain.Providers.Payment;
+using AeroTech.Ordering.Domain.Ports.Payment;
 using AeroTech.Messages.Ordering.Enums;
 using Microsoft.Extensions.Options;
 using DomainPayment = AeroTech.Ordering.Domain.PaymentAggregate.Payment;

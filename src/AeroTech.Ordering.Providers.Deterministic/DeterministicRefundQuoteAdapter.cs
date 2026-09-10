@@ -2,7 +2,7 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain.Ports.Refund;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.Testing
+namespace AeroTech.Ordering.Providers.Deterministic
 {
     public sealed class DeterministicRefundQuoteAdapter : IRefundQuotePort
     {

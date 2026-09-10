@@ -1,7 +1,7 @@
+using AeroTech.Ordering.Domain.Servicing.Operations;
 using System.Security.Claims;
 using AeroTech.Messages.Aegis.Enums;
 using AeroTech.Messages.Shared.Enums;
-using AeroTech.Ordering.Domain._Shared.Operations;
 using AeroTech.Ordering.ServiceHost.CallerContext;
 using Microsoft.AspNetCore.Http;
 using Xunit;

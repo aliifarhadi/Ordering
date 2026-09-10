@@ -1,4 +1,4 @@
-namespace AeroTech.Ordering.Domain._Shared.Operations.Contracts
+namespace AeroTech.Ordering.Domain.Servicing.Operations.Contracts
 {
     public sealed record OperationClaim(
         long OperationId,

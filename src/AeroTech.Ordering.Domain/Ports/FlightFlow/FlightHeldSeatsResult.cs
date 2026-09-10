@@ -1,6 +1,6 @@
 using AeroTech.Messages.FlightFlow.Enums;
 
-namespace AeroTech.Ordering.Domain.Providers.FlightFlow
+namespace AeroTech.Ordering.Domain.Ports.FlightFlow
 {
     public sealed record FlightHeldSeatsResult(
         string HoldId,

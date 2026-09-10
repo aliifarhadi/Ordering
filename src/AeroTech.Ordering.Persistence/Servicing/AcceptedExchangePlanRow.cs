@@ -1,6 +1,6 @@
 using AeroTech.Messages.Ordering.Enums;
 
-namespace AeroTech.Ordering.Persistence.Operations
+namespace AeroTech.Ordering.Persistence.Servicing
 {
     public sealed class AcceptedExchangePlanRow
     {

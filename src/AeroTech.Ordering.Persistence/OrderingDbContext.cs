@@ -11,7 +11,7 @@ using AeroTech.Ordering.Domain.PaymentAggregate;
 using AeroTech.Ordering.Domain.ProviderInteractionAggregate;
 using AeroTech.Ordering.Domain.TrafficDocumentAggregate;
 using AeroTech.Ordering.Persistence.Inbox;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Outbox;
 using Microsoft.EntityFrameworkCore;
 

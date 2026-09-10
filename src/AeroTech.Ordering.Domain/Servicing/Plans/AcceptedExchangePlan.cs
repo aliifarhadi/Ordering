@@ -2,7 +2,7 @@ using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 
-namespace AeroTech.Ordering.Domain._Shared.Operations
+namespace AeroTech.Ordering.Domain.Servicing.Plans
 {
     public sealed record AcceptedExchangePlan(
         long OperationId,

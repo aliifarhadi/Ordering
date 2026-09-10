@@ -1,6 +1,6 @@
 using AeroTech.Messages.Ordering.Enums;
 
-namespace AeroTech.Ordering.Domain.Providers.Payment
+namespace AeroTech.Ordering.Domain.Ports.Payment
 {
     public sealed record PaymentCaptureRequest(
         string IdempotencyKey,

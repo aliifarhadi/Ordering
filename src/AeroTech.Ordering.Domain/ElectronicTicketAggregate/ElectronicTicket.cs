@@ -2,9 +2,9 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Arguments;
+using AeroTech.Ordering.Domain.ElectronicTicketAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects;
-using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
@@ -149,6 +149,32 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
                         currencyId));
             }
 
+            ticket.Causes(new ElectronicTicketIssued(
+                idGenerator.NewId().ToString(),
+                ticket.Id.ToString(),
+                clock.GetDateTime(),
+                ticket.Id,
+                ticket.OriginalOrderId,
+                ticket.TravelerId,
+                ticket.OperationId,
+                ticket.DocumentNumber,
+                ticket.IssuerCarrierId,
+                ticket.IssuingOfficeId,
+                ticket.Authority,
+                ticket.CurrencyId,
+                ticket.IssuedTotal,
+                ticket.DocumentVersion,
+                ticket.PredecessorElectronicTicketId,
+                ticket._coupons
+                    .Select(coupon => new ElectronicTicketIssuedCoupon(
+                        coupon.Id,
+                        coupon.CouponNumber,
+                        coupon.OrderServiceId,
+                        coupon.JourneySegmentId,
+                        coupon.IssuanceValue,
+                        coupon.PredecessorTicketCouponId))
+                    .ToList()));
+
             return ticket;
         }
 
@@ -187,6 +213,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
             string? reasonDetail,
             long voidedBy,
             string? providerReference,
+            IIdGenerator idGenerator,
             IClock clock)
         {
             var now = clock.GetDateTime();
@@ -199,6 +226,21 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
             StatusSummary = ElectronicTicketStatus.Voided;
             VoidRecord = new DocumentVoidRecord(operationId, reason, reasonDetail, voidedBy, now, providerReference);
             DocumentVersion++;
+
+            Causes(new ElectronicTicketVoided(
+                idGenerator.NewId().ToString(),
+                Id.ToString(),
+                now,
+                Id,
+                CurrentServicingOrderId,
+                DocumentNumber,
+                operationId,
+                reason,
+                reasonDetail,
+                voidedBy,
+                now,
+                providerReference,
+                DocumentVersion));
         }
 
         public IReadOnlyCollection<long> VoidedServiceIds()
@@ -283,7 +325,7 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
         public DocumentRefundRecord Refund(
             long operationId,
             IReadOnlyCollection<long> couponIds,
-            AcceptedRefundProvenance provenance,
+            RefundProvenance provenance,
             string? providerReference,
             long? refundedBy,
             string? actorScope,
@@ -326,6 +368,24 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
 
             StatusSummary = DeriveStatusSummary();
             DocumentVersion++;
+
+            Causes(new ElectronicTicketRefunded(
+                idGenerator.NewId().ToString(),
+                Id.ToString(),
+                record.RefundedAt,
+                Id,
+                CurrentServicingOrderId,
+                DocumentNumber,
+                operationId,
+                record.Id,
+                record.QuotedRefundId,
+                record.PricingSource,
+                record.ApprovedAmount,
+                record.CurrencyId,
+                record.ApprovedDisposition,
+                record.Coupons.Select(coupon => coupon.TicketCouponId).ToList(),
+                StatusSummary,
+                DocumentVersion));
 
             return record;
         }
@@ -419,6 +479,25 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
             StatusSummary = ElectronicTicketStatus.Exchanged;
             DocumentVersion++;
 
+            Causes(new ElectronicTicketExchanged(
+                idGenerator.NewId().ToString(),
+                Id.ToString(),
+                record.ExchangedAt,
+                Id,
+                CurrentServicingOrderId,
+                DocumentNumber,
+                provenance.OperationId,
+                record.Id,
+                successorTicketId,
+                successorDocumentNumber,
+                coupon.Id,
+                successorTicketCouponId,
+                coupon.CurrentOrderServiceId,
+                replacementOrderServiceId,
+                provenance.QuotedExchangeId,
+                provenance.TargetSelectionRef,
+                DocumentVersion));
+
             return record;
         }
 
@@ -467,6 +546,32 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
                     link.AllocationId,
                     link.AttributedValue,
                     issuance.CurrencyId));
+
+            ticket.Causes(new ElectronicTicketIssued(
+                idGenerator.NewId().ToString(),
+                ticket.Id.ToString(),
+                clock.GetDateTime(),
+                ticket.Id,
+                ticket.OriginalOrderId,
+                ticket.TravelerId,
+                ticket.OperationId,
+                ticket.DocumentNumber,
+                ticket.IssuerCarrierId,
+                ticket.IssuingOfficeId,
+                ticket.Authority,
+                ticket.CurrencyId,
+                ticket.IssuedTotal,
+                ticket.DocumentVersion,
+                ticket.PredecessorElectronicTicketId,
+                ticket._coupons
+                    .Select(coupon => new ElectronicTicketIssuedCoupon(
+                        coupon.Id,
+                        coupon.CouponNumber,
+                        coupon.OrderServiceId,
+                        coupon.JourneySegmentId,
+                        coupon.IssuanceValue,
+                        coupon.PredecessorTicketCouponId))
+                    .ToList()));
 
             return ticket;
         }
@@ -531,6 +636,23 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
             _revalidations.Add(record);
 
             DocumentVersion++;
+
+            Causes(new ElectronicTicketRevalidated(
+                idGenerator.NewId().ToString(),
+                Id.ToString(),
+                record.RevalidatedAt,
+                Id,
+                CurrentServicingOrderId,
+                DocumentNumber,
+                operationId,
+                record.Id,
+                record.TicketCouponId,
+                record.CouponNumber,
+                record.PreviousOrderServiceId,
+                record.NewOrderServiceId,
+                record.QuotedChangeId,
+                record.TargetSelectionRef,
+                DocumentVersion));
 
             return record;
         }
@@ -623,6 +745,23 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
 
             StatusSummary = DeriveStatusSummary();
             DocumentVersion++;
+
+            Causes(new ElectronicTicketRefundCancelled(
+                idGenerator.NewId().ToString(),
+                Id.ToString(),
+                correction.CorrectedAt,
+                Id,
+                CurrentServicingOrderId,
+                DocumentNumber,
+                operationId,
+                documentRefundRecordId,
+                correction.Id,
+                correction.OriginalRefundOperationId,
+                correction.CorrectedAmount,
+                correction.CurrencyId,
+                correction.Reason,
+                StatusSummary,
+                DocumentVersion));
 
             return correction;
         }

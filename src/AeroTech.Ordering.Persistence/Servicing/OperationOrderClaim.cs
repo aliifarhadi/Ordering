@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace AeroTech.Ordering.Persistence.Operations
+namespace AeroTech.Ordering.Persistence.Servicing
 {
     public sealed class OperationOrderClaim
     {

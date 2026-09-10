@@ -1,7 +1,7 @@
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.DocumentVoid;
 
-namespace AeroTech.Ordering.Providers.Testing
+namespace AeroTech.Ordering.Providers.Deterministic
 {
     public sealed class DeterministicDocumentVoidAdapter : IDocumentVoidPort
     {

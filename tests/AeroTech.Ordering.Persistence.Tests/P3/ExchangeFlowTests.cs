@@ -6,7 +6,7 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Tests._Shared;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.Persistence.Tests.P1;
 using Microsoft.EntityFrameworkCore;

@@ -1,4 +1,5 @@
-﻿using AeroTech.Framework.Core.Domain.Repository;
+﻿using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
+using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
@@ -9,7 +10,6 @@ using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.Ports.DocumentVoid;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
@@ -26,6 +26,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
         private readonly IServicingOperationStore _operationStore;
         private readonly ICommandReceiptStore _receipts;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IIdGenerator _idGenerator;
         private readonly IClock _clock;
         private readonly IOrderProjector _projector;
 
@@ -38,6 +39,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             IServicingOperationStore operationStore,
             ICommandReceiptStore receipts,
             IUnitOfWork unitOfWork,
+            IIdGenerator idGenerator,
             IClock clock,
             IOrderProjector projector)
         {
@@ -49,6 +51,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             _operationStore = operationStore;
             _receipts = receipts;
             _unitOfWork = unitOfWork;
+            _idGenerator = idGenerator;
             _clock = clock;
             _projector = projector;
         }
@@ -162,7 +165,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             string? providerReference,
             CancellationToken cancellationToken)
         {
-            target.Void(operation.OperationId, provenance, providerReference, _clock);
+            target.Void(operation.OperationId, provenance, providerReference, _idGenerator, _clock);
             order.ApplyDocumentVoid(target.AffectedServiceIds, _clock);
 
             await _operationStore.TransitionAsync(
@@ -417,7 +420,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                     _document!.EnsureCanBeVoided();
             }
 
-            public void Void(long operationId, VoidProvenance provenance, string? providerReference, IClock clock)
+            public void Void(
+                long operationId,
+                VoidProvenance provenance,
+                string? providerReference,
+                IIdGenerator idGenerator,
+                IClock clock)
             {
                 if (_ticket is not null)
                     _ticket.Void(
@@ -426,6 +434,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                         provenance.ReasonDetail,
                         provenance.VoidedBy,
                         providerReference,
+                        idGenerator,
                         clock);
                 else
                     _document!.Void(
@@ -434,6 +443,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                         provenance.ReasonDetail,
                         provenance.VoidedBy,
                         providerReference,
+                        idGenerator,
                         clock);
             }
         }

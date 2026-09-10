@@ -2,7 +2,7 @@ using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.DocumentStockAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate.Entities;
-using AeroTech.Ordering.Persistence.Operations;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using Microsoft.EntityFrameworkCore;
 using Xunit;

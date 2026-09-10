@@ -1,3 +1,4 @@
+using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange;
@@ -6,7 +7,6 @@ using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.VoluntaryChange;
-using AeroTech.Ordering.Domain._Shared.Operations;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence.ElectronicTicketAggregate;
 using AeroTech.Ordering.Persistence.OrderAggregate;

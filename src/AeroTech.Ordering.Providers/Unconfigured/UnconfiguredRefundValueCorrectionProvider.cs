@@ -1,7 +1,7 @@
 using AeroTech.Ordering.Domain.Ports.RefundValueCorrection;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.RefundValueCorrection.Services
+namespace AeroTech.Ordering.Providers.Unconfigured
 {
     public sealed class UnconfiguredRefundValueCorrectionProvider : IRefundValueCorrectionPort
     {

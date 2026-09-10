@@ -1,7 +1,7 @@
 using AeroTech.Ordering.Domain.Ports.ManualRefundAuthorization;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
-namespace AeroTech.Ordering.Providers.ManualRefundAuthorization.Services
+namespace AeroTech.Ordering.Providers.Unconfigured
 {
     public sealed class UnconfiguredManualRefundAuthorizationProvider : IManualRefundAuthorizationPort
     {

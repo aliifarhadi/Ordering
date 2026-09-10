@@ -1,12 +1,14 @@
 ﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Access;
+using AeroTech.Ordering.Application.OrderAggregate.Commands.AddOrderService;
+using AeroTech.Ordering.Application.OrderAggregate.Commands.CancelOrderItem;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.CreateOrderFromOffer.Ota;
-using AeroTech.Ordering.Application.OrderAggregate.Services.Cancel;
-using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
+using AeroTech.Ordering.Application.OrderAggregate.Commands.RemoveOrderServices;
 using AeroTech.Ordering.Query.OrderAggregate.Queries.GetOrderDetails;
 using AeroTech.Ordering.RestApi._Shared;
 using AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests;
+using AeroTech.Ordering.RestApi.V1.OrderAggregate.Responses;
 using Asp.Versioning;
 using MediatR;
 using Microsoft.AspNetCore.Http;
@@ -22,21 +24,12 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
     {
         private readonly IMediator _mediator;
         private readonly IIdentityService _identity;
-        private readonly IOrderChangeService _orderChangeService;
-        private readonly IOrderScopeCancellationService _scopeCancellationService;
         private readonly IOrderCustomerAccessGuard _accessGuard;
 
-        public OtaController(
-            IMediator mediator,
-            IIdentityService identity,
-            IOrderChangeService orderChangeService,
-            IOrderScopeCancellationService scopeCancellationService,
-            IOrderCustomerAccessGuard accessGuard)
+        public OtaController(IMediator mediator, IIdentityService identity, IOrderCustomerAccessGuard accessGuard)
         {
             _mediator = mediator;
             _identity = identity;
-            _orderChangeService = orderChangeService;
-            _scopeCancellationService = scopeCancellationService;
             _accessGuard = accessGuard;
         }
 
@@ -94,11 +87,12 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
             string idempotencyKey,
             CancellationToken cancellationToken)
         {
-            var outcome = await _orderChangeService.AddServiceAsync(
-                orderId,
-                OrderChangeRequestMapper.ToSelections(request),
-                idempotencyKey,
-                request.ExpectedCommercialVersion,
+            var outcome = await _mediator.Send(
+                new AddOrderServiceCommand(
+                    orderId,
+                    OrderChangeRequestMapper.ToSelections(request),
+                    idempotencyKey,
+                    request.ExpectedCommercialVersion),
                 cancellationToken);
 
             return (outcome.OperationId, outcome.CommercialVersion);
@@ -110,12 +104,13 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
             string idempotencyKey,
             CancellationToken cancellationToken)
         {
-            var outcome = await _scopeCancellationService.CancelItemAsync(
-                orderId,
-                request.CancelOrderItem!.OrderItemId,
-                request.CancelOrderItem.QuotedCancellationId,
-                idempotencyKey,
-                request.ExpectedCommercialVersion,
+            var outcome = await _mediator.Send(
+                new CancelOrderItemCommand(
+                    orderId,
+                    request.CancelOrderItem!.OrderItemId,
+                    request.CancelOrderItem.QuotedCancellationId,
+                    idempotencyKey,
+                    request.ExpectedCommercialVersion),
                 cancellationToken);
 
             return (outcome.OperationId, outcome.CommercialVersion);
@@ -127,12 +122,13 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate
             string idempotencyKey,
             CancellationToken cancellationToken)
         {
-            var outcome = await _scopeCancellationService.RemoveServicesAsync(
-                orderId,
-                request.RemoveOrderServices!.OrderServiceIds,
-                request.RemoveOrderServices.QuotedCancellationId,
-                idempotencyKey,
-                request.ExpectedCommercialVersion,
+            var outcome = await _mediator.Send(
+                new RemoveOrderServicesCommand(
+                    orderId,
+                    request.RemoveOrderServices!.OrderServiceIds,
+                    request.RemoveOrderServices.QuotedCancellationId,
+                    idempotencyKey,
+                    request.ExpectedCommercialVersion),
                 cancellationToken);
 
             return (outcome.OperationId, outcome.CommercialVersion);

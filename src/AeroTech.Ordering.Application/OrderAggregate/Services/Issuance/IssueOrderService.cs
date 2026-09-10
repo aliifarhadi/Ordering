@@ -1,3 +1,4 @@
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
@@ -14,7 +15,6 @@ using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Ports.Funding;
 using AeroTech.Ordering.Domain._Shared.Contracts;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Microsoft.Extensions.Options;
 

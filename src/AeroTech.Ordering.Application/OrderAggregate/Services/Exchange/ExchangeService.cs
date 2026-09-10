@@ -1,3 +1,7 @@
+using AeroTech.Ordering.Domain.Servicing.Operations;
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
+using AeroTech.Ordering.Domain.Servicing.Plans;
+using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
 using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
@@ -17,8 +21,6 @@ using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Ports.Exchange;
 using AeroTech.Ordering.Domain.Ports.ReservationChange;
 using AeroTech.Ordering.Domain._Shared.Contracts;
-using AeroTech.Ordering.Domain._Shared.Operations;
-using AeroTech.Ordering.Domain._Shared.Operations.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Entities = AeroTech.Ordering.Domain.OrderAggregate.Entities;
 
