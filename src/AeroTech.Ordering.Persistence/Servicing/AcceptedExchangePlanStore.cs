@@ -5,6 +5,7 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
+using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Microsoft.EntityFrameworkCore;
 
@@ -63,6 +64,14 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         coupon.PredecessorOrderServiceId,
                         coupon.Disposition,
                         coupon.SuccessorTicketCouponId,
+                        new TicketedSegmentSnapshot(
+                            coupon.SegmentMarketingAirlineId,
+                            coupon.SegmentFlightNumber,
+                            coupon.SegmentOriginAirportId,
+                            coupon.SegmentDestinationAirportId,
+                            coupon.SegmentDepartureDateTime,
+                            coupon.SegmentArrivalDateTime,
+                            coupon.SegmentBookingClass),
                         coupon.ReplacementOrderServiceId,
                         coupon.ReplacementOrderSegmentId,
                         coupon.SuccessorCouponNumber))
@@ -132,7 +141,14 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         SuccessorTicketCouponId = coupon.SuccessorTicketCouponId,
                         ReplacementOrderServiceId = coupon.ReplacementOrderServiceId,
                         ReplacementOrderSegmentId = coupon.ReplacementOrderSegmentId,
-                        SuccessorCouponNumber = coupon.SuccessorCouponNumber
+                        SuccessorCouponNumber = coupon.SuccessorCouponNumber,
+                        SegmentMarketingAirlineId = coupon.TicketedSegment.MarketingAirlineId,
+                        SegmentFlightNumber = coupon.TicketedSegment.FlightNumber,
+                        SegmentOriginAirportId = coupon.TicketedSegment.OriginAirportId,
+                        SegmentDestinationAirportId = coupon.TicketedSegment.DestinationAirportId,
+                        SegmentDepartureDateTime = coupon.TicketedSegment.DepartureDateTime,
+                        SegmentArrivalDateTime = coupon.TicketedSegment.ArrivalDateTime,
+                        SegmentBookingClass = coupon.TicketedSegment.BookingClass
                     })
                     .ToList()
             };

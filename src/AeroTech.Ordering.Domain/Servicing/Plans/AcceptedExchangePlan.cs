@@ -57,5 +57,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public IReadOnlyList<long> ChangedOrderServiceIds
             => ReplacedCoupons.Select(coupon => coupon.PredecessorOrderServiceId).ToList();
+
+        public bool CanReproduceDocumentRequest
+            => Coupons.Count > 0 && Coupons.All(coupon => coupon.TicketedSegment.IsComplete);
     }
 }

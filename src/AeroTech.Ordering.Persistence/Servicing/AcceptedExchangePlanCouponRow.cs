@@ -21,5 +21,19 @@ namespace AeroTech.Ordering.Persistence.Servicing
         public long? ReplacementOrderSegmentId { get; set; }
 
         public int? SuccessorCouponNumber { get; set; }
+
+        public int SegmentMarketingAirlineId { get; set; }
+
+        public string SegmentFlightNumber { get; set; } = null!;
+
+        public int SegmentOriginAirportId { get; set; }
+
+        public int SegmentDestinationAirportId { get; set; }
+
+        public DateTimeOffset SegmentDepartureDateTime { get; set; }
+
+        public DateTimeOffset SegmentArrivalDateTime { get; set; }
+
+        public string? SegmentBookingClass { get; set; }
     }
 }

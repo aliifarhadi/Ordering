@@ -10,6 +10,9 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.ToTable("AcceptedExchangePlanCoupons");
             builder.HasKey(coupon => new { coupon.OperationId, coupon.PredecessorTicketCouponId });
 
+            builder.Property(coupon => coupon.SegmentFlightNumber).HasMaxLength(16).IsRequired();
+            builder.Property(coupon => coupon.SegmentBookingClass).HasMaxLength(8);
+
             builder.HasIndex(coupon => coupon.SuccessorTicketCouponId).IsUnique();
             builder.HasIndex(coupon => coupon.PredecessorOrderServiceId);
         }

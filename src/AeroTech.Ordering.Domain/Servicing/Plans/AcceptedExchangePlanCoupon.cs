@@ -1,4 +1,5 @@
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain._Shared.Documents;
 
 namespace AeroTech.Ordering.Domain.Servicing.Plans
 {
@@ -8,6 +9,7 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         long PredecessorOrderServiceId,
         ExchangeCouponDisposition Disposition,
         long SuccessorTicketCouponId,
+        TicketedSegmentSnapshot TicketedSegment,
         long? ReplacementOrderServiceId,
         long? ReplacementOrderSegmentId,
         int? SuccessorCouponNumber = null)

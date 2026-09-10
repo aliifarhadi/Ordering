@@ -21,6 +21,7 @@ using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
 using AeroTech.Ordering.Domain._Shared.Contracts;
+using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using Entities = AeroTech.Ordering.Domain.OrderAggregate.Entities;
 
@@ -487,6 +488,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             if (plan.IsDocumentExchangeConfirmed)
                 return await FinalizeAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
 
+            if (!plan.CanReproduceDocumentRequest)
+                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+
             DocumentExchangeResult result;
 
             try
@@ -533,44 +537,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     plan.QuotedExchangeId,
                     plan.TargetSelectionRef,
                     plan.SourcePricingReference,
-                    plan.Coupons.Select(coupon => DocumentCouponRequest(order, plan, coupon)).ToList()),
+                    plan.Coupons.Select(DocumentCouponRequest).ToList()),
                 cancellationToken);
 
-        private static DocumentExchangeCouponRequest DocumentCouponRequest(
-            Order order,
-            AcceptedExchangePlan plan,
-            AcceptedExchangePlanCoupon coupon)
-        {
-            if (coupon.IsReplaced)
-            {
-                var segment = AcceptedCoupon(plan, coupon).Replacement!.Segment;
-
-                return new DocumentExchangeCouponRequest(
-                    coupon.PredecessorCouponNumber,
-                    coupon.Disposition,
-                    coupon.ReplacementOrderServiceId!.Value,
-                    coupon.ReplacementOrderSegmentId!.Value,
-                    segment.FlightNumber,
-                    segment.DepartureAt);
-            }
-
-            var current = ContinuedSegment(order, coupon);
-
-            return new DocumentExchangeCouponRequest(
-                coupon.PredecessorCouponNumber,
-                coupon.Disposition,
-                coupon.PredecessorOrderServiceId,
-                current.Id,
-                current.Number,
-                current.DepartureDateTime);
-        }
-
-        private static Entities.OrderSegment ContinuedSegment(Order order, AcceptedExchangePlanCoupon coupon)
-        {
-            var service = order.OrderServices.Single(candidate => candidate.Id == coupon.PredecessorOrderServiceId);
-
-            return order.Segments.Single(segment => segment.Id == service.SoldSegmentId!.Value);
-        }
+        private static DocumentExchangeCouponRequest DocumentCouponRequest(AcceptedExchangePlanCoupon coupon)
+            => new(coupon.PredecessorCouponNumber, coupon.Disposition, coupon.TicketedSegment);
 
         private async Task<ExchangeOutcome> AfterDocumentExchangeAsync(
             Order order,
@@ -693,11 +664,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 successor.VoidDeadline,
                 plan.SaleCurrencyId,
                 plan.Coupons
-                    .Select(coupon => SuccessorCouponIssuance(order, plan, successor, exchanged, coupon))
+                    .Select(coupon => SuccessorCouponIssuance(plan, successor, exchanged, coupon))
                     .ToList());
 
         private static SuccessorCouponIssuance SuccessorCouponIssuance(
-            Order order,
             AcceptedExchangePlan plan,
             SuccessorDocumentIdentity successor,
             ExchangedOrder exchanged,
@@ -712,9 +682,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 coupon.PredecessorTicketCouponId,
                 binding.OrderServiceId,
                 binding.OrderSegmentId,
-                coupon.IsReplaced
-                    ? ReplacementSnapshot(accepted.Replacement!.Segment)
-                    : ContinuedSnapshot(ContinuedSegment(order, coupon)),
+                IssuedSegment(coupon.TicketedSegment),
                 accepted.Successor.FareBasis,
                 accepted.Successor.IssuanceValue,
                 accepted.Successor.PriceLinks
@@ -725,20 +693,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     .ToList());
         }
 
-        private static IssuedSegmentSnapshot ReplacementSnapshot(Domain.OrderAggregate.AcceptedSource.AcceptedSegment segment)
+        private static IssuedSegmentSnapshot IssuedSegment(TicketedSegmentSnapshot segment)
             => new(
                 segment.MarketingAirlineId,
                 segment.FlightNumber,
-                segment.OriginAirportId,
-                segment.DestinationAirportId,
-                segment.DepartureAt,
-                segment.ArrivalAt,
-                segment.BookingClass);
-
-        private static IssuedSegmentSnapshot ContinuedSnapshot(Entities.OrderSegment segment)
-            => new(
-                segment.MarketingAirlineId,
-                segment.Number,
                 segment.OriginAirportId,
                 segment.DestinationAirportId,
                 segment.DepartureDateTime,
@@ -1032,17 +990,20 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 accepted.MonetaryOutcome,
                 accepted,
                 scope.Coupons
-                    .Select(coupon => PlanCoupon(coupon, accepted, scope))
+                    .Select(coupon => PlanCoupon(order, coupon, accepted, scope))
                     .ToList());
 
         private AcceptedExchangePlanCoupon PlanCoupon(
+            Order order,
             PredecessorCouponEvidence coupon,
             AcceptedExchange accepted,
             ExchangeScope scope)
         {
+            var acceptedCoupon = accepted.Coupons.FirstOrDefault(candidate =>
+                candidate.PredecessorTicketCouponId == coupon.TicketCouponId);
+
             var replaced = scope.ChangedOrderServiceIds.Contains(coupon.OrderServiceId)
-                           && accepted.Coupons.Any(candidate =>
-                               candidate.PredecessorTicketCouponId == coupon.TicketCouponId && candidate.IsReplaced);
+                           && acceptedCoupon is { IsReplaced: true };
 
             return new AcceptedExchangePlanCoupon(
                 coupon.TicketCouponId,
@@ -1050,8 +1011,36 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 coupon.OrderServiceId,
                 replaced ? ExchangeCouponDisposition.Replaced : ExchangeCouponDisposition.Continued,
                 _idGenerator.NewId(),
+                replaced
+                    ? AcceptedTicketedSegment(acceptedCoupon!.Replacement!.Segment)
+                    : SoldTicketedSegment(order, coupon.OrderServiceId),
                 replaced ? _idGenerator.NewId() : null,
                 replaced ? _idGenerator.NewId() : null);
+        }
+
+        private static TicketedSegmentSnapshot AcceptedTicketedSegment(Domain.OrderAggregate.AcceptedSource.AcceptedSegment segment)
+            => new(
+                segment.MarketingAirlineId,
+                segment.FlightNumber,
+                segment.OriginAirportId,
+                segment.DestinationAirportId,
+                segment.DepartureAt,
+                segment.ArrivalAt,
+                segment.BookingClass);
+
+        private static TicketedSegmentSnapshot SoldTicketedSegment(Order order, long orderServiceId)
+        {
+            var service = order.OrderServices.Single(candidate => candidate.Id == orderServiceId);
+            var segment = order.Segments.Single(candidate => candidate.Id == service.SoldSegmentId!.Value);
+
+            return new TicketedSegmentSnapshot(
+                segment.MarketingAirlineId,
+                segment.Number,
+                segment.OriginAirportId,
+                segment.DestinationAirportId,
+                segment.DepartureDateTime,
+                segment.ArrivalDateTime,
+                segment.BookingClass);
         }
 
         private AcceptedExchangeArgs ToArgs(AcceptedExchangePlan plan, ElectronicTicket predecessor)

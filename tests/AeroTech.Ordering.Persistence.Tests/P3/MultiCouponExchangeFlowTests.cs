@@ -113,7 +113,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(1, Assert.Single(harness.ReservationChanges.DispatchedKeys).Split(':').Count(part => part == "exchange-reservation"));
             Assert.Equal(2, exchanged.Coupons.Count);
             Assert.Single(exchanged.Coupons, coupon => coupon.Disposition == ExchangeCouponDisposition.Replaced);
-            Assert.Single(exchanged.Coupons, coupon => coupon.Disposition == ExchangeCouponDisposition.Continued && coupon.OrderServiceId == scenario.CouponServiceIds[2]);
+            Assert.Single(exchanged.Coupons, coupon => coupon.Disposition == ExchangeCouponDisposition.Continued && coupon.PredecessorCouponNumber == 2);
             Assert.Equal(new[] { 1, 2 }, Assert.Single(harness.DocumentExchanges.ObservedEligibilityRequests).PredecessorCouponNumbers.Order());
         }
 
