@@ -128,6 +128,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 DocumentExchangeOutcome = plan.DocumentExchangeOutcome,
                 DocumentExchangeProviderReference = plan.DocumentExchangeProviderReference,
                 DocumentExchangeDetail = plan.DocumentExchangeDetail,
+                DocumentExchangeSuccessorEvidence = null,
                 CreatedAt = now,
                 UpdatedAt = now,
                 Coupons = plan.Coupons
@@ -206,6 +207,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
             if (successor is null)
                 return;
 
+            row.DocumentExchangeSuccessorEvidence = JsonSerializer.Serialize(successor, PlanOptions);
+
             row.SuccessorDocumentNumber = successor.DocumentNumber;
             row.SuccessorIssuerCarrierId = successor.IssuerCarrierId;
             row.SuccessorIssuingOfficeId = successor.IssuingOfficeId;
@@ -223,6 +226,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
         }
 
         private static SuccessorDocumentIdentity? SuccessorOf(AcceptedExchangePlanRow row)
+            => row.DocumentExchangeSuccessorEvidence is { } evidence
+                ? JsonSerializer.Deserialize<SuccessorDocumentIdentity>(evidence, PlanOptions)
+                : NormalizedSuccessorOf(row);
+
+        private static SuccessorDocumentIdentity? NormalizedSuccessorOf(AcceptedExchangePlanRow row)
             => row.SuccessorDocumentNumber is null
                || row.SuccessorIssuerCarrierId is null
                || row.SuccessorAuthority is null

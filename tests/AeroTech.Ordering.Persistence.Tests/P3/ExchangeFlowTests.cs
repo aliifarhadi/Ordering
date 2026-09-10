@@ -5,6 +5,7 @@ using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
+using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
@@ -579,6 +580,37 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Assert.Equal(code, refusal.Code);
             await AssertNothingHappenedAsync(harness, scenario, acceptCalls: 1);
+        }
+
+        [Fact]
+        public async Task A_replaced_coupon_without_an_accepted_replacement_is_rejected_deterministically_and_replays()
+        {
+            await using var harness = NewHarness();
+            var scenario = await TicketedAsync(_fixture, harness, accepted => accepted with
+            {
+                Coupons = accepted.Coupons.Select(coupon => coupon with { Replacement = null }).ToList()
+            });
+            var key = NewKey();
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(() => harness.Exchange.ExchangeAsync(scenario.Execution(key)));
+            var operationId = harness.ExchangeQuotes.ObservedSelections.Single().OperationId;
+            var plan = await harness.ExchangePlans.FindAsync(operationId);
+
+            Assert.Equal(2981, refusal.Code);
+            Assert.NotNull(plan);
+            Assert.Equal(AcceptedExchangeDisposition.Rejected, plan!.Disposition);
+            Assert.Equal(2981, plan.RejectionCode);
+            Assert.Equal(ExchangeCouponDisposition.Replaced, Assert.Single(plan.Coupons).Disposition);
+            Assert.Null(Assert.Single(plan.Coupons).ReplacementOrderServiceId);
+            Assert.Null(Assert.Single(plan.Coupons).ReplacementOrderSegmentId);
+            Assert.True(Assert.Single(plan.Coupons).TicketedSegment.IsComplete);
+
+            var replay = await Assert.ThrowsAsync<BusinessException>(() => harness.Exchange.ExchangeAsync(scenario.Execution(key)));
+
+            Assert.Equal(refusal.Code, replay.Code);
+            Assert.Single(harness.ExchangeQuotes.ObservedSelections);
+            await AssertNothingHappenedAsync(harness, scenario, acceptCalls: 1);
+            Assert.NotEqual(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
         }
 
         // ---------------------------------------------------------------- D. durable plan

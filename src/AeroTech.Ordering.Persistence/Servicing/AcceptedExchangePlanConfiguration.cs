@@ -21,6 +21,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.Property(plan => plan.ReservationExternalRef).HasMaxLength(128);
             builder.Property(plan => plan.DocumentExchangeProviderReference).HasMaxLength(128);
             builder.Property(plan => plan.DocumentExchangeDetail).HasMaxLength(512);
+            builder.Property(plan => plan.DocumentExchangeSuccessorEvidence).HasColumnType("nvarchar(max)");
             builder.Property(plan => plan.SuccessorDocumentNumber).HasMaxLength(32);
 
             builder.HasIndex(plan => plan.OrderId);

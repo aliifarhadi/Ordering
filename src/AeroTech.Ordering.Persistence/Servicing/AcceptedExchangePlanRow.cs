@@ -56,6 +56,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public string? DocumentExchangeDetail { get; set; }
 
+        public string? DocumentExchangeSuccessorEvidence { get; set; }
+
         public string? SuccessorDocumentNumber { get; set; }
 
         public long? SuccessorIssuerCarrierId { get; set; }

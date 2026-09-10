@@ -3,6 +3,7 @@ using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain._Shared.Documents;
 using Microsoft.EntityFrameworkCore;
+using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.Persistence.Tests.P1;
 using Xunit;
@@ -280,7 +281,123 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             }
         }
 
+        [Theory]
+        [InlineData("unknown-predecessor")]
+        [InlineData("duplicate-predecessor")]
+        public async Task An_invalid_confirmed_mapping_survives_a_restart_and_is_rejected_again(string shape)
+        {
+            var caller = TestCallerContexts.AirlineUser(7401, $"exc-id-{Guid.NewGuid():N}");
+            var key = NewKey();
+            ExchangeScenario scenario;
+            long operationId;
+
+            await using (var setup = NewHarness(caller))
+            {
+                scenario = await TicketedAsync(_fixture, setup, roundTrip: true, changedCouponNumbers: [1]);
+
+                setup.DocumentExchanges.ExchangeOutcome = ProviderOperationOutcome.Unknown;
+
+                var uncertain = await setup.Exchange.ExchangeAsync(scenario.Execution(key));
+
+                operationId = uncertain.OperationId;
+
+                Assert.Equal(ServicingOperationStatus.AwaitingExternal, uncertain.OperationStatus);
+                Assert.Null((await setup.ExchangePlans.FindAsync(operationId))!.Successor);
+
+                await setup.ExchangePlans.RecordDocumentExchangeOutcomeAsync(
+                    operationId,
+                    ProviderOperationOutcome.Confirmed,
+                    "EXCH-RAW",
+                    new SuccessorDocumentIdentity(
+                        $"EXC{operationId}", 1, null, DocumentAuthority.Local, null,
+                        shape == "unknown-predecessor"
+                            ?
+                            [
+                                new SuccessorCouponIdentity(1, 1),
+                                new SuccessorCouponIdentity(2, 2),
+                                new SuccessorCouponIdentity(99, 3)
+                            ]
+                            :
+                            [
+                                new SuccessorCouponIdentity(1, 1),
+                                new SuccessorCouponIdentity(1, 2),
+                                new SuccessorCouponIdentity(2, 3)
+                            ]),
+                    null);
+
+                await setup.UnitOfWork.SaveChangesAsync();
+
+                Assert.Equal(ServicingOperationStatus.AwaitingExternal, await OperationStatusAsync(operationId));
+            }
+
+            await using var resume = NewHarness(caller);
+            Register(resume, scenario);
+
+            var reloaded = (await resume.ExchangePlans.FindAsync(operationId))!;
+            var evidence = reloaded.Successor!.Coupons
+                .Select(coupon => (coupon.PredecessorCouponNumber, coupon.CouponNumber))
+                .ToList();
+            var normalized = reloaded.Coupons
+                .Where(coupon => coupon.SuccessorCouponNumber is not null)
+                .Select(coupon => (coupon.PredecessorCouponNumber, coupon.SuccessorCouponNumber!.Value))
+                .OrderBy(pair => pair.PredecessorCouponNumber)
+                .ToList();
+
+            Assert.True(reloaded.IsDocumentExchangeConfirmed);
+            Assert.Equal(3, evidence.Count);
+            Assert.Equal(2, reloaded.Coupons.Count);
+            Assert.NotEqual(evidence.Count, normalized.Count);
+
+            if (shape == "unknown-predecessor")
+            {
+                Assert.Equal([(1, 1), (2, 2), (99, 3)], evidence);
+                Assert.DoesNotContain(99, normalized.Select(pair => pair.PredecessorCouponNumber));
+            }
+            else
+            {
+                Assert.Equal([(1, 1), (1, 2), (2, 3)], evidence);
+                Assert.Equal(2, evidence.Count(pair => pair.PredecessorCouponNumber == 1));
+                Assert.Single(normalized, pair => pair.PredecessorCouponNumber == 1);
+                Assert.Equal(normalized.Count, normalized.Select(pair => pair.PredecessorCouponNumber).Distinct().Count());
+            }
+
+            var replayed = await resume.Exchange.ExchangeAsync(scenario.Execution(key));
+
+            var after = await ReloadAsync(_fixture, scenario.OrderId);
+            var predecessor = await TicketAsync(_fixture, scenario.OrderId, scenario.TicketId);
+
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, replayed.OperationStatus);
+            Assert.Null(replayed.SuccessorElectronicTicketId);
+            Assert.Empty(resume.DocumentExchanges.ObservedRequests);
+            Assert.Empty(resume.DocumentExchanges.ObservedRecoveryKeys);
+            Assert.Empty(resume.ReservationChanges.ObservedApplies);
+            Assert.Empty(resume.ReservationChanges.ObservedRecoveryKeys);
+            Assert.Empty(resume.ExchangeQuotes.ObservedSelections);
+            Assert.Null(await FindTicketAsync(_fixture, reloaded.SuccessorElectronicTicketId));
+            Assert.Equal(2, (await TicketsAsync(_fixture, scenario.OrderId)).Count);
+            Assert.Equal(ElectronicTicketStatus.Issued, predecessor.StatusSummary);
+            Assert.All(predecessor.Coupons, coupon => Assert.Equal(TicketCouponFinancialStatus.Open, coupon.FinancialStatus));
+            Assert.Empty(predecessor.Exchanges);
+            Assert.Equal(scenario.DocumentVersion, predecessor.DocumentVersion);
+            Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
+            Assert.DoesNotContain(after.PriceChangeSets, set => set.Reason == PriceChangeReason.Exchange);
+            Assert.Equal(scenario.CommercialVersion, after.CommercialVersion);
+            Assert.Equal(scenario.FinancialSequence, after.FinancialSequence);
+            Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(resume, scenario));
+
+            var settled = (await resume.ExchangePlans.FindAsync(operationId))!;
+
+            Assert.Equal(evidence, settled.Successor!.Coupons.Select(coupon => (coupon.PredecessorCouponNumber, coupon.CouponNumber)));
+        }
+
         private const string MovedFlightNumber = "W5 9999";
+
+        private async Task<ServicingOperationStatus> OperationStatusAsync(long operationId)
+        {
+            await using var command = _fixture.NewCommandContext();
+
+            return (await command.Set<ServicingOperation>().SingleAsync(operation => operation.Id == operationId)).Status;
+        }
 
         private static long harnessOperationId(OrderSliceHarness harness)
             => harness.ExchangeQuotes.ObservedSelections[^1].OperationId;

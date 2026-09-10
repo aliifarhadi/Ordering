@@ -999,23 +999,25 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             AcceptedExchange accepted,
             ExchangeScope scope)
         {
+            var requestedIsReplaced = scope.ChangedOrderServiceIds.Contains(coupon.OrderServiceId);
+
             var acceptedCoupon = accepted.Coupons.FirstOrDefault(candidate =>
                 candidate.PredecessorTicketCouponId == coupon.TicketCouponId);
 
-            var replaced = scope.ChangedOrderServiceIds.Contains(coupon.OrderServiceId)
-                           && acceptedCoupon is { IsReplaced: true };
+            var usableAcceptedReplacement = requestedIsReplaced
+                                            && acceptedCoupon is { IsReplaced: true, Replacement: not null };
 
             return new AcceptedExchangePlanCoupon(
                 coupon.TicketCouponId,
                 coupon.CouponNumber,
                 coupon.OrderServiceId,
-                replaced ? ExchangeCouponDisposition.Replaced : ExchangeCouponDisposition.Continued,
+                requestedIsReplaced ? ExchangeCouponDisposition.Replaced : ExchangeCouponDisposition.Continued,
                 _idGenerator.NewId(),
-                replaced
+                usableAcceptedReplacement
                     ? AcceptedTicketedSegment(acceptedCoupon!.Replacement!.Segment)
                     : SoldTicketedSegment(order, coupon.OrderServiceId),
-                replaced ? _idGenerator.NewId() : null,
-                replaced ? _idGenerator.NewId() : null);
+                usableAcceptedReplacement ? _idGenerator.NewId() : null,
+                usableAcceptedReplacement ? _idGenerator.NewId() : null);
         }
 
         private static TicketedSegmentSnapshot AcceptedTicketedSegment(Domain.OrderAggregate.AcceptedSource.AcceptedSegment segment)

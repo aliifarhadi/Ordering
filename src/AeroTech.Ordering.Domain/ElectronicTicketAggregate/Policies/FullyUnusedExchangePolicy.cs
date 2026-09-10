@@ -12,9 +12,9 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.Policies
 
             predecessor.EnsureDocumentCanBeExchanged();
 
-            if (predecessor.FirstUsedCoupon() is { } used)
+            if (predecessor.FirstNonOpenCoupon() is { } notOpen)
                 throw ExceptionFactory.ExchangeRequiresFullyUnusedTicket(
-                    predecessor.DocumentNumber, used.CouponNumber, used.FinancialStatus);
+                    predecessor.DocumentNumber, notOpen.CouponNumber, notOpen.FinancialStatus);
 
             var scoped = scope.Select(item => item.TicketCouponId).ToHashSet();
 

@@ -365,7 +365,7 @@
 
         public const string AcceptedChangePlanNotFound = "No durable accepted change plan exists for operation {0}.";
 
-        public const string ExchangeRequiresFullyUnusedTicket = "Document {0} carries used coupon {1} ({2}); the fully unused exchange capability cannot reissue a partly used document.";
+        public const string ExchangeRequiresFullyUnusedTicket = "Document {0} carries coupon {1} in {2} status; the fully unused exchange capability requires every predecessor coupon to be Open.";
 
         public const string DocumentAlreadyExchanged = "Document {0} has already been exchanged into document {1}.";
 
