@@ -16,6 +16,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
                 ChangeMonetaryOutcome.AddCollect => null,
                 ChangeMonetaryOutcome.Refund => null,
                 ChangeMonetaryOutcome.Residual => null,
+                ChangeMonetaryOutcome.Mixed => null,
                 _ => accepted.MonetaryOutcome.ToString()
             };
         }
@@ -24,21 +25,21 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
         {
             ArgumentNullException.ThrowIfNull(accepted);
 
-            return accepted.MonetaryOutcome == ChangeMonetaryOutcome.AddCollect;
+            return accepted.AddCollect is not null;
         }
 
         public static bool RequiresRefundDue(AcceptedExchange accepted)
         {
             ArgumentNullException.ThrowIfNull(accepted);
 
-            return accepted.MonetaryOutcome == ChangeMonetaryOutcome.Refund;
+            return accepted.RefundDue is not null;
         }
 
         public static bool RequiresResidual(AcceptedExchange accepted)
         {
             ArgumentNullException.ThrowIfNull(accepted);
 
-            return accepted.MonetaryOutcome == ChangeMonetaryOutcome.Residual;
+            return accepted.Residual is not null;
         }
 
         private static string? EvenDeferralReason(AcceptedExchange accepted)
@@ -72,56 +73,104 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
 
         private static void EnsureMonetaryOutcomeIsWellFormed(AcceptedExchange accepted)
         {
-            EnsureOnlyTheOutcomeIsSettled(accepted);
+            EnsureTheOutcomeMatchesItsLegs(accepted);
+            EnsureLegsAreDistinct(accepted);
 
             switch (accepted.MonetaryOutcome)
             {
                 case ChangeMonetaryOutcome.AddCollect:
-                    EnsureSettlementIsWellFormed(
-                        accepted, "add-collect", accepted.AddCollect?.Amount, accepted.AddCollect?.CurrencyId, 1);
+                    EnsureCollectionIsWellFormed(accepted, 1);
                     break;
 
                 case ChangeMonetaryOutcome.Refund:
-                    EnsureSettlementIsWellFormed(
-                        accepted, "refund-due", accepted.RefundDue?.Amount, accepted.RefundDue?.CurrencyId, -1);
-
-                    if (accepted.RefundDue is { IsOriginalRefundableSource: false } refundDue)
-                        throw Malformed(
-                            accepted,
-                            $"refund-due disposition {refundDue.Disposition} is not an original refundable source");
-
+                    EnsureRefundDueIsWellFormed(accepted, -1);
                     break;
 
                 case ChangeMonetaryOutcome.Residual:
-                    EnsureSettlementIsWellFormed(
-                        accepted, "residual", accepted.Residual?.Amount, accepted.Residual?.CurrencyId, -1);
+                    EnsureResidualIsWellFormed(accepted, -1);
+                    break;
 
-                    if (accepted.Residual is { Disposition: var disposition }
-                        && string.IsNullOrWhiteSpace(disposition))
-                        throw Malformed(accepted, "a residual outcome carries no authoritative disposition");
+                case ChangeMonetaryOutcome.Mixed:
+                    EnsureCollectionIsWellFormed(accepted, null);
+
+                    if (accepted.RefundDue is not null)
+                        EnsureRefundDueIsWellFormed(accepted, null);
+                    else
+                        EnsureResidualIsWellFormed(accepted, null);
 
                     break;
             }
         }
 
-        private static void EnsureOnlyTheOutcomeIsSettled(AcceptedExchange accepted)
+        private static void EnsureCollectionIsWellFormed(AcceptedExchange accepted, int? balanceSign)
+            => EnsureSettlementIsWellFormed(
+                accepted, "add-collect", accepted.AddCollect?.Amount, accepted.AddCollect?.CurrencyId, balanceSign);
+
+        private static void EnsureRefundDueIsWellFormed(AcceptedExchange accepted, int? balanceSign)
         {
-            if (accepted.AddCollect is not null && accepted.MonetaryOutcome != ChangeMonetaryOutcome.AddCollect)
-                throw Malformed(accepted, $"a {accepted.MonetaryOutcome} outcome carries an add-collect amount");
+            EnsureSettlementIsWellFormed(
+                accepted, "refund-due", accepted.RefundDue?.Amount, accepted.RefundDue?.CurrencyId, balanceSign);
 
-            if (accepted.RefundDue is not null && accepted.MonetaryOutcome != ChangeMonetaryOutcome.Refund)
-                throw Malformed(accepted, $"a {accepted.MonetaryOutcome} outcome carries a refund-due amount");
-
-            if (accepted.Residual is not null && accepted.MonetaryOutcome != ChangeMonetaryOutcome.Residual)
-                throw Malformed(accepted, $"a {accepted.MonetaryOutcome} outcome carries a residual amount");
+            if (accepted.RefundDue is { IsOriginalRefundableSource: false } refundDue)
+                throw Malformed(
+                    accepted,
+                    $"refund-due disposition {refundDue.Disposition} is not an original refundable source");
         }
+
+        private static void EnsureResidualIsWellFormed(AcceptedExchange accepted, int? balanceSign)
+        {
+            EnsureSettlementIsWellFormed(
+                accepted, "residual", accepted.Residual?.Amount, accepted.Residual?.CurrencyId, balanceSign);
+
+            if (accepted.Residual is { Disposition: var disposition } && string.IsNullOrWhiteSpace(disposition))
+                throw Malformed(accepted, "a residual outcome carries no authoritative disposition");
+        }
+
+        private static void EnsureTheOutcomeMatchesItsLegs(AcceptedExchange accepted)
+        {
+            var legs = accepted.MonetaryLegs();
+            var collections = legs.Count(leg => leg.IsCollection);
+            var returns = legs.Count(leg => leg.IsReturnOfValue);
+
+            switch (accepted.MonetaryOutcome)
+            {
+                case ChangeMonetaryOutcome.Even when legs.Count > 0:
+                    throw Malformed(accepted, "an even outcome carries monetary legs");
+
+                case ChangeMonetaryOutcome.AddCollect when legs.Count != 1 || collections != 1:
+                    throw Malformed(accepted, $"an add-collect outcome carries {Describe(legs)}");
+
+                case ChangeMonetaryOutcome.Refund when legs.Count != 1 || accepted.RefundDue is null:
+                    throw Malformed(accepted, $"a refund-due outcome carries {Describe(legs)}");
+
+                case ChangeMonetaryOutcome.Residual when legs.Count != 1 || accepted.Residual is null:
+                    throw Malformed(accepted, $"a residual outcome carries {Describe(legs)}");
+
+                case ChangeMonetaryOutcome.Mixed when legs.Count != 2 || collections != 1 || returns != 1:
+                    throw Malformed(
+                        accepted,
+                        $"a mixed outcome must collect once and return value once but carries {Describe(legs)}");
+            }
+        }
+
+        private static void EnsureLegsAreDistinct(AcceptedExchange accepted)
+        {
+            var legs = accepted.MonetaryLegs();
+
+            if (legs.Select(leg => leg.LegIdentity).Distinct(StringComparer.Ordinal).Count() != legs.Count
+                || legs.Select(leg => leg.Kind).Distinct().Count() != legs.Count)
+                throw Malformed(accepted, "duplicate monetary leg identity");
+        }
+
+        private static string Describe(IReadOnlyList<AcceptedExchangeMonetaryLeg> legs)
+            => legs.Count == 0 ? "no monetary leg" : string.Join(" and ", legs.Select(leg => leg.LegIdentity));
 
         private static void EnsureSettlementIsWellFormed(
             AcceptedExchange accepted,
             string settlement,
             decimal? amount,
             int? currencyId,
-            int balanceSign)
+            int? balanceSign)
         {
             if (amount is not { } settled)
                 throw Malformed(accepted, $"a {settlement} outcome carries no authoritative amount");
@@ -134,9 +183,12 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
                     accepted,
                     $"{settlement} currency {currencyId} is outside the sale currency {accepted.SaleCurrencyId}");
 
+            if (balanceSign is not { } sign)
+                return;
+
             var balance = NetCustomerBalance(accepted.PricingLines);
 
-            if (balance != balanceSign * settled)
+            if (balance != sign * settled)
                 throw Malformed(
                     accepted,
                     $"{settlement} amount {settled} contradicts the customer balance {balance} of its pricing lines");

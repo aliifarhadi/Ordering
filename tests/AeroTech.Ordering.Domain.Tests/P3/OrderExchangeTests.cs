@@ -235,7 +235,7 @@ namespace AeroTech.Ordering.Domain.Tests.P3
         }
 
         [Theory]
-        [InlineData("mixed", "Mixed")]
+        [InlineData("undeclared", "99")]
         [InlineData("penalty", "Penalty")]
         [InlineData("fee", "Fee")]
         [InlineData("unbalanced", "NonZeroCustomerBalance")]
@@ -245,7 +245,7 @@ namespace AeroTech.Ordering.Domain.Tests.P3
             var currency = accepted.SaleCurrencyId;
             var shaped = shape switch
             {
-                "mixed" => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Mixed },
+                "undeclared" => accepted with { MonetaryOutcome = (ChangeMonetaryOutcome)99 },
                 "penalty" => accepted with { PricingLines = [.. accepted.PricingLines, ExchangeSourceFactory.PenaltyLine(currency)] },
                 "fee" => accepted with { PricingLines = [.. accepted.PricingLines, ExchangeSourceFactory.PenaltyLine(currency) with { ComponentType = PricingComponentType.Fee, SourceLineRef = "EXC:FEE" }] },
                 _ => accepted with { PricingLines = accepted.PricingLines.Where(line => line.Direction == OrderPricingLineDirection.Debit).ToList() }
@@ -447,6 +447,108 @@ namespace AeroTech.Ordering.Domain.Tests.P3
                     component.OrderSegmentIds,
                     segmentId => Assert.Contains(segmentId, order.Segments.Select(segment => segment.Id)));
             });
+        }
+
+        [Theory]
+        [InlineData(ExchangeMonetaryLegKind.RefundDue)]
+        [InlineData(ExchangeMonetaryLegKind.Residual)]
+        public void A_mixed_plan_carries_one_collection_leg_and_one_return_leg(ExchangeMonetaryLegKind returnKind)
+        {
+            var accepted = MixedAccepted(returnKind, 137.43m, 21.17m);
+            var legs = accepted.MonetaryLegs();
+
+            Assert.Null(ExchangePricingPolicy.DeferralReason(accepted));
+            Assert.True(ExchangePricingPolicy.RequiresFunding(accepted));
+            Assert.Equal(2, legs.Count);
+            Assert.Single(legs, leg => leg.IsCollection && leg.Amount == 137.43m);
+            Assert.Single(legs, leg => leg.Kind == returnKind && leg.Amount == 21.17m);
+            Assert.Equal(legs.Count, legs.Select(leg => leg.LegIdentity).Distinct().Count());
+
+            ExchangePricingPolicy.EnsureWellFormed(accepted);
+        }
+
+        [Theory]
+        [InlineData("one-leg")]
+        [InlineData("zero-legs")]
+        [InlineData("three-legs")]
+        [InlineData("return-only")]
+        [InlineData("both-returns")]
+        public void An_unsupported_mixed_shape_is_refused_by_the_pricing_policy(string shape)
+        {
+            var priced = MixedAccepted(ExchangeMonetaryLegKind.RefundDue, 137.43m, 21.17m);
+            var currency = priced.SaleCurrencyId;
+            var shaped = shape switch
+            {
+                "one-leg" => priced with { RefundDue = null },
+                "zero-legs" => priced with { AddCollect = null, RefundDue = null },
+                "three-legs" => priced with { Residual = new AcceptedResidual(21.17m, currency, "ResidualCredit") },
+                "return-only" => priced with { AddCollect = null },
+                _ => priced with
+                {
+                    AddCollect = null,
+                    Residual = new AcceptedResidual(21.17m, currency, "ResidualCredit")
+                }
+            };
+
+            var refusal = Assert.Throws<BusinessException>(() => ExchangePricingPolicy.EnsureWellFormed(shaped));
+
+            Assert.Equal(20275, refusal.Code);
+        }
+
+        [Theory]
+        [InlineData(ChangeMonetaryOutcome.AddCollect)]
+        [InlineData(ChangeMonetaryOutcome.Refund)]
+        [InlineData(ChangeMonetaryOutcome.Residual)]
+        public void A_single_outcome_can_never_hide_a_second_obligation(ChangeMonetaryOutcome single)
+        {
+            var shaped = MixedAccepted(ExchangeMonetaryLegKind.RefundDue, 137.43m, 21.17m) with
+            {
+                MonetaryOutcome = single
+            };
+
+            var refusal = Assert.Throws<BusinessException>(() => ExchangePricingPolicy.EnsureWellFormed(shaped));
+
+            Assert.Equal(20275, refusal.Code);
+        }
+
+        [Fact]
+        public void An_even_plan_carries_no_monetary_leg()
+        {
+            var accepted = Scenario(roundTrip: false, changedCouponNumbers: [1]).Accepted;
+
+            Assert.Empty(accepted.MonetaryLegs());
+            Assert.False(ExchangePricingPolicy.RequiresFunding(accepted));
+            Assert.False(ExchangePricingPolicy.RequiresRefundDue(accepted));
+            Assert.False(ExchangePricingPolicy.RequiresResidual(accepted));
+
+            ExchangePricingPolicy.EnsureWellFormed(accepted);
+        }
+
+        private AcceptedExchange MixedAccepted(
+            ExchangeMonetaryLegKind returnKind,
+            decimal collection,
+            decimal returned)
+        {
+            var accepted = Scenario(roundTrip: false, changedCouponNumbers: [1]).Accepted;
+            var currency = accepted.SaleCurrencyId;
+
+            return accepted with
+            {
+                MonetaryOutcome = ChangeMonetaryOutcome.Mixed,
+                AddCollect = new AcceptedAddCollect(collection, currency),
+                RefundDue = returnKind == ExchangeMonetaryLegKind.RefundDue
+                    ? new AcceptedRefundDue(returned, currency, AcceptedRefundDue.OriginalFormOfPayment)
+                    : null,
+                Residual = returnKind == ExchangeMonetaryLegKind.Residual
+                    ? new AcceptedResidual(returned, currency, "ResidualCredit", ResidualInstrumentKind.Mco)
+                    : null,
+                PricingLines =
+                [
+                    .. accepted.PricingLines,
+                    ExchangeSourceFactory.PenaltyLine(currency, collection),
+                    ExchangeSourceFactory.ReturnedValueLine(currency, returned)
+                ]
+            };
         }
 
         [Fact]

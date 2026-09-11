@@ -916,16 +916,24 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             bool documentJustConfirmed,
             bool isReplay,
             CancellationToken cancellationToken)
-            => plan.MonetaryOutcome switch
-            {
-                ChangeMonetaryOutcome.AddCollect => await CaptureFundingAsync(
-                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken),
-                ChangeMonetaryOutcome.Refund => await SettleRefundDueAsync(
-                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken),
-                ChangeMonetaryOutcome.Residual => await SettleResidualAsync(
-                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken),
-                _ => await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken)
-            };
+        {
+            if (plan.RequiresFunding && !plan.IsFundingCaptured)
+                return await CaptureFundingAsync(
+                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
+
+            if (!plan.IsCollectionSettled)
+                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+
+            if (plan.RequiresRefundDue && !plan.IsRefundDueSettled)
+                return await SettleRefundDueAsync(
+                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
+
+            if (plan.RequiresResidual && !plan.IsResidualSettled)
+                return await SettleResidualAsync(
+                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
+
+            return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+        }
 
         private async Task<ExchangeOutcome> SettleRefundDueAsync(
             Order order,
@@ -1183,7 +1191,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             return result.Outcome == ProviderOperationOutcome.Confirmed
                 ? await FinalizeAsync(
-                    order, operation, predecessor, settled, documentJustConfirmed: false, isReplay, cancellationToken)
+                    order, operation, predecessor, settled, documentJustConfirmed: true, isReplay, cancellationToken)
                 : await SettleAsync(
                     order, operation, predecessor, settled,
                     ServicingOperationStatus.AwaitingExternal,
@@ -1642,6 +1650,20 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         private string ResidualKey(OrderOperation operation, AcceptedExchangePlan plan)
             => _operations.ProviderOperationKey(operation, $"{ResidualStep}:{plan.PredecessorElectronicTicketId}");
 
+        private static IReadOnlyList<ExchangeMonetaryLegOutcome> MonetaryLegsOf(AcceptedExchangePlan plan)
+            => plan.MonetaryLegs
+                .Select(leg => new ExchangeMonetaryLegOutcome(
+                    leg.Kind,
+                    leg.LegIdentity,
+                    leg.Amount,
+                    leg.CurrencyId,
+                    leg.Disposition,
+                    plan.LegState(leg.Kind),
+                    plan.LegProviderReference(leg.Kind),
+                    leg.Kind == ExchangeMonetaryLegKind.Residual ? plan.ResidualInstrumentReference : null,
+                    leg.Kind == ExchangeMonetaryLegKind.Residual ? plan.ResidualInstrument : null))
+                .ToList();
+
         private static ExchangeOutcome Outcome(
             Order order,
             OrderOperation operation,
@@ -1699,6 +1721,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 plan.MonetaryProviderReference,
                 plan.ResidualInstrumentReference,
                 plan.ResidualInstrument,
+                MonetaryLegsOf(plan),
                 operationStatus == ServicingOperationStatus.NeedsReconciliation,
                 plan.Disposition == AcceptedExchangeDisposition.DeferredToExpandedExchange,
                 plan.Disposition == AcceptedExchangeDisposition.DeferredToExpandedExchange

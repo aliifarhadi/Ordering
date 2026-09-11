@@ -20,6 +20,10 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public const string ReplacementFlightNumber = "W5 1236";
         public const decimal AddCollectAmount = 250_000m;
         public const decimal NegativeBalanceAmount = 180_000m;
+        public const decimal MixedCollectionAmount = 137.43m;
+        public const decimal MixedRefundAmount = 21.17m;
+        public const decimal MixedResidualCollectionAmount = 83.11m;
+        public const decimal MixedResidualAmount = 14.29m;
         public const string FundingMethodRef = "FOP-CONTRACT-1";
         public const string ResidualDisposition = "ResidualCredit";
 
@@ -33,7 +37,8 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             ChangeMonetaryOutcome monetaryOutcome = ChangeMonetaryOutcome.Even,
             string quotedExchangeId = QuoteId,
             decimal addCollectAmount = AddCollectAmount,
-            decimal settlementAmount = NegativeBalanceAmount)
+            decimal settlementAmount = NegativeBalanceAmount,
+            ExchangeMonetaryLegKind mixedReturn = ExchangeMonetaryLegKind.RefundDue)
         {
             var reissued = request.ExchangeScope.Select(coupon => coupon.CouponNumber).ToHashSet();
             var carried = request.PredecessorPricing.Where(evidence => reissued.Contains(evidence.CouponNumber)).ToList();
@@ -50,7 +55,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                     SuccessorCoupon(lines, carried, coupon.CouponNumber, request.SaleCurrencyId)))
                 .ToList();
 
-            var addCollect = monetaryOutcome == ChangeMonetaryOutcome.AddCollect
+            AcceptedAddCollect? addCollect = monetaryOutcome == ChangeMonetaryOutcome.AddCollect
                 ? new AcceptedAddCollect(addCollectAmount, request.SaleCurrencyId)
                 : null;
 
@@ -64,11 +69,29 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                     settlementAmount, request.SaleCurrencyId, ResidualDisposition, ResidualInstrumentKind.Mco)
                 : null;
 
+            if (monetaryOutcome == ChangeMonetaryOutcome.Mixed)
+            {
+                addCollect = new AcceptedAddCollect(addCollectAmount, request.SaleCurrencyId);
+
+                if (mixedReturn == ExchangeMonetaryLegKind.Residual)
+                    residual = new AcceptedResidual(
+                        settlementAmount, request.SaleCurrencyId, ResidualDisposition, ResidualInstrumentKind.Mco);
+                else
+                    refundDue = new AcceptedRefundDue(
+                        settlementAmount, request.SaleCurrencyId, AcceptedRefundDue.OriginalFormOfPayment);
+            }
+
             var pricingLines = monetaryOutcome switch
             {
                 ChangeMonetaryOutcome.AddCollect => [.. lines, PenaltyLine(request.SaleCurrencyId, addCollect!.Amount)],
                 ChangeMonetaryOutcome.Refund => [.. lines, ReturnedValueLine(request.SaleCurrencyId, refundDue!.Amount)],
                 ChangeMonetaryOutcome.Residual => [.. lines, ReturnedValueLine(request.SaleCurrencyId, residual!.Amount)],
+                ChangeMonetaryOutcome.Mixed =>
+                [
+                    .. lines,
+                    PenaltyLine(request.SaleCurrencyId, addCollect!.Amount),
+                    ReturnedValueLine(request.SaleCurrencyId, (refundDue?.Amount ?? residual!.Amount))
+                ],
                 _ => lines
             };
 

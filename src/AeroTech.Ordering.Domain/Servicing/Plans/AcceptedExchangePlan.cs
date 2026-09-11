@@ -85,9 +85,9 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public AcceptedResidual? Residual => Accepted.Residual;
 
-        public bool RequiresRefundDue => MonetaryOutcome == ChangeMonetaryOutcome.Refund;
+        public bool RequiresRefundDue => RefundDue is not null;
 
-        public bool RequiresResidual => MonetaryOutcome == ChangeMonetaryOutcome.Residual;
+        public bool RequiresResidual => Residual is not null;
 
         public bool IsRefundDueSettled => RefundDueOutcome == ProviderOperationOutcome.Confirmed;
 
@@ -99,13 +99,16 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool RequiresMonetarySettlement => RequiresFunding || RequiresRefundDue || RequiresResidual;
 
-        public bool IsMonetarySettled => MonetaryOutcome switch
-        {
-            ChangeMonetaryOutcome.AddCollect => IsFundingCaptured,
-            ChangeMonetaryOutcome.Refund => IsRefundDueSettled,
-            ChangeMonetaryOutcome.Residual => IsResidualSettled,
-            _ => true
-        };
+        public bool IsMonetarySettled
+            => (!RequiresFunding || IsFundingCaptured)
+               && (!RequiresRefundDue || IsRefundDueSettled)
+               && (!RequiresResidual || IsResidualSettled);
+
+        public bool IsCollectionSettled => !RequiresFunding || IsFundingCaptured;
+
+        public bool RequiresReturnOfValue => RequiresRefundDue || RequiresResidual;
+
+        public IReadOnlyList<AcceptedExchangeMonetaryLeg> MonetaryLegs => Accepted.MonetaryLegs();
 
         public bool CanReproduceRefundDueRequest => !RequiresRefundDue || RefundDue is not null;
 
@@ -125,13 +128,47 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
             _ => null
         };
 
-        public ExchangeMonetaryState MonetaryState => MonetaryOutcome switch
+        public ExchangeMonetaryState MonetaryState
         {
-            ChangeMonetaryOutcome.AddCollect => FundingMonetaryState(),
-            ChangeMonetaryOutcome.Refund => StateOf(RefundDueOutcome),
-            ChangeMonetaryOutcome.Residual => StateOf(ResidualOutcome),
-            _ => ExchangeMonetaryState.NotRequired
+            get
+            {
+                var states = LegStates().ToList();
+
+                if (states.Count == 0)
+                    return ExchangeMonetaryState.NotRequired;
+
+                if (states.Contains(ExchangeMonetaryState.Rejected))
+                    return ExchangeMonetaryState.Rejected;
+
+                if (states.Contains(ExchangeMonetaryState.Released))
+                    return ExchangeMonetaryState.Released;
+
+                if (states.Contains(ExchangeMonetaryState.Pending))
+                    return ExchangeMonetaryState.Pending;
+
+                if (states.Contains(ExchangeMonetaryState.Required))
+                    return ExchangeMonetaryState.Required;
+
+                return ExchangeMonetaryState.Settled;
+            }
+        }
+
+        public ExchangeMonetaryState LegState(ExchangeMonetaryLegKind kind) => kind switch
+        {
+            ExchangeMonetaryLegKind.Collection => FundingMonetaryState(),
+            ExchangeMonetaryLegKind.RefundDue => StateOf(RefundDueOutcome),
+            _ => StateOf(ResidualOutcome)
         };
+
+        public string? LegProviderReference(ExchangeMonetaryLegKind kind) => kind switch
+        {
+            ExchangeMonetaryLegKind.Collection => FundingCaptureReference ?? FundingGuaranteeReference,
+            ExchangeMonetaryLegKind.RefundDue => RefundDueReference,
+            _ => ResidualProviderReference
+        };
+
+        private IEnumerable<ExchangeMonetaryState> LegStates()
+            => MonetaryLegs.Select(leg => LegState(leg.Kind));
 
         private ExchangeMonetaryState FundingMonetaryState() => FundingState switch
         {
@@ -151,7 +188,7 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
             _ => ExchangeMonetaryState.Required
         };
 
-        public bool RequiresFunding => MonetaryOutcome == ChangeMonetaryOutcome.AddCollect;
+        public bool RequiresFunding => AddCollect is not null;
 
         public bool IsFundingGuaranteed => FundingGuaranteeOutcome == ProviderOperationOutcome.Confirmed;
 

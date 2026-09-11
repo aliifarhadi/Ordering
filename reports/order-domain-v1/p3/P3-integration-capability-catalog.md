@@ -18,9 +18,14 @@ Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
 `ICC-P3-EXCHANGE-REFUND-VALUE`, `ICC-P3-EXCHANGE-RESIDUAL`, `ICC-P3-EXCHANGE-INVENTORY`,
 `ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`.
 
-Capability scope of this revision: **even, add-collect, refund-due and residual reissue**, each over both
-supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. `Mixed` remains
-deferred.
+Capability scope of this revision: **even, add-collect, refund-due, residual and mixed reissue**, each over
+both supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. This closes
+P3-F.
+
+`Mixed` means one authoritative pricing result carrying **more than one independently executable monetary
+obligation**. Exactly two shapes are supported: one collection with one refund-due, or one collection with one
+residual. Nothing else — no second collection leg, no refund and residual together, no three-leg shape, no
+split tender and no multiple forms of payment.
 
 For a partially-used predecessor — at least one `Used` coupon and at least one `Open` coupon — the reissue
 scope is **all** `Open` coupons and `Used` coupons are historical pricing context only. The governing
@@ -113,6 +118,12 @@ a changed source-authoritative result. The invariant that binds a real adapter i
 bound to the order, commercial version, predecessor document and requested scope it was asked about. Identity
 equality across independent quotes is a property of the deterministic simulator alone and is asserted only in
 its own adapter-specific test.
+
+**Ordering never nets monetary legs.** This is load-bearing. Given an authoritative plan that collects 137.43
+and refunds 21.17, the collection provider receives 137.43 and the refund provider receives 21.17. Ordering
+never computes 116.26, and never collapses a collection and a residual into one net value. `Mixed` is a
+classification saying more than one obligation exists; it is not authority to calculate a net. AirPrice
+decides the legs, their kinds, their amounts and their currencies, and Ordering executes them.
 
 **The monetary outcome and its amount are AirPrice's alone.** AirPrice decides whether an exchange is `Even`,
 `AddCollect`, `Refund` or `Residual`, and it decides the exact amount and currency. Ordering never computes
@@ -253,6 +264,11 @@ holds the fail-fast placeholder. The real AirPrice repository was deliberately n
 
 ### BLOCKED_INTEGRATION
 
+0. **Multi-leg settlement representation.** Required: AirPrice states whether the result is single-leg or
+   mixed, and for a mixed result names each obligation with its kind, amount, currency and disposition, under a
+   stable accepted-pricing correlation that survives re-acceptance. Unverified against the real service. An
+   adapter must not synthesize a second leg, and must never hand Ordering a single netted amount, because
+   Ordering would then be unable to execute the two obligations the carrier actually intends.
 1. Whether AirPrice can accept an explicit Open-scope / historical-`Used`-context split in one request.
 2. Whether AirPrice can consume the stored fare-construction snapshot in this shape.
 3. Whether AirPrice honours an Ordering-supplied operation key with replay-safe acceptance.
@@ -264,8 +280,12 @@ holds the fail-fast placeholder. The real AirPrice repository was deliberately n
 
 ### Known Semantic Gaps
 
-* `Even`, `AddCollect`, `Refund` and `Residual` are accepted. `Mixed` and netted outcomes remain out of scope,
-  as does any forfeit disposition, which Ordering will not invent as a commercial decision.
+* `Even`, `AddCollect`, `Refund`, `Residual` and the two supported `Mixed` shapes are accepted. Netted
+  outcomes are not a shape at all, because Ordering never nets. A forfeit disposition remains out of scope and
+  Ordering will not invent it as a commercial decision.
+* An accepted plan carries at most one collection leg and at most one return-of-value leg. A duplicate leg of
+  the same kind is not rejected at runtime — it is **unrepresentable**, because each settlement is a single
+  optional record rather than a list. That is a stronger guarantee than validation.
 * `FareConstructions` is a pass-through snapshot. Ordering does not validate it against the reissue scope and
   intentionally omits `BrandName`, `CreatedAt`, foreign keys and line items from the projection.
 * The historical context carries no consumed-operational-segment evidence. See `ICC-P3-EXCHANGE-USAGE`.
@@ -310,6 +330,13 @@ The decisive rules are:
 * `Pending` and `Unknown` are recoverable states, never failures;
 * Ordering never invents a provider guarantee, and an adapter may translate protocol or shape but must never
   fabricate a Payment capability that does not exist.
+
+**This same rail is one leg of a mixed exchange.** When the accepted outcome is `Mixed`, the collection
+obligation is executed by exactly this guarantee-then-capture rail, with unchanged semantics, unchanged
+operation keys and unchanged recovery. There is no separate mixed payment capability and no second collection
+port. Current scope is one collection leg funded by one funding-method reference; split tender and multiple
+forms of payment are out of scope. Each monetary leg owns its own stable economic operation key, so the
+collection guarantee, the collection capture and the return-of-value leg can never collide.
 
 **Chosen model and rationale.** The two-stage guarantee-then-capture model was chosen over one-step
 collection plus compensation, for three reasons. First, it is the model the shared contracts already
@@ -537,6 +564,12 @@ arbitrary bank, card or payment destination from the caller and holds no payment
 **Refund only after the document is authoritatively confirmed.** A failed or unresolved reissue must never
 pay value back while the original accountable document may still be usable.
 
+**In a mixed exchange the refund is a dependent second leg.** It becomes eligible only when the document is
+confirmed **and** the collection capture is confirmed with exact evidence. Ordering must never return value
+while the companion collection is not dispatched, pending, unknown or refused, because that would reissue the
+document and give value back without collecting what is owed. The port, its evidence rules and its recovery
+guarantees are identical whether the refund is the only leg or the second one.
+
 ### Ordering Port / Dependency Boundary
 
 `src/AeroTech.Ordering.Domain/Ports/RefundValue/IRefundValuePort.cs` — **the existing P3-D return-of-value
@@ -673,7 +706,12 @@ ownership is deliberately not asserted.
 ### Ordering Semantic Requirement
 
 Residual is not a cash refund and must not be routed through the cash return-of-value port merely because
-both return value to the customer. Ordering requires a narrow boundary that creates one authoritative residual
+both return value to the customer.
+
+**In a mixed exchange the residual is a dependent second leg**, eligible only after the document is confirmed
+and the collection capture is confirmed with exact evidence, for the same reason as the refund leg. The port,
+its instrument-evidence rules and its recovery guarantees are unchanged whether the residual stands alone or
+follows a collection. Ordering requires a narrow boundary that creates one authoritative residual
 instrument for an accepted obligation and can later identify it.
 
 Residual mechanisms vary by market and may externally be an MCO, an EMD, a voucher, a travel credit or
@@ -1025,14 +1063,19 @@ document eligibility (observational)
   -> single local finalization transaction
 ```
 
-Local finalization is gated on the monetary leg of whichever outcome AirPrice determined:
+Local finalization is gated on every monetary obligation the accepted plan carries:
 
 ```text
-Even        document confirmed
-AddCollect  document confirmed and capture confirmed with exact evidence
-Refund      document confirmed and payout confirmed with exact evidence
-Residual    document confirmed and instrument confirmed with exact evidence
+Even                    document confirmed
+AddCollect              document confirmed and capture confirmed with exact evidence
+Refund                  document confirmed and payout confirmed with exact evidence
+Residual                document confirmed and instrument confirmed with exact evidence
+Mixed collect + refund  document confirmed and capture confirmed and payout confirmed
+Mixed collect + residual document confirmed and capture confirmed and instrument confirmed
 ```
+
+The settlement stage walks the legs in a fixed order — collection first, then the single return of value —
+and never dispatches a return leg while the collection is unsettled.
 
 No monetary leg is ever silently ignored, and an unresolved leg keeps the operation recoverable rather than
 finalizing or reconciling prematurely.
