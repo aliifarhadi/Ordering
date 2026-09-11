@@ -121,6 +121,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         ancillary.TargetSuccessorTicketCouponId,
                         ancillary.DecisionReference,
                         ancillary.DecisionVersion,
+                        ancillary.DecisionContextFingerprint,
                         ancillary.AssociationOutcome,
                         ancillary.AssociationProviderReference,
                         ancillary.AssociationDetail))
@@ -222,6 +223,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         TargetSuccessorTicketCouponId = ancillary.TargetSuccessorTicketCouponId,
                         DecisionReference = ancillary.DecisionReference,
                         DecisionVersion = ancillary.DecisionVersion,
+                        DecisionContextFingerprint = ancillary.DecisionContextFingerprint,
                         AssociationOutcome = ancillary.AssociationOutcome,
                         AssociationProviderReference = ancillary.AssociationProviderReference,
                         AssociationDetail = ancillary.AssociationDetail

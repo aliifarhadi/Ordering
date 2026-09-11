@@ -31,6 +31,10 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public bool ReportUnrelatedPredecessorDocument { get; set; }
 
+        public string? QuotedExchangeIdOverride { get; set; }
+
+        public string? ContextFingerprintOverride { get; set; }
+
         public bool Throw { get; set; }
 
         public List<AncillaryExchangeDispositionRequest> ObservedRequests { get; } = new();
@@ -66,6 +70,8 @@ namespace AeroTech.Ordering.Providers.Deterministic
             return Task.FromResult(new AncillaryExchangeDispositionResult(
                 OmitDecisionReference ? string.Empty : DecisionReference,
                 DecisionVersion,
+                QuotedExchangeIdOverride ?? request.QuotedExchangeId,
+                ContextFingerprintOverride ?? request.ContextFingerprint,
                 dispositions));
         }
 

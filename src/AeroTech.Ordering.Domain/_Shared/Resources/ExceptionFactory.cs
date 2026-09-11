@@ -850,6 +850,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ElectronicMiscDocumentNotFound(params object?[] args) =>
             new(20303, ExceptionMessages.ElectronicMiscDocumentNotFound, args) { HttpStatus = 404 };
 
+        public static BusinessException AncillaryDispositionContextMismatch(params object?[] args) =>
+            new(20304, ExceptionMessages.AncillaryDispositionContextMismatch, args) { HttpStatus = 422 };
+
         public static BusinessException IdempotencyKeyRequired(params object?[] args) =>
             new(20264, ExceptionMessages.IdempotencyKeyRequired, args) { HttpStatus = 400 };
 

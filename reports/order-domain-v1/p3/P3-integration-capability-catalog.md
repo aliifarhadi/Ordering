@@ -1590,7 +1590,9 @@ local Ordering identity is ever reported back.
 Bound implementations: `DeterministicEmdAssociationPortTests`, plus `UnconfiguredAncillaryProviderTests` for
 the 501 refusal.
 
-Flow coverage: `EmdReassociationFlowTests` — cases U–AO.
+Flow coverage: `EmdReassociationFlowTests` — G1-C1 through G1-C12 plus the retained G1 matrix. G1-C1 walks
+`Associated -> DisassociatedByReissue -> Reassociated`; G1-C2 to G1-C5 prove ticket truth survives every
+unresolved, refused and contradictory ancillary outcome; G1-C6 to G1-C10 cover the five crash boundaries.
 
 ### Real-Service Verification Status
 
@@ -1599,7 +1601,12 @@ Flow coverage: `EmdReassociationFlowTests` — cases U–AO.
 ### BLOCKED_INTEGRATION
 
 1. No real EMD association authority is wired. `UnconfiguredEmdAssociationProvider` fails closed with
-   `EmdAssociationSourceNotConfigured` (20295, 501) and the exchange moves nothing.
+   `EmdAssociationSourceNotConfigured` (20295, 501). The reissue stays authoritative and the ancillary stays
+   detached with its `DisassociatedByReissue` evidence; nothing is attached anywhere.
+2. Whether the real host requires a **separate disassociation command** before or during the reissue. Ordering
+   currently treats disassociation as mechanically implied by the confirmed reissue and issues no provider
+   call for it. If a real contract proves otherwise, the fix is an ACL-level adaptation, not a change to this
+   semantic.
 2. Whether the authority exposes reassociation as its own operation or only as a void-and-reissue of the EMD.
    If it is only the latter, `ReassociateExisting` is not implementable against that provider and the
    disposition becomes `ExchangeToNewEmd`, which this revision deliberately does not execute.
@@ -1611,6 +1618,10 @@ Flow coverage: `EmdReassociationFlowTests` — cases U–AO.
 
 * Only `ReassociateExisting` is executed. EMD refund, EMD exchange, EMD residual value and EMD cancellation
   are out of scope for this revision and are refused explicitly, not approximated.
+* A reissue whose ancillary never reattaches leaves a **detached open EMD-A coupon**. That is the truthful
+  state and it is deliberately visible rather than hidden: the operation is `AwaitingExternal` or
+  `NeedsReconciliation`, the coupon carries its `DisassociatedByReissue` provenance, and the accepted plan
+  retains the target it was supposed to reach.
 * No new `ServicingOperationKind` was introduced. The reassociation is a stage of the Exchange operation, not
   an operation of its own, so it inherits the Exchange claim, receipt and replay semantics.
 * A `NeedsReconciliation` ancillary has no automated operator remediation command yet. The durable evidence

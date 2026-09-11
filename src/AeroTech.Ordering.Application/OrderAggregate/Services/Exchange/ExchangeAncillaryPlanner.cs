@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
 using AeroTech.Ordering.Domain.Servicing.Plans;
@@ -15,36 +17,94 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         {
             ArgumentNullException.ThrowIfNull(scope);
 
+            var reissueScope = scope.Coupons.Select(coupon => coupon.CouponNumber).Order().ToList();
+
+            var affected = scope.AffectedAncillaries
+                .Select(association => new AffectedAncillaryCoupon(
+                    association.Document.DocumentNumber,
+                    association.Coupon.CouponNumber,
+                    association.Document.Type,
+                    association.Coupon.Purpose,
+                    association.Coupon.ReasonForIssuanceSubCode,
+                    scope.PredecessorTicket.DocumentNumber,
+                    association.PredecessorCoupon.CouponNumber))
+                .ToList();
+
             return new AncillaryExchangeDispositionRequest(
                 orderId,
                 operationId,
                 quotedExchangeId,
                 scope.PredecessorTicket.DocumentNumber,
-                scope.Coupons.Select(coupon => coupon.CouponNumber).Order().ToList(),
-                scope.AffectedAncillaries
-                    .Select(association => new AffectedAncillaryCoupon(
-                        association.Document.DocumentNumber,
-                        association.Coupon.CouponNumber,
-                        association.Document.Type,
-                        association.Coupon.Purpose,
-                        association.Coupon.ReasonForIssuanceSubCode,
-                        scope.PredecessorTicket.DocumentNumber,
-                        association.PredecessorCoupon.CouponNumber))
-                    .ToList());
+                reissueScope,
+                affected,
+                Fingerprint(orderId, quotedExchangeId, scope.PredecessorTicket.DocumentNumber, reissueScope, affected));
+        }
+
+        public static string Fingerprint(AncillaryExchangeDispositionRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+
+            return Fingerprint(
+                request.OrderId,
+                request.QuotedExchangeId,
+                request.PredecessorDocumentNumber,
+                request.ReissueScopeCouponNumbers,
+                request.AffectedCoupons);
+        }
+
+        private static string Fingerprint(
+            long orderId,
+            string quotedExchangeId,
+            string predecessorDocumentNumber,
+            IReadOnlyList<int> reissueScopeCouponNumbers,
+            IReadOnlyList<AffectedAncillaryCoupon> affectedCoupons)
+        {
+            var context = string.Join(
+                '|',
+                orderId,
+                quotedExchangeId,
+                predecessorDocumentNumber,
+                string.Join(',', reissueScopeCouponNumbers),
+                string.Join(
+                    ',',
+                    affectedCoupons
+                        .Select(coupon => string.Join(
+                            '~',
+                            coupon.EmdDocumentNumber,
+                            coupon.EmdCouponNumber,
+                            (int)coupon.EmdType,
+                            (int)coupon.Purpose,
+                            coupon.ReasonForIssuanceSubCode,
+                            coupon.PredecessorDocumentNumber,
+                            coupon.PredecessorCouponNumber))
+                        .Order(StringComparer.Ordinal)));
+
+            return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(context)));
         }
 
         public static IReadOnlyList<AcceptedExchangeAncillaryDisposition> Accept(
-            string quotedExchangeId,
+            AncillaryExchangeDispositionRequest request,
             ExchangeScope scope,
             IReadOnlyList<AcceptedExchangePlanCoupon> planCoupons,
             AncillaryExchangeDispositionResult decision)
         {
+            ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(scope);
             ArgumentNullException.ThrowIfNull(planCoupons);
             ArgumentNullException.ThrowIfNull(decision);
 
+            var quotedExchangeId = request.QuotedExchangeId;
+
             if (string.IsNullOrWhiteSpace(decision.DecisionReference))
                 throw ExceptionFactory.AncillaryDispositionMalformed(quotedExchangeId, "the decision carries no reference");
+
+            if (!string.Equals(decision.QuotedExchangeId, quotedExchangeId, StringComparison.Ordinal))
+                throw ExceptionFactory.AncillaryDispositionContextMismatch(
+                    quotedExchangeId, $"it names exchange {decision.QuotedExchangeId}");
+
+            if (!string.Equals(decision.ContextFingerprint, request.ContextFingerprint, StringComparison.Ordinal))
+                throw ExceptionFactory.AncillaryDispositionContextMismatch(
+                    quotedExchangeId, "its context fingerprint does not match the request");
 
             var affected = scope.AffectedAncillaries;
             var decided = decision.Dispositions;
@@ -59,16 +119,17 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                         $"decision for {disposition.EmdDocumentNumber} coupon {disposition.EmdCouponNumber} names no affected ancillary");
 
             return affected.Select(association => Accepted(
-                quotedExchangeId, scope, planCoupons, decision, association)).ToList();
+                request, scope, planCoupons, decision, association)).ToList();
         }
 
         private static AcceptedExchangeAncillaryDisposition Accepted(
-            string quotedExchangeId,
+            AncillaryExchangeDispositionRequest request,
             ExchangeScope scope,
             IReadOnlyList<AcceptedExchangePlanCoupon> planCoupons,
             AncillaryExchangeDispositionResult decision,
             AffectedAncillaryAssociation association)
         {
+            var quotedExchangeId = request.QuotedExchangeId;
             var decided = decision.Dispositions.SingleOrDefault(candidate => Key(candidate) == Key(association))
                           ?? throw ExceptionFactory.AncillaryDispositionMissing(
                               association.Document.DocumentNumber, association.Coupon.CouponNumber);
@@ -116,7 +177,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 decided.TargetPredecessorCouponNumber,
                 targetSuccessorCouponId,
                 decision.DecisionReference,
-                decision.DecisionVersion);
+                decision.DecisionVersion,
+                request.ContextFingerprint);
         }
 
         public static void EnsureExecutable(IReadOnlyList<AcceptedExchangeAncillaryDisposition> dispositions)

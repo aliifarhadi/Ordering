@@ -69,6 +69,19 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
 
         public bool IsAssociatedWith(long ticketCouponId) => AssociatedTicketCouponId == ticketCouponId;
 
+        public bool CarriesNoAssociation => AssociatedTicketCouponId is null;
+
+        public bool IsDisassociatedByReissue(long operationId)
+            => CarriesNoAssociation
+               && _associationChanges.Any(change =>
+                   change.Kind == EmdCouponAssociationChangeKind.DisassociatedByReissue
+                   && change.OperationId == operationId);
+
+        public bool IsReassociatedBy(long operationId)
+            => _associationChanges.Any(change =>
+                change.Kind == EmdCouponAssociationChangeKind.Reassociated
+                && change.OperationId == operationId);
+
         internal void Void() => Status = EmdCouponStatus.Void;
 
         internal void RecordIssuedAssociation(long operationId, IIdGenerator idGenerator, DateTimeOffset now)
@@ -91,23 +104,33 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
                 now);
         }
 
-        internal void Reassociate(EmdCouponReassociation reassociation, IIdGenerator idGenerator, DateTimeOffset now)
+        internal void DisassociateByReissue(
+            EmdCouponDisassociation disassociation,
+            IIdGenerator idGenerator,
+            DateTimeOffset now)
         {
-            ArgumentNullException.ThrowIfNull(reassociation);
+            ArgumentNullException.ThrowIfNull(disassociation);
 
             Append(
                 EmdCouponAssociationChangeKind.DisassociatedByReissue,
-                reassociation.PredecessorTicketCouponId,
-                reassociation.PredecessorDocumentNumber,
-                reassociation.PredecessorCouponNumber,
+                disassociation.PredecessorTicketCouponId,
+                disassociation.PredecessorDocumentNumber,
+                disassociation.PredecessorCouponNumber,
                 null,
                 null,
                 null,
-                reassociation.OperationId,
-                reassociation.DecisionReference,
-                reassociation.ProviderReference,
+                disassociation.OperationId,
+                disassociation.DecisionReference,
+                disassociation.ProviderReference,
                 idGenerator,
                 now);
+
+            AssociatedTicketCouponId = null;
+        }
+
+        internal void Reassociate(EmdCouponReassociation reassociation, IIdGenerator idGenerator, DateTimeOffset now)
+        {
+            ArgumentNullException.ThrowIfNull(reassociation);
 
             Append(
                 EmdCouponAssociationChangeKind.Reassociated,

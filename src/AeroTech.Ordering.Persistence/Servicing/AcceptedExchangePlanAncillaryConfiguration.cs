@@ -13,6 +13,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.Property(ancillary => ancillary.EmdDocumentNumber).HasMaxLength(32).IsRequired();
             builder.Property(ancillary => ancillary.PredecessorDocumentNumber).HasMaxLength(32).IsRequired();
             builder.Property(ancillary => ancillary.DecisionReference).HasMaxLength(128).IsRequired();
+            builder.Property(ancillary => ancillary.DecisionContextFingerprint).HasMaxLength(64).IsRequired();
             builder.Property(ancillary => ancillary.AssociationProviderReference).HasMaxLength(128);
             builder.Property(ancillary => ancillary.AssociationDetail).HasMaxLength(512);
         }

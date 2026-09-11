@@ -60,7 +60,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             DeterministicAncillaryDispositionAdapter? ancillaryDispositions = null,
             DeterministicEmdAssociationAdapter? emdAssociations = null,
             IAncillaryExchangeDispositionPort? unconfiguredAncillaryDispositions = null,
-            IEmdAssociationPort? unconfiguredEmdAssociations = null)
+            IEmdAssociationPort? unconfiguredEmdAssociations = null,
+            DeterministicDocumentExchangeAdapter? documentExchanges = null)
         {
             _fixture = fixture;
 
@@ -174,7 +175,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 projector);
             Refund = new RefundService(Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
             ExchangeQuotes = new DeterministicExchangeQuoteAdapter();
-            DocumentExchanges = new DeterministicDocumentExchangeAdapter();
+            DocumentExchanges = documentExchanges ?? new DeterministicDocumentExchangeAdapter();
             ExchangeFunding = exchangeFunding ?? new DeterministicExchangeFundingAdapter();
             ExchangeResiduals = exchangeResiduals ?? new DeterministicExchangeResidualAdapter();
             AncillaryDispositions = ancillaryDispositions ?? new DeterministicAncillaryDispositionAdapter();

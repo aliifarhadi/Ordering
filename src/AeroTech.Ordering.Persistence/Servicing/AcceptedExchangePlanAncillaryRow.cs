@@ -30,6 +30,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public int DecisionVersion { get; set; }
 
+        public string DecisionContextFingerprint { get; set; } = null!;
+
         public ProviderOperationOutcome? AssociationOutcome { get; set; }
 
         public string? AssociationProviderReference { get; set; }

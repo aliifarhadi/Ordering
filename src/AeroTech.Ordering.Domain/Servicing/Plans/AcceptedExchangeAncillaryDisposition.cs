@@ -15,6 +15,7 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         long? TargetSuccessorTicketCouponId,
         string DecisionReference,
         int DecisionVersion,
+        string DecisionContextFingerprint,
         ProviderOperationOutcome? AssociationOutcome = null,
         string? AssociationProviderReference = null,
         string? AssociationDetail = null)
