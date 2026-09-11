@@ -347,6 +347,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
         public Task<Order> CreateOneWayOrderAsync() => CreateOrderAsync(MultiPassengerOrderFactory.CreateOneWay(Ids, Clock));
 
+        public Task<Order> CreateOnwardBoundOrderAsync()
+            => CreateOrderAsync(MultiPassengerOrderFactory.CreateWithOnwardBound(Ids, Clock));
+
         public async Task<Order> CreateOrderAsync(Order order)
         {
 

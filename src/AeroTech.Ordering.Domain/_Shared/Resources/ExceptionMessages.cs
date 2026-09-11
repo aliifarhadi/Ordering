@@ -365,7 +365,7 @@
 
         public const string AcceptedChangePlanNotFound = "No durable accepted change plan exists for operation {0}.";
 
-        public const string ExchangeRequiresFullyUnusedTicket = "Document {0} carries coupon {1} in {2} status; the fully unused exchange capability requires every predecessor coupon to be Open.";
+        public const string ExchangeCouponStateNotSupported = "Document {0} carries coupon {1} in {2} status; this exchange capability reissues open coupons and keeps used coupons as history, and supports no other coupon state.";
 
         public const string DocumentAlreadyExchanged = "Document {0} has already been exchanged into document {1}.";
 
@@ -399,7 +399,7 @@
 
         public const string ExchangePredecessorPricingEvidenceIncomplete = "Pricing line {0} carried by document {1} has no source identity and cannot be offered for exchange.";
 
-        public const string ExchangeCouponScopeIncomplete = "Document {0} carries {1} coupons but the fully unused exchange scope names {2}; this capability reissues every coupon of the document exactly once.";
+        public const string ExchangeCouponScopeIncomplete = "Document {0} has {1} open coupons but the exchange scope names {2}; this capability reissues every remaining open coupon of the document exactly once.";
 
         public const string ExchangeScopeRequiresChangedServices = "An exchange on order {0} requires a non-empty set of distinct changed order services.";
 

@@ -1,4 +1,5 @@
 using AeroTech.Framework.Core.Domain.ValueObjects;
+using AeroTech.Ordering.Domain._Shared.Documents;
 
 namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects
 {
@@ -39,6 +40,16 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate.ValueObjects
         public DateTimeOffset ArrivalDateTime { get; private set; }
 
         public string? BookingClass { get; private set; }
+
+        public TicketedSegmentSnapshot AsTicketedSegment()
+            => new(
+                MarketingAirlineId,
+                FlightNumber,
+                OriginAirportId,
+                DestinationAirportId,
+                DepartureDateTime,
+                ArrivalDateTime,
+                BookingClass);
 
         protected override IEnumerable<object?> GetEqualityComponents()
         {

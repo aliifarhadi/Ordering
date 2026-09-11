@@ -14,6 +14,8 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public const long InboundAirFareId = 901;
         public const long OutboundFlightId = 5001;
         public const long InboundFlightId = 5002;
+        public const long OnwardAirFareId = 902;
+        public const long OnwardFlightId = 5003;
         public const long OwnerAirlineId = 77;
         public const string SourceOfferId = "OFFER-RT-2PAX";
         public const string SourceSystem = "AirPrice";
@@ -23,6 +25,8 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         private const decimal OutboundTax = 90_000m;
         private const decimal InboundFare = 1_100_000m;
         private const decimal InboundTax = 99_000m;
+        private const decimal OnwardFare = 1_200_000m;
+        private const decimal OnwardTax = 108_000m;
 
         public static Order Create(SequentialIdGenerator ids, TestClock clock)
             => Order.Create(Args(), AcceptedSource(clock), OwnerAirlineId, ids, clock);
@@ -35,6 +39,9 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
 
         public static Order CreateOneWay(SequentialIdGenerator ids, TestClock clock)
             => Order.Create(Args(), AcceptedSource(clock, oneWay: true), OwnerAirlineId, ids, clock);
+
+        public static Order CreateWithOnwardBound(SequentialIdGenerator ids, TestClock clock)
+            => Order.Create(Args(), AcceptedSource(clock, onwardBound: true), OwnerAirlineId, ids, clock);
 
         public static CreateOrderArgs Args() => new(
             CustomerId: 42,
@@ -67,11 +74,16 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             CountryOfResidenceId: 1,
             Documents: []);
 
-        public static AcceptedOrderSource AcceptedSource(TestClock clock, bool throughFare = false, bool oneWay = false)
+        public static AcceptedOrderSource AcceptedSource(
+            TestClock clock,
+            bool throughFare = false,
+            bool oneWay = false,
+            bool onwardBound = false)
         {
             var inboundFareId = throughFare ? OutboundAirFareId : InboundAirFareId;
             var outbound = clock.GetDateTime().AddDays(30);
             var inbound = clock.GetDateTime().AddDays(37);
+            var onward = clock.GetDateTime().AddDays(44);
 
             var journeys = new List<AcceptedJourney>
             {
@@ -81,6 +93,9 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             if (!oneWay)
                 journeys.Add(Journey("B2", 2, 200, 100, InboundFlightId, "W5 4321", inbound, BoundDirection.Inbound, inboundFareId));
 
+            if (onwardBound)
+                journeys.Add(Journey("B3", 3, 100, 300, OnwardFlightId, "W5 5678", onward, BoundDirection.Outbound, OnwardAirFareId));
+
             var legs = new List<(string JourneyRef, long FlightId, long FareId, decimal Fare, decimal Tax)>
             {
                 ("B1", OutboundFlightId, OutboundAirFareId, OutboundFare, OutboundTax)
@@ -88,6 +103,9 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
 
             if (!oneWay)
                 legs.Add(("B2", InboundFlightId, inboundFareId, InboundFare, InboundTax));
+
+            if (onwardBound)
+                legs.Add(("B3", OnwardFlightId, OnwardAirFareId, OnwardFare, OnwardTax));
 
             var products = new List<AcceptedProduct>();
             var pricingLines = new List<AcceptedSourcePricingLine>();

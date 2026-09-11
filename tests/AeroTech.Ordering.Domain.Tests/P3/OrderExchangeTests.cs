@@ -314,7 +314,7 @@ namespace AeroTech.Ordering.Domain.Tests.P3
             Assert.All(successor.PriceLinks, link => Assert.Null(link.AllocationId));
             Assert.DoesNotContain(successor.PriceLinks, link => predecessor.CarriedPricingLineIds().Contains(link.PricingLineId));
 
-            var again = Assert.Throws<BusinessException>(() => FullyUnusedExchangePolicy.EnsureEligible(
+            var again = Assert.Throws<BusinessException>(() => ExchangeCapabilityPolicy.EnsureEligible(
                 predecessor,
                 predecessor.Coupons.Select(coupon => new ExchangeCouponScope(coupon.Id, coupon.CurrentOrderServiceId)).ToList()));
 
@@ -322,7 +322,7 @@ namespace AeroTech.Ordering.Domain.Tests.P3
         }
 
         [Fact]
-        public void The_fully_unused_capability_limit_is_not_a_domain_exchange_invariant()
+        public void The_reissue_scope_is_every_remaining_open_coupon_and_used_coupons_stay_historical()
         {
             var scenario = Scenario(roundTrip: true, changedCouponNumbers: [1]);
             var predecessor = scenario.Predecessor;
@@ -331,23 +331,83 @@ namespace AeroTech.Ordering.Domain.Tests.P3
 
             TicketCouponStatus.Fly(coupons[0]);
 
-            var unusedOnly = new[] { new ExchangeCouponScope(coupons[1].Id, coupons[1].CurrentOrderServiceId) };
+            var openOnly = new[] { new ExchangeCouponScope(coupons[1].Id, coupons[1].CurrentOrderServiceId) };
 
-            var capability = Assert.Throws<BusinessException>(() => FullyUnusedExchangePolicy.EnsureEligible(predecessor, wholeDocument));
+            Assert.Equal(
+                [coupons[1].Id],
+                ExchangeCapabilityPolicy.ReissueScope(predecessor).Select(coupon => coupon.Id));
 
-            Assert.Equal(2976, capability.Code);
-            Assert.Contains("capability", capability.Message, StringComparison.OrdinalIgnoreCase);
-
+            ExchangeCapabilityPolicy.EnsureEligible(predecessor, openOnly);
             predecessor.EnsureDocumentCanBeExchanged();
-            predecessor.EnsureCouponsCanBeExchanged(unusedOnly);
+            predecessor.EnsureCouponsCanBeExchanged(openOnly);
 
+            var withHistory = Assert.Throws<BusinessException>(() => ExchangeCapabilityPolicy.EnsureEligible(predecessor, wholeDocument));
             var flown = Assert.Throws<BusinessException>(() => predecessor.EnsureCouponsCanBeExchanged(wholeDocument));
 
+            Assert.Equal(2993, withHistory.Code);
             Assert.Equal(2997, flown.Code);
-            Assert.DoesNotContain("phase", flown.Message, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("capability", flown.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(TicketCouponFinancialStatus.Used, coupons[0].FinancialStatus);
             Assert.Equal(TicketCouponFinancialStatus.Open, coupons[1].FinancialStatus);
+        }
+
+        [Fact]
+        public void A_stored_fare_construction_is_exposed_to_a_quote_as_provider_neutral_context()
+        {
+            var source = MultiPassengerOrderFactory.AcceptedSource(_clock) with
+            {
+                FareConstructions = [FareConstructionFactory.TrueRoundTrip("T1"), FareConstructionFactory.TrueRoundTrip("T2")]
+            };
+            var order = Order.Create(
+                MultiPassengerOrderFactory.Args(),
+                source,
+                MultiPassengerOrderFactory.OwnerAirlineId,
+                _ids,
+                _clock);
+
+            var contexts = order.FareConstructionContexts();
+            var context = contexts[0];
+            var group = Assert.Single(context.Groups);
+            var unit = Assert.Single(group.Units);
+
+            Assert.Equal(2, contexts.Count);
+            Assert.Equal(FareConstructionFactory.SourceSystem, context.SourceSystem);
+            Assert.Equal(AirFareConstructionType.RoundTrip, context.ConstructionType);
+            Assert.Equal(PassengerTypeCode.ADT, group.PassengerType);
+            Assert.Single(group.OrderTravellerIds);
+            Assert.Equal(FarePricingUnitType.RoundTrip, unit.UnitType);
+            Assert.Equal(FareCombinationMethod.FiledFare, unit.CombinationMethod);
+            Assert.Equal([1, 2], unit.Components.Select(component => component.Sequence));
+            Assert.All(unit.Components, component =>
+            {
+                Assert.Equal("YRTFC", component.FareBasis);
+                Assert.NotNull(component.OriginAirportId);
+                Assert.NotNull(component.DestinationAirportId);
+                Assert.All(
+                    component.OrderServiceIds,
+                    serviceId => Assert.Contains(serviceId, order.OrderServices.Select(service => service.Id)));
+                Assert.All(
+                    component.OrderSegmentIds,
+                    segmentId => Assert.Contains(segmentId, order.Segments.Select(segment => segment.Id)));
+            });
+        }
+
+        [Fact]
+        public void An_order_with_no_stored_fare_construction_exposes_no_context()
+            => Assert.Empty(MultiPassengerOrderFactory.Create(_ids, _clock).FareConstructionContexts());
+
+        [Fact]
+        public void A_coupon_state_outside_open_and_used_is_refused_as_a_capability_limit()
+        {
+            var scenario = Scenario(roundTrip: true, changedCouponNumbers: [1]);
+            var coupons = scenario.Predecessor.Coupons.OrderBy(coupon => coupon.CouponNumber).ToList();
+
+            TicketCouponStatus.Set(coupons[0], TicketCouponFinancialStatus.Refunded);
+
+            var refusal = Assert.Throws<BusinessException>(() => ExchangeCapabilityPolicy.ReissueScope(scenario.Predecessor));
+
+            Assert.Equal(2976, refusal.Code);
+            Assert.Contains("capability", refusal.Message, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -356,10 +416,10 @@ namespace AeroTech.Ordering.Domain.Tests.P3
             var scenario = Scenario(roundTrip: true, changedCouponNumbers: [1]);
             var coupons = scenario.Predecessor.Coupons.OrderBy(coupon => coupon.CouponNumber).ToList();
 
-            var partial = Assert.Throws<BusinessException>(() => FullyUnusedExchangePolicy.EnsureEligible(
+            var partial = Assert.Throws<BusinessException>(() => ExchangeCapabilityPolicy.EnsureEligible(
                 scenario.Predecessor,
                 [new ExchangeCouponScope(coupons[0].Id, coupons[0].CurrentOrderServiceId)]));
-            var duplicated = Assert.Throws<BusinessException>(() => FullyUnusedExchangePolicy.EnsureEligible(
+            var duplicated = Assert.Throws<BusinessException>(() => ExchangeCapabilityPolicy.EnsureEligible(
                 scenario.Predecessor,
                 [new ExchangeCouponScope(coupons[0].Id, coupons[0].CurrentOrderServiceId), new ExchangeCouponScope(coupons[0].Id, coupons[0].CurrentOrderServiceId)]));
 
@@ -407,9 +467,20 @@ namespace AeroTech.Ordering.Domain.Tests.P3
                 order.Id,
                 order.CommercialVersion,
                 predecessor.Id,
+                predecessor.DocumentNumber,
                 changed,
-                coupons.Select(coupon => new PredecessorCouponEvidence(coupon.Id, coupon.CouponNumber, coupon.CurrentOrderServiceId)).ToList(),
+                coupons
+                    .Select(coupon => new ExchangeScopeCoupon(
+                        coupon.Id,
+                        coupon.CouponNumber,
+                        coupon.CurrentOrderServiceId,
+                        changed.Contains(coupon.CurrentOrderServiceId),
+                        order.SoldSegmentSnapshot(coupon.CurrentOrderServiceId)!,
+                        coupon.IssuedSegment.AsTicketedSegment()))
+                    .ToList(),
+                [],
                 evidence,
+                order.FareConstructionContexts(),
                 order.CurrencyId);
 
             var accepted = ExchangeSourceFactory.Compose(request, ExchangeSourceFactory.ReplacementsFor(order, changed));

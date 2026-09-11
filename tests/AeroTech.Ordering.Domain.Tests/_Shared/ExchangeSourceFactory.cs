@@ -29,22 +29,19 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             ChangeMonetaryOutcome monetaryOutcome = ChangeMonetaryOutcome.Even,
             string quotedExchangeId = QuoteId)
         {
-            var lines = EvenTransferLines(request.PredecessorPricing);
+            var reissued = request.ExchangeScope.Select(coupon => coupon.CouponNumber).ToHashSet();
+            var carried = request.PredecessorPricing.Where(evidence => reissued.Contains(evidence.CouponNumber)).ToList();
+            var lines = EvenTransferLines(carried);
 
-            var coupons = request.PredecessorCoupons
+            var coupons = request.ExchangeScope
                 .OrderBy(coupon => coupon.CouponNumber)
-                .Select(coupon =>
-                {
-                    var replaced = request.ChangedOrderServiceIds.Contains(coupon.OrderServiceId);
-
-                    return new AcceptedExchangeCoupon(
-                        coupon.TicketCouponId,
-                        coupon.CouponNumber,
-                        coupon.OrderServiceId,
-                        replaced ? ExchangeCouponDisposition.Replaced : ExchangeCouponDisposition.Continued,
-                        replaced ? replacements[coupon.OrderServiceId] : null,
-                        SuccessorCoupon(lines, request.PredecessorPricing, coupon.CouponNumber, request.SaleCurrencyId));
-                })
+                .Select(coupon => new AcceptedExchangeCoupon(
+                    coupon.PredecessorTicketCouponId,
+                    coupon.CouponNumber,
+                    coupon.CurrentOrderServiceId,
+                    coupon.ServiceIsChanging ? ExchangeCouponDisposition.Replaced : ExchangeCouponDisposition.Continued,
+                    coupon.ServiceIsChanging ? replacements[coupon.CurrentOrderServiceId] : null,
+                    SuccessorCoupon(lines, carried, coupon.CouponNumber, request.SaleCurrencyId)))
                 .ToList();
 
             return new AcceptedExchange(

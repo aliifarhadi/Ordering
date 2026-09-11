@@ -7,6 +7,7 @@ using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Policies;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
+using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
@@ -31,13 +32,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         {
             var changed = NormalizeChangedServices(order, changedOrderServiceIds);
             var ticket = await ResolveAccountableDocumentAsync(order.Id, changed, cancellationToken);
-            var coupons = ticket.Coupons.OrderBy(coupon => coupon.CouponNumber).ToList();
+            var reissued = ExchangeCapabilityPolicy.ReissueScope(ticket);
 
-            FullyUnusedExchangePolicy.EnsureEligible(
+            ExchangeCapabilityPolicy.EnsureEligible(
                 ticket,
-                coupons.Select(coupon => new ExchangeCouponScope(coupon.Id, coupon.CurrentOrderServiceId)).ToList());
+                reissued.Select(coupon => new ExchangeCouponScope(coupon.Id, coupon.CurrentOrderServiceId)).ToList());
 
-            foreach (var coupon in coupons)
+            foreach (var coupon in reissued)
             {
                 var service = order.RequireChangeableAirService(coupon.CurrentOrderServiceId);
 
@@ -48,12 +49,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             foreach (var serviceId in changed)
                 order.EnsureNoActiveServiceDependsOn(serviceId);
 
-            await EnsureNoAssociatedMiscDocumentAsync(order.Id, coupons, cancellationToken);
+            await EnsureNoAssociatedMiscDocumentAsync(order.Id, reissued, cancellationToken);
 
             return new ExchangeScope(
                 ticket,
                 changed,
-                coupons.Select(coupon => new PredecessorCouponEvidence(coupon.Id, coupon.CouponNumber, coupon.CurrentOrderServiceId)).ToList());
+                reissued.Select(coupon => ScopeCoupon(order, coupon, changed)).ToList(),
+                HistoricalContext(order, ticket));
         }
 
         public static IReadOnlyList<long> NormalizeChangedServices(Order order, IReadOnlyList<long>? changedOrderServiceIds)
@@ -64,6 +66,37 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 throw ExceptionFactory.ExchangeScopeRequiresChangedServices(order.Id);
 
             return changedOrderServiceIds.Order().ToList();
+        }
+
+        private static ExchangeScopeCoupon ScopeCoupon(Order order, TicketCoupon coupon, IReadOnlyList<long> changed)
+            => new(
+                coupon.Id,
+                coupon.CouponNumber,
+                coupon.CurrentOrderServiceId,
+                changed.Contains(coupon.CurrentOrderServiceId),
+                order.SoldSegmentSnapshot(coupon.CurrentOrderServiceId)
+                    ?? throw ExceptionFactory.ChangeCouponDoesNotCoverTheService(coupon.CouponNumber, coupon.CurrentOrderServiceId),
+                coupon.IssuedSegment.AsTicketedSegment());
+
+        private static IReadOnlyList<HistoricalUsedCoupon> HistoricalContext(Order order, ElectronicTicket ticket)
+            => ticket.Coupons
+                .Where(coupon => coupon.FinancialStatus == TicketCouponFinancialStatus.Used)
+                .OrderBy(coupon => coupon.CouponNumber)
+                .Select(coupon => HistoricalCoupon(order, coupon))
+                .ToList();
+
+        private static HistoricalUsedCoupon HistoricalCoupon(Order order, TicketCoupon coupon)
+        {
+            var issued = coupon.IssuedSegment.AsTicketedSegment();
+            var bound = order.SoldSegmentSnapshot(coupon.CurrentOrderServiceId);
+
+            return new HistoricalUsedCoupon(
+                coupon.Id,
+                coupon.CouponNumber,
+                coupon.FinancialStatus,
+                coupon.CurrentOrderServiceId,
+                issued,
+                bound == issued ? null : bound);
         }
 
         private async Task<ElectronicTicket> ResolveAccountableDocumentAsync(
@@ -82,7 +115,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
                 covering.Add(candidates.Count switch
                 {
-                    0 => throw ExceptionFactory.AccountableDocumentNotFound(serviceId, orderId),
+                    0 => throw NothingLeftToExchange(tickets, serviceId, orderId),
                     1 => candidates[0],
                     _ => throw ExceptionFactory.AccountableDocumentAmbiguous(serviceId, orderId)
                 });
@@ -93,17 +126,35 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 : throw ExceptionFactory.ExchangeScopeSpansDocuments(string.Join(", ", changed));
         }
 
+        private static Exception NothingLeftToExchange(
+            IReadOnlyList<ElectronicTicket> tickets,
+            long orderServiceId,
+            long orderId)
+        {
+            var historical = tickets
+                .SelectMany(ticket => ticket.Coupons
+                    .Where(coupon => coupon.CurrentOrderServiceId == orderServiceId)
+                    .Select(coupon => (ticket.DocumentNumber, coupon.CouponNumber, coupon.FinancialStatus)))
+                .OrderBy(candidate => candidate.CouponNumber)
+                .FirstOrDefault();
+
+            return historical.DocumentNumber is null
+                ? ExceptionFactory.AccountableDocumentNotFound(orderServiceId, orderId)
+                : ExceptionFactory.CouponIsNotExchangeable(
+                    historical.CouponNumber, historical.DocumentNumber, historical.FinancialStatus);
+        }
+
         private static bool CoversForServicing(TicketCoupon coupon, long orderServiceId)
             => coupon.CurrentOrderServiceId == orderServiceId
                && coupon.FinancialStatus == TicketCouponFinancialStatus.Open;
 
         private async Task EnsureNoAssociatedMiscDocumentAsync(
             long orderId,
-            IReadOnlyList<TicketCoupon> coupons,
+            IReadOnlyList<TicketCoupon> reissued,
             CancellationToken cancellationToken)
         {
             var documents = await _miscDocuments.ListByOrderAsync(orderId, cancellationToken);
-            var couponIds = coupons.Select(coupon => coupon.Id).ToHashSet();
+            var couponIds = reissued.Select(coupon => coupon.Id).ToHashSet();
 
             foreach (var document in documents.Where(document => document.StatusSummary != ElectronicMiscDocumentStatus.Voided))
             {
@@ -112,7 +163,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
                 if (association is not null)
                     throw ExceptionFactory.ExchangeBlockedByAssociatedMiscDocument(
-                        coupons.Single(coupon => coupon.Id == association.AssociatedTicketCouponId).CouponNumber,
+                        reissued.Single(coupon => coupon.Id == association.AssociatedTicketCouponId).CouponNumber,
                         document.DocumentNumber);
             }
         }

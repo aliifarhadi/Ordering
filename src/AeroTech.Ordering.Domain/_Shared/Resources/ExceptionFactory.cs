@@ -829,8 +829,8 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException AcceptedChangePlanNotFound(params object?[] args) =>
             new(2974, ExceptionMessages.AcceptedChangePlanNotFound, args) { HttpStatus = 500 };
 
-        public static BusinessException ExchangeRequiresFullyUnusedTicket(params object?[] args) =>
-            new(2976, ExceptionMessages.ExchangeRequiresFullyUnusedTicket, args) { HttpStatus = 422 };
+        public static BusinessException ExchangeCouponStateNotSupported(params object?[] args) =>
+            new(2976, ExceptionMessages.ExchangeCouponStateNotSupported, args) { HttpStatus = 422 };
 
         public static BusinessException DocumentAlreadyExchanged(params object?[] args) =>
             new(2977, ExceptionMessages.DocumentAlreadyExchanged, args) { HttpStatus = 409 };

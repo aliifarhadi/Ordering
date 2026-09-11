@@ -19,6 +19,25 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             IReadOnlyList<CarriedPricingLink> carried)
             => ExchangePricingCorrelation.Evidence(predecessorElectronicTicketId, predecessorDocumentNumber, carried, _pricingLines);
 
+        public TicketedSegmentSnapshot? SoldSegmentSnapshot(long orderServiceId)
+        {
+            var service = _orderServices.FirstOrDefault(candidate => candidate.Id == orderServiceId);
+            var segment = service?.SoldSegmentId is { } segmentId
+                ? _segments.FirstOrDefault(candidate => candidate.Id == segmentId)
+                : null;
+
+            return segment is null
+                ? null
+                : new TicketedSegmentSnapshot(
+                    segment.MarketingAirlineId,
+                    segment.Number,
+                    segment.OriginAirportId,
+                    segment.DestinationAirportId,
+                    segment.DepartureDateTime,
+                    segment.ArrivalDateTime,
+                    segment.BookingClass);
+        }
+
         public StagedExchange PrepareExchange(AcceptedExchangeArgs args, IIdGenerator idGenerator, IClock clock)
             => StageExchange(args, idGenerator, clock.GetDateTime());
 

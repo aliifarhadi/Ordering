@@ -451,11 +451,6 @@ namespace AeroTech.Ordering.Domain.ElectronicTicketAggregate
             }
         }
 
-        public TicketCoupon? FirstNonOpenCoupon()
-            => _coupons
-                .OrderBy(coupon => coupon.CouponNumber)
-                .FirstOrDefault(coupon => coupon.FinancialStatus != TicketCouponFinancialStatus.Open);
-
         public DocumentExchangeRecord MarkExchanged(
             ExchangeProvenance provenance,
             long successorTicketId,

@@ -73,14 +73,15 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             foreach (var coupon in scope.Coupons)
             {
-                var quoted = quotedCoupons.FirstOrDefault(candidate => candidate.PredecessorTicketCouponId == coupon.TicketCouponId)
+                var quoted = quotedCoupons.FirstOrDefault(candidate =>
+                                 candidate.PredecessorTicketCouponId == coupon.PredecessorTicketCouponId)
                              ?? throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon scope");
 
                 if (quoted.PredecessorCouponNumber != coupon.CouponNumber
-                    || quoted.PredecessorOrderServiceId != coupon.OrderServiceId)
+                    || quoted.PredecessorOrderServiceId != coupon.CurrentOrderServiceId)
                     throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon scope");
 
-                if (quoted.IsReplaced != scope.ChangedOrderServiceIds.Contains(coupon.OrderServiceId))
+                if (quoted.IsReplaced != coupon.ServiceIsChanging)
                     throw ExceptionFactory.AcceptedExchangeDoesNotMatchTheRequest("coupon disposition");
             }
         }

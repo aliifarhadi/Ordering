@@ -201,35 +201,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
         // ---------------------------------------------------------------- 8, 9, 19. deterministic refusals
 
-        [Fact]
-        public async Task A_partly_used_document_is_refused_as_a_capability_limit_before_any_provider_call()
-        {
-            await using var setup = NewHarness();
-            var scenario = await TicketedAsync(_fixture, setup, roundTrip: true, changedCouponNumbers: [1]);
-
-            await using (var command = _fixture.NewCommandContext())
-                await command.Database.ExecuteSqlRawAsync(
-                    "UPDATE [Order].[TicketCoupons] SET [FinancialStatus] = {0} WHERE [Id] = {1}",
-                    (int)TicketCouponFinancialStatus.Used, scenario.CouponIds[2]);
-
-            await using var harness = NewHarness();
-            Register(harness, scenario);
-
-            var quoteRefusal = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Exchange.QuoteAsync(scenario.OrderId, scenario.ChangedOrderServiceIds));
-            var refusal = await Assert.ThrowsAsync<BusinessException>(() => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
-
-            Assert.Equal(2976, quoteRefusal.Code);
-            Assert.Equal(2976, refusal.Code);
-            Assert.Contains("capability", refusal.Message, StringComparison.OrdinalIgnoreCase);
-            Assert.Empty(harness.ExchangeQuotes.ObservedQuoteRequests);
-            Assert.Empty(harness.ExchangeQuotes.ObservedSelections);
-            Assert.Empty(harness.ReservationChanges.ObservedApplies);
-            Assert.Empty(harness.DocumentExchanges.ObservedEligibilityRequests);
-            Assert.Empty(harness.DocumentExchanges.ObservedRequests);
-            await AssertNoLocalExchangeAsync(harness, scenario);
-        }
-
         [Theory]
         [InlineData("missing")]
         [InlineData("duplicate")]

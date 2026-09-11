@@ -6,5 +6,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
     public sealed record ExchangeScope(
         ElectronicTicket PredecessorTicket,
         IReadOnlyList<long> ChangedOrderServiceIds,
-        IReadOnlyList<PredecessorCouponEvidence> Coupons);
+        IReadOnlyList<ExchangeScopeCoupon> Coupons,
+        IReadOnlyList<HistoricalUsedCoupon> HistoricalUsedCoupons);
 }
