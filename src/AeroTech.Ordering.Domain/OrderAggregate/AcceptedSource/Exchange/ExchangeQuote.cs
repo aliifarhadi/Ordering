@@ -17,5 +17,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange
         IReadOnlyList<AcceptedExchangePricingLine> PricingLines,
         DateTimeOffset ExpiresAt,
         string? SourcePricingReference = null,
-        AcceptedAddCollect? AddCollect = null);
+        AcceptedAddCollect? AddCollect = null,
+        AcceptedRefundDue? RefundDue = null,
+        AcceptedResidual? Residual = null);
 }

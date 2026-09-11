@@ -356,6 +356,7 @@
 
         public const string ReservationChangeSourceNotConfigured = "No reservation change provider is configured for this deployment.";
         public const string ExchangeFundingSourceNotConfigured = "No exchange funding provider is configured for this deployment.";
+        public const string ExchangeResidualSourceNotConfigured = "No exchange residual fulfilment provider is configured for this deployment.";
         public const string IdempotencyKeyRequired = "The '{0}' header is required for this operation.";
 
         public const string DocumentChangeEligibilitySourceNotConfigured = "No document change eligibility authority is configured for this deployment.";

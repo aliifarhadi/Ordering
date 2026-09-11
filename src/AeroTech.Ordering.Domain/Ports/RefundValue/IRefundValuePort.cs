@@ -19,7 +19,9 @@ namespace AeroTech.Ordering.Domain.Ports.RefundValue
         decimal ApprovedAmount,
         int CurrencyId,
         string ApprovedDisposition,
-        string? DispositionReference);
+        string? DispositionReference,
+        string? SuccessorDocumentNumber = null,
+        string? SourcePricingReference = null);
 
     public sealed record RefundValueRecoveryRequest(
         string OperationKey,
@@ -29,11 +31,21 @@ namespace AeroTech.Ordering.Domain.Ports.RefundValue
     public sealed record RefundValueResult(
         ProviderOperationOutcome Outcome,
         string? ValueMovementReference = null,
-        string? Detail = null);
+        string? Detail = null,
+        decimal? Amount = null,
+        int? CurrencyId = null,
+        string? Disposition = null);
 
     public sealed record RefundValueRecovery(
         bool WasDispatched,
         ProviderOperationOutcome Outcome,
         string? ValueMovementReference = null,
-        string? Detail = null);
+        string? Detail = null,
+        decimal? Amount = null,
+        int? CurrencyId = null,
+        string? Disposition = null)
+    {
+        public RefundValueResult AsResult()
+            => new(Outcome, ValueMovementReference, Detail, Amount, CurrencyId, Disposition);
+    }
 }

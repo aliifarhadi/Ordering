@@ -15,6 +15,8 @@ using AeroTech.Ordering.Domain.OrderAggregate.Dto;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Ports.ExchangeFunding;
+using AeroTech.Ordering.Domain.Ports.ExchangeResidual;
+using AeroTech.Ordering.Domain.Ports.RefundValue;
 using AeroTech.Ordering.Domain.Ports.Exchange;
 using AeroTech.Ordering.Domain.Ports.ReservationChange;
 using AeroTech.Ordering.Domain.Servicing.Operations;
@@ -38,6 +40,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         public const string FundingGuaranteeStep = "exchange-funding-guarantee";
         public const string FundingCaptureStep = "exchange-funding-capture";
         public const string FundingReleaseStep = "exchange-funding-release";
+        public const string RefundDueStep = "exchange-refund-value";
+        public const string ResidualStep = "exchange-residual";
 
         private readonly IOrderRepository _orders;
         private readonly IElectronicTicketRepository _tickets;
@@ -46,6 +50,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         private readonly IReservationChangePort _reservations;
         private readonly IDocumentExchangePort _documents;
         private readonly IExchangeFundingPort _funding;
+        private readonly IRefundValuePort _refundValues;
+        private readonly IExchangeResidualValuePort _residuals;
         private readonly IAcceptedExchangePlanStore _plans;
         private readonly IOrderOperationCoordinator _operations;
         private readonly IServicingOperationStore _operationStore;
@@ -64,6 +70,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             IReservationChangePort reservations,
             IDocumentExchangePort documents,
             IExchangeFundingPort funding,
+            IRefundValuePort refundValues,
+            IExchangeResidualValuePort residuals,
             IAcceptedExchangePlanStore plans,
             IOrderOperationCoordinator operations,
             IServicingOperationStore operationStore,
@@ -81,6 +89,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             _reservations = reservations;
             _documents = documents;
             _funding = funding;
+            _refundValues = refundValues;
+            _residuals = residuals;
             _plans = plans;
             _operations = operations;
             _operationStore = operationStore;
@@ -845,8 +855,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 || !await IsUsableSuccessorIdentityAsync(predecessor, plan, successor, cancellationToken))
                 return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
 
-            if (plan.RequiresFunding && !plan.IsFundingCaptured)
-                return await CaptureFundingAsync(
+            if (plan.RequiresMonetarySettlement && !plan.IsMonetarySettled)
+                return await SettleMonetaryAsync(
                     order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
 
             var staged = order.PrepareExchange(ToArgs(plan, predecessor), _idGenerator, _clock);
@@ -895,6 +905,221 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 order, operation, predecessor, plan, successorTicket,
                 exchanged.OrderChangeId, exchanged.PriceChangeSetId,
                 ServicingOperationStatus.Completed, ExchangeDocumentOutcome.Exchanged, isReplay);
+        }
+
+        private async Task<ExchangeOutcome> SettleMonetaryAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            bool documentJustConfirmed,
+            bool isReplay,
+            CancellationToken cancellationToken)
+            => plan.MonetaryOutcome switch
+            {
+                ChangeMonetaryOutcome.AddCollect => await CaptureFundingAsync(
+                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken),
+                ChangeMonetaryOutcome.Refund => await SettleRefundDueAsync(
+                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken),
+                ChangeMonetaryOutcome.Residual => await SettleResidualAsync(
+                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken),
+                _ => await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken)
+            };
+
+        private async Task<ExchangeOutcome> SettleRefundDueAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            bool documentJustConfirmed,
+            bool isReplay,
+            CancellationToken cancellationToken)
+        {
+            if (!plan.CanReproduceRefundDueRequest)
+                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+
+            RefundValueResult result;
+
+            try
+            {
+                if (documentJustConfirmed)
+                {
+                    result = await DispatchRefundDueAsync(order, operation, plan, successor, cancellationToken);
+                }
+                else
+                {
+                    var recovered = await _refundValues.RecoverAsync(
+                        new RefundValueRecoveryRequest(RefundDueKey(operation, plan), order.Id, operation.OperationId),
+                        cancellationToken);
+
+                    result = recovered.WasDispatched
+                        ? recovered.AsResult()
+                        : await DispatchRefundDueAsync(order, operation, plan, successor, cancellationToken);
+                }
+            }
+            catch
+            {
+                await MarkAwaitingExternalAsync(operation);
+                throw;
+            }
+
+            var contradiction = result.Outcome == ProviderOperationOutcome.Confirmed
+                ? ExchangeSettlementEvidencePolicy.RefundDueContradiction(plan, result)
+                : null;
+
+            await _plans.RecordRefundDueOutcomeAsync(
+                operation.OperationId, result.Outcome, result.ValueMovementReference, contradiction ?? result.Detail,
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var settled = plan with
+            {
+                RefundDueOutcome = result.Outcome,
+                RefundDueReference = result.ValueMovementReference ?? plan.RefundDueReference,
+                RefundDueDetail = contradiction ?? result.Detail ?? plan.RefundDueDetail
+            };
+
+            return await AfterMonetarySettlementAsync(
+                order, operation, predecessor, settled, result.Outcome, contradiction, isReplay, cancellationToken);
+        }
+
+        private async Task<RefundValueResult> DispatchRefundDueAsync(
+            Order order,
+            OrderOperation operation,
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            CancellationToken cancellationToken)
+            => await _refundValues.RequestAsync(
+                new RefundValueRequest(
+                    RefundDueKey(operation, plan),
+                    order.Id,
+                    operation.OperationId,
+                    plan.PredecessorDocumentNumber,
+                    plan.RefundDue!.Amount,
+                    plan.RefundDue.CurrencyId,
+                    plan.RefundDue.Disposition,
+                    null,
+                    successor.DocumentNumber,
+                    plan.SourcePricingReference),
+                cancellationToken);
+
+        private async Task<ExchangeOutcome> SettleResidualAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            bool documentJustConfirmed,
+            bool isReplay,
+            CancellationToken cancellationToken)
+        {
+            if (!plan.CanReproduceResidualRequest)
+                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+
+            ExchangeResidualResult result;
+
+            try
+            {
+                if (documentJustConfirmed)
+                {
+                    result = await DispatchResidualAsync(order, operation, plan, successor, cancellationToken);
+                }
+                else
+                {
+                    var recovered = await _residuals.RecoverAsync(
+                        new ExchangeResidualRecoveryRequest(
+                            ResidualKey(operation, plan), order.Id, operation.OperationId),
+                        cancellationToken);
+
+                    result = recovered.WasDispatched
+                        ? recovered.AsResult()
+                        : await DispatchResidualAsync(order, operation, plan, successor, cancellationToken);
+                }
+            }
+            catch
+            {
+                await MarkAwaitingExternalAsync(operation);
+                throw;
+            }
+
+            var contradiction = result.Outcome == ProviderOperationOutcome.Confirmed
+                ? ExchangeSettlementEvidencePolicy.ResidualContradiction(plan, result)
+                : null;
+
+            await _plans.RecordResidualOutcomeAsync(
+                operation.OperationId,
+                result.Outcome,
+                result.ProviderReference,
+                result.InstrumentReference,
+                result.Instrument,
+                contradiction ?? result.Detail,
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var settled = plan with
+            {
+                ResidualOutcome = result.Outcome,
+                ResidualProviderReference = result.ProviderReference ?? plan.ResidualProviderReference,
+                ResidualInstrumentReference = result.InstrumentReference ?? plan.ResidualInstrumentReference,
+                ResidualInstrument = result.Instrument ?? plan.ResidualInstrument,
+                ResidualDetail = contradiction ?? result.Detail ?? plan.ResidualDetail
+            };
+
+            return await AfterMonetarySettlementAsync(
+                order, operation, predecessor, settled, result.Outcome, contradiction, isReplay, cancellationToken);
+        }
+
+        private async Task<ExchangeResidualResult> DispatchResidualAsync(
+            Order order,
+            OrderOperation operation,
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            CancellationToken cancellationToken)
+            => await _residuals.FulfillAsync(
+                new ExchangeResidualRequest(
+                    ResidualKey(operation, plan),
+                    order.Id,
+                    operation.OperationId,
+                    plan.QuotedExchangeId,
+                    plan.PredecessorDocumentNumber,
+                    successor.DocumentNumber,
+                    plan.PredecessorTravellerId,
+                    plan.Residual!.Amount,
+                    plan.Residual.CurrencyId,
+                    plan.Residual.Disposition,
+                    plan.Residual.ExpectedInstrument,
+                    plan.SourcePricingReference),
+                cancellationToken);
+
+        private async Task<ExchangeOutcome> AfterMonetarySettlementAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
+            AcceptedExchangePlan settled,
+            ProviderOperationOutcome outcome,
+            string? contradiction,
+            bool isReplay,
+            CancellationToken cancellationToken)
+        {
+            if (contradiction is not null || outcome == ProviderOperationOutcome.Rejected)
+                return await ReconcileAsync(order, operation, predecessor, settled, isReplay, cancellationToken);
+
+            return outcome == ProviderOperationOutcome.Confirmed
+                ? await FinalizeAsync(
+                    order, operation, predecessor, settled, documentJustConfirmed: false, isReplay, cancellationToken)
+                : await SettleAsync(
+                    order, operation, predecessor, settled,
+                    ServicingOperationStatus.AwaitingExternal,
+                    outcome == ProviderOperationOutcome.Unknown
+                        ? CommandReceiptStatus.Unknown
+                        : CommandReceiptStatus.Pending,
+                    ExchangeDocumentOutcome.Exchanged,
+                    isReplay,
+                    cancellationToken);
         }
 
         private async Task<ExchangeOutcome> CaptureFundingAsync(
@@ -1411,6 +1636,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         private string FundingReleaseKey(OrderOperation operation, AcceptedExchangePlan plan)
             => _operations.ProviderOperationKey(operation, $"{FundingReleaseStep}:{plan.PredecessorElectronicTicketId}");
 
+        private string RefundDueKey(OrderOperation operation, AcceptedExchangePlan plan)
+            => _operations.ProviderOperationKey(operation, $"{RefundDueStep}:{plan.PredecessorElectronicTicketId}");
+
+        private string ResidualKey(OrderOperation operation, AcceptedExchangePlan plan)
+            => _operations.ProviderOperationKey(operation, $"{ResidualStep}:{plan.PredecessorElectronicTicketId}");
+
         private static ExchangeOutcome Outcome(
             Order order,
             OrderOperation operation,
@@ -1461,6 +1692,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 plan.AddCollect?.CurrencyId,
                 plan.FundingState,
                 plan.FundingCaptureReference ?? plan.FundingGuaranteeReference,
+                plan.MonetaryAmount,
+                plan.MonetaryCurrencyId,
+                plan.MonetaryDisposition,
+                plan.MonetaryState,
+                plan.MonetaryProviderReference,
+                plan.ResidualInstrumentReference,
+                plan.ResidualInstrument,
                 operationStatus == ServicingOperationStatus.NeedsReconciliation,
                 plan.Disposition == AcceptedExchangeDisposition.DeferredToExpandedExchange,
                 plan.Disposition == AcceptedExchangeDisposition.DeferredToExpandedExchange

@@ -514,14 +514,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         public async Task C4_an_unsupported_monetary_outcome_is_deferred_before_inventory_and_releases_the_claim()
         {
             await using var harness = NewHarness();
-            var scenario = await TicketedAsync(_fixture, harness, accepted => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Refund });
+            var scenario = await TicketedAsync(_fixture, harness, accepted => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Mixed });
             var key = NewKey();
 
             var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(key));
 
             Assert.True(outcome.DeferredToExpandedExchange);
-            Assert.Equal(nameof(ChangeMonetaryOutcome.Refund), outcome.DeferralReason);
-            Assert.Equal(ChangeMonetaryOutcome.Refund, outcome.MonetaryOutcome);
+            Assert.Equal(nameof(ChangeMonetaryOutcome.Mixed), outcome.DeferralReason);
+            Assert.Equal(ChangeMonetaryOutcome.Mixed, outcome.MonetaryOutcome);
             Assert.Equal(ServicingOperationStatus.Rejected, outcome.OperationStatus);
             Assert.Null(outcome.SuccessorElectronicTicketId);
 

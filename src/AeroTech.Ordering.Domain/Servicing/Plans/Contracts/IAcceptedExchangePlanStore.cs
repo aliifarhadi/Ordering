@@ -41,6 +41,22 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Contracts
             string? detail,
             CancellationToken cancellationToken = default);
 
+        Task RecordRefundDueOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? valueMovementReference,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
+        Task RecordResidualOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? instrumentReference,
+            ResidualInstrumentKind? instrument,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
         Task RecordDocumentExchangeOutcomeAsync(
             long operationId,
             ProviderOperationOutcome outcome,

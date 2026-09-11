@@ -19,7 +19,9 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public const string ReplacementBookingClass = "Q";
         public const string ReplacementFlightNumber = "W5 1236";
         public const decimal AddCollectAmount = 250_000m;
+        public const decimal NegativeBalanceAmount = 180_000m;
         public const string FundingMethodRef = "FOP-CONTRACT-1";
+        public const string ResidualDisposition = "ResidualCredit";
 
         public static string OutRef(string correlationRef) => $"EXC:OUT:{correlationRef}";
 
@@ -30,7 +32,8 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             IReadOnlyDictionary<long, AcceptedChangeReplacement> replacements,
             ChangeMonetaryOutcome monetaryOutcome = ChangeMonetaryOutcome.Even,
             string quotedExchangeId = QuoteId,
-            decimal addCollectAmount = AddCollectAmount)
+            decimal addCollectAmount = AddCollectAmount,
+            decimal settlementAmount = NegativeBalanceAmount)
         {
             var reissued = request.ExchangeScope.Select(coupon => coupon.CouponNumber).ToHashSet();
             var carried = request.PredecessorPricing.Where(evidence => reissued.Contains(evidence.CouponNumber)).ToList();
@@ -51,9 +54,23 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 ? new AcceptedAddCollect(addCollectAmount, request.SaleCurrencyId)
                 : null;
 
-            var pricingLines = addCollect is null
-                ? lines
-                : [.. lines, PenaltyLine(request.SaleCurrencyId, addCollect.Amount)];
+            var refundDue = monetaryOutcome == ChangeMonetaryOutcome.Refund
+                ? new AcceptedRefundDue(
+                    settlementAmount, request.SaleCurrencyId, AcceptedRefundDue.OriginalFormOfPayment)
+                : null;
+
+            var residual = monetaryOutcome == ChangeMonetaryOutcome.Residual
+                ? new AcceptedResidual(
+                    settlementAmount, request.SaleCurrencyId, ResidualDisposition, ResidualInstrumentKind.Mco)
+                : null;
+
+            var pricingLines = monetaryOutcome switch
+            {
+                ChangeMonetaryOutcome.AddCollect => [.. lines, PenaltyLine(request.SaleCurrencyId, addCollect!.Amount)],
+                ChangeMonetaryOutcome.Refund => [.. lines, ReturnedValueLine(request.SaleCurrencyId, refundDue!.Amount)],
+                ChangeMonetaryOutcome.Residual => [.. lines, ReturnedValueLine(request.SaleCurrencyId, residual!.Amount)],
+                _ => lines
+            };
 
             return new AcceptedExchange(
                 SourceSystem,
@@ -70,7 +87,9 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 pricingLines,
                 DateTimeOffset.UtcNow.AddHours(1),
                 PricingReference,
-                addCollect);
+                addCollect,
+                refundDue,
+                residual);
         }
 
         public static IReadOnlyList<AcceptedExchangePricingLine> EvenTransferLines(
@@ -106,6 +125,21 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 PredecessorCorrelationRef: carried.CorrelationRef,
                 TransferGroupId: TransferGroup,
                 Code: carried.Code);
+
+        public static AcceptedExchangePricingLine ReturnedValueLine(int currencyId, decimal amount)
+            => new(
+                PricingComponentType.Adjustment,
+                PricingEffect.CustomerBalance,
+                OrderPricingLineDirection.Credit,
+                PricingLineRole.Adjustment,
+                amount,
+                currencyId,
+                amount,
+                currencyId,
+                PricingBasisType.Order,
+                RefundabilityRule.Refundable,
+                "EXC:RETURNED-VALUE",
+                Code: "RFD");
 
         public static AcceptedExchangePricingLine PenaltyLine(int currencyId, decimal amount = 250_000m)
             => new(

@@ -86,6 +86,22 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public string? FundingReleaseDetail { get; set; }
 
+        public ProviderOperationOutcome? RefundDueOutcome { get; set; }
+
+        public string? RefundDueReference { get; set; }
+
+        public string? RefundDueDetail { get; set; }
+
+        public ProviderOperationOutcome? ResidualOutcome { get; set; }
+
+        public string? ResidualProviderReference { get; set; }
+
+        public string? ResidualInstrumentReference { get; set; }
+
+        public ResidualInstrumentKind? ResidualInstrument { get; set; }
+
+        public string? ResidualDetail { get; set; }
+
         public DateTimeOffset CreatedAt { get; set; }
 
         public DateTimeOffset UpdatedAt { get; set; }

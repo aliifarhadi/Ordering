@@ -14,6 +14,8 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
             {
                 ChangeMonetaryOutcome.Even => EvenDeferralReason(accepted),
                 ChangeMonetaryOutcome.AddCollect => null,
+                ChangeMonetaryOutcome.Refund => null,
+                ChangeMonetaryOutcome.Residual => null,
                 _ => accepted.MonetaryOutcome.ToString()
             };
         }
@@ -23,6 +25,20 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
             ArgumentNullException.ThrowIfNull(accepted);
 
             return accepted.MonetaryOutcome == ChangeMonetaryOutcome.AddCollect;
+        }
+
+        public static bool RequiresRefundDue(AcceptedExchange accepted)
+        {
+            ArgumentNullException.ThrowIfNull(accepted);
+
+            return accepted.MonetaryOutcome == ChangeMonetaryOutcome.Refund;
+        }
+
+        public static bool RequiresResidual(AcceptedExchange accepted)
+        {
+            ArgumentNullException.ThrowIfNull(accepted);
+
+            return accepted.MonetaryOutcome == ChangeMonetaryOutcome.Residual;
         }
 
         private static string? EvenDeferralReason(AcceptedExchange accepted)
@@ -56,31 +72,74 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
 
         private static void EnsureMonetaryOutcomeIsWellFormed(AcceptedExchange accepted)
         {
+            EnsureOnlyTheOutcomeIsSettled(accepted);
+
+            switch (accepted.MonetaryOutcome)
+            {
+                case ChangeMonetaryOutcome.AddCollect:
+                    EnsureSettlementIsWellFormed(
+                        accepted, "add-collect", accepted.AddCollect?.Amount, accepted.AddCollect?.CurrencyId, 1);
+                    break;
+
+                case ChangeMonetaryOutcome.Refund:
+                    EnsureSettlementIsWellFormed(
+                        accepted, "refund-due", accepted.RefundDue?.Amount, accepted.RefundDue?.CurrencyId, -1);
+
+                    if (accepted.RefundDue is { IsOriginalRefundableSource: false } refundDue)
+                        throw Malformed(
+                            accepted,
+                            $"refund-due disposition {refundDue.Disposition} is not an original refundable source");
+
+                    break;
+
+                case ChangeMonetaryOutcome.Residual:
+                    EnsureSettlementIsWellFormed(
+                        accepted, "residual", accepted.Residual?.Amount, accepted.Residual?.CurrencyId, -1);
+
+                    if (accepted.Residual is { Disposition: var disposition }
+                        && string.IsNullOrWhiteSpace(disposition))
+                        throw Malformed(accepted, "a residual outcome carries no authoritative disposition");
+
+                    break;
+            }
+        }
+
+        private static void EnsureOnlyTheOutcomeIsSettled(AcceptedExchange accepted)
+        {
+            if (accepted.AddCollect is not null && accepted.MonetaryOutcome != ChangeMonetaryOutcome.AddCollect)
+                throw Malformed(accepted, $"a {accepted.MonetaryOutcome} outcome carries an add-collect amount");
+
+            if (accepted.RefundDue is not null && accepted.MonetaryOutcome != ChangeMonetaryOutcome.Refund)
+                throw Malformed(accepted, $"a {accepted.MonetaryOutcome} outcome carries a refund-due amount");
+
+            if (accepted.Residual is not null && accepted.MonetaryOutcome != ChangeMonetaryOutcome.Residual)
+                throw Malformed(accepted, $"a {accepted.MonetaryOutcome} outcome carries a residual amount");
+        }
+
+        private static void EnsureSettlementIsWellFormed(
+            AcceptedExchange accepted,
+            string settlement,
+            decimal? amount,
+            int? currencyId,
+            int balanceSign)
+        {
+            if (amount is not { } settled)
+                throw Malformed(accepted, $"a {settlement} outcome carries no authoritative amount");
+
+            if (settled <= 0m)
+                throw Malformed(accepted, $"{settlement} amount {settled} is not settleable");
+
+            if (currencyId != accepted.SaleCurrencyId)
+                throw Malformed(
+                    accepted,
+                    $"{settlement} currency {currencyId} is outside the sale currency {accepted.SaleCurrencyId}");
+
             var balance = NetCustomerBalance(accepted.PricingLines);
 
-            if (accepted.MonetaryOutcome != ChangeMonetaryOutcome.AddCollect)
-            {
-                if (accepted.AddCollect is not null)
-                    throw Malformed(accepted, $"a {accepted.MonetaryOutcome} outcome carries an add-collect amount");
-
-                return;
-            }
-
-            if (accepted.AddCollect is not { } addCollect)
-                throw Malformed(accepted, "an add-collect outcome carries no authoritative amount");
-
-            if (addCollect.Amount <= 0m)
-                throw Malformed(accepted, $"add-collect amount {addCollect.Amount} is not payable");
-
-            if (addCollect.CurrencyId != accepted.SaleCurrencyId)
+            if (balance != balanceSign * settled)
                 throw Malformed(
                     accepted,
-                    $"add-collect currency {addCollect.CurrencyId} is outside the sale currency {accepted.SaleCurrencyId}");
-
-            if (balance != addCollect.Amount)
-                throw Malformed(
-                    accepted,
-                    $"add-collect amount {addCollect.Amount} contradicts the customer balance {balance} of its pricing lines");
+                    $"{settlement} amount {settled} contradicts the customer balance {balance} of its pricing lines");
         }
 
         private static void EnsureCouponScopeIsWellFormed(AcceptedExchange accepted)

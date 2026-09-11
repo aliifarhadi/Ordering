@@ -52,7 +52,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public OrderSliceHarness(
             OrderingDatabaseFixture fixture,
             ICallerContext caller,
-            DeterministicExchangeFundingAdapter? exchangeFunding = null)
+            DeterministicExchangeFundingAdapter? exchangeFunding = null,
+            DeterministicExchangeResidualAdapter? exchangeResiduals = null,
+            DeterministicRefundValueAdapter? refundValues = null)
         {
             _fixture = fixture;
 
@@ -134,7 +136,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             RefundQuotes = new DeterministicRefundQuoteAdapter();
             DocumentRefunds = new DeterministicDocumentRefundAdapter();
-            RefundValues = new DeterministicRefundValueAdapter();
+            RefundValues = refundValues ?? new DeterministicRefundValueAdapter();
             var refundValueCoordinator = new RefundValueMovementCoordinator(RefundValues, coordinator, frameworkClock);
             ManualRefundAuthorizations = new DeterministicManualRefundAuthorizationAdapter();
             var manualRefundAuthorizer = new ManualRefundAuthorizer(ManualRefundAuthorizations, caller);
@@ -168,6 +170,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             ExchangeQuotes = new DeterministicExchangeQuoteAdapter();
             DocumentExchanges = new DeterministicDocumentExchangeAdapter();
             ExchangeFunding = exchangeFunding ?? new DeterministicExchangeFundingAdapter();
+            ExchangeResiduals = exchangeResiduals ?? new DeterministicExchangeResidualAdapter();
             ExchangePlans = new AcceptedExchangePlanStore(_command, frameworkClock);
             Exchange = new ExchangeService(
                 Orders,
@@ -177,6 +180,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 ReservationChanges,
                 DocumentExchanges,
                 ExchangeFunding,
+                RefundValues,
+                ExchangeResiduals,
                 ExchangePlans,
                 coordinator,
                 operationStore,
@@ -273,6 +278,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicDocumentExchangeAdapter DocumentExchanges { get; }
 
         public DeterministicExchangeFundingAdapter ExchangeFunding { get; }
+
+        public DeterministicExchangeResidualAdapter ExchangeResiduals { get; }
 
         public AcceptedExchangePlanStore ExchangePlans { get; }
 

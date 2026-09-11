@@ -29,6 +29,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.Property(plan => plan.FundingCaptureReference).HasMaxLength(128);
             builder.Property(plan => plan.FundingCaptureDetail).HasMaxLength(512);
             builder.Property(plan => plan.FundingReleaseDetail).HasMaxLength(512);
+            builder.Property(plan => plan.RefundDueReference).HasMaxLength(128);
+            builder.Property(plan => plan.RefundDueDetail).HasMaxLength(512);
+            builder.Property(plan => plan.ResidualProviderReference).HasMaxLength(128);
+            builder.Property(plan => plan.ResidualInstrumentReference).HasMaxLength(128);
+            builder.Property(plan => plan.ResidualDetail).HasMaxLength(512);
 
             builder.HasIndex(plan => plan.OrderId);
             builder.HasIndex(plan => plan.PredecessorElectronicTicketId);

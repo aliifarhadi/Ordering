@@ -226,12 +226,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         {
             await using var harness = NewHarness();
             var scenario = await TicketedAsync(_fixture, harness, roundTrip: true, changedCouponNumbers: [1, 2],
-                shapeAccepted: accepted => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Refund });
+                shapeAccepted: accepted => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Mixed });
 
             var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
 
             Assert.True(outcome.DeferredToExpandedExchange);
-            Assert.Equal(nameof(ChangeMonetaryOutcome.Refund), outcome.DeferralReason);
+            Assert.Equal(nameof(ChangeMonetaryOutcome.Mixed), outcome.DeferralReason);
             Assert.Equal(ServicingOperationStatus.Rejected, outcome.OperationStatus);
             Assert.Null(outcome.SuccessorElectronicTicketId);
             Assert.Empty(harness.ReservationChanges.ObservedApplies);

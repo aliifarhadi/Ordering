@@ -42,7 +42,15 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         string? FundingCaptureReference = null,
         string? FundingCaptureDetail = null,
         ProviderOperationOutcome? FundingReleaseOutcome = null,
-        string? FundingReleaseDetail = null)
+        string? FundingReleaseDetail = null,
+        ProviderOperationOutcome? RefundDueOutcome = null,
+        string? RefundDueReference = null,
+        string? RefundDueDetail = null,
+        ProviderOperationOutcome? ResidualOutcome = null,
+        string? ResidualProviderReference = null,
+        string? ResidualInstrumentReference = null,
+        ResidualInstrumentKind? ResidualInstrument = null,
+        string? ResidualDetail = null)
     {
         public bool IsEligibilityEstablished
             => EligibilityOutcome == DocumentExchangeEligibilityOutcome.Eligible;
@@ -72,6 +80,76 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
             => Coupons.Count > 0 && Coupons.All(coupon => coupon.TicketedSegment.IsComplete);
 
         public AcceptedAddCollect? AddCollect => Accepted.AddCollect;
+
+        public AcceptedRefundDue? RefundDue => Accepted.RefundDue;
+
+        public AcceptedResidual? Residual => Accepted.Residual;
+
+        public bool RequiresRefundDue => MonetaryOutcome == ChangeMonetaryOutcome.Refund;
+
+        public bool RequiresResidual => MonetaryOutcome == ChangeMonetaryOutcome.Residual;
+
+        public bool IsRefundDueSettled => RefundDueOutcome == ProviderOperationOutcome.Confirmed;
+
+        public bool IsRefundDueRejected => RefundDueOutcome == ProviderOperationOutcome.Rejected;
+
+        public bool IsResidualSettled => ResidualOutcome == ProviderOperationOutcome.Confirmed;
+
+        public bool IsResidualRejected => ResidualOutcome == ProviderOperationOutcome.Rejected;
+
+        public bool RequiresMonetarySettlement => RequiresFunding || RequiresRefundDue || RequiresResidual;
+
+        public bool IsMonetarySettled => MonetaryOutcome switch
+        {
+            ChangeMonetaryOutcome.AddCollect => IsFundingCaptured,
+            ChangeMonetaryOutcome.Refund => IsRefundDueSettled,
+            ChangeMonetaryOutcome.Residual => IsResidualSettled,
+            _ => true
+        };
+
+        public bool CanReproduceRefundDueRequest => !RequiresRefundDue || RefundDue is not null;
+
+        public bool CanReproduceResidualRequest => !RequiresResidual || Residual is not null;
+
+        public decimal? MonetaryAmount => AddCollect?.Amount ?? RefundDue?.Amount ?? Residual?.Amount;
+
+        public int? MonetaryCurrencyId => AddCollect?.CurrencyId ?? RefundDue?.CurrencyId ?? Residual?.CurrencyId;
+
+        public string? MonetaryDisposition => RefundDue?.Disposition ?? Residual?.Disposition;
+
+        public string? MonetaryProviderReference => MonetaryOutcome switch
+        {
+            ChangeMonetaryOutcome.AddCollect => FundingCaptureReference ?? FundingGuaranteeReference,
+            ChangeMonetaryOutcome.Refund => RefundDueReference,
+            ChangeMonetaryOutcome.Residual => ResidualProviderReference,
+            _ => null
+        };
+
+        public ExchangeMonetaryState MonetaryState => MonetaryOutcome switch
+        {
+            ChangeMonetaryOutcome.AddCollect => FundingMonetaryState(),
+            ChangeMonetaryOutcome.Refund => StateOf(RefundDueOutcome),
+            ChangeMonetaryOutcome.Residual => StateOf(ResidualOutcome),
+            _ => ExchangeMonetaryState.NotRequired
+        };
+
+        private ExchangeMonetaryState FundingMonetaryState() => FundingState switch
+        {
+            ExchangeFundingState.Captured => ExchangeMonetaryState.Settled,
+            ExchangeFundingState.Released => ExchangeMonetaryState.Released,
+            ExchangeFundingState.CaptureRejected or ExchangeFundingState.GuaranteeRejected
+                => ExchangeMonetaryState.Rejected,
+            ExchangeFundingState.GuaranteeRequired => ExchangeMonetaryState.Required,
+            _ => ExchangeMonetaryState.Pending
+        };
+
+        private static ExchangeMonetaryState StateOf(ProviderOperationOutcome? outcome) => outcome switch
+        {
+            ProviderOperationOutcome.Confirmed => ExchangeMonetaryState.Settled,
+            ProviderOperationOutcome.Rejected => ExchangeMonetaryState.Rejected,
+            ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown => ExchangeMonetaryState.Pending,
+            _ => ExchangeMonetaryState.Required
+        };
 
         public bool RequiresFunding => MonetaryOutcome == ChangeMonetaryOutcome.AddCollect;
 

@@ -15,10 +15,12 @@ Status vocabulary:
 | `BLOCKED_DEVELOPMENT` | An unresolved Ordering business semantic. Blocks implementation. |
 
 Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
-`ICC-P3-EXCHANGE-INVENTORY`, `ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`.
+`ICC-P3-EXCHANGE-REFUND-VALUE`, `ICC-P3-EXCHANGE-RESIDUAL`, `ICC-P3-EXCHANGE-INVENTORY`,
+`ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`.
 
-Capability scope of this revision: **even reissue and add-collect reissue**, each over both supported exchange
-shapes (fully unused and partially used).
+Capability scope of this revision: **even, add-collect, refund-due and residual reissue**, each over both
+supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. `Mixed` remains
+deferred.
 
 For a partially-used predecessor — at least one `Used` coupon and at least one `Open` coupon — the reissue
 scope is **all** `Open` coupons and `Used` coupons are historical pricing context only. The governing
@@ -111,6 +113,22 @@ a changed source-authoritative result. The invariant that binds a real adapter i
 bound to the order, commercial version, predecessor document and requested scope it was asked about. Identity
 equality across independent quotes is a property of the deterministic simulator alone and is asserted only in
 its own adapter-specific test.
+
+**The monetary outcome and its amount are AirPrice's alone.** AirPrice decides whether an exchange is `Even`,
+`AddCollect`, `Refund` or `Residual`, and it decides the exact amount and currency. Ordering never computes
+old fare minus new fare, `FareUsed`, a tax difference, a penalty, refundability, a residual, FX or a customer
+entitlement, and never chooses between a refund and a residual. That choice is commercial and provider
+authority; Ordering executes the accepted disposition.
+
+**A negative balance is authoritative, never derived.** For `Refund` the accepted result must carry
+`AcceptedRefundDue(Amount, CurrencyId, Disposition)`, and the disposition must be the original refundable
+source. For `Residual` it must carry `AcceptedResidual(Amount, CurrencyId, Disposition, ExpectedInstrument)`,
+where the expected instrument is a provider-neutral family — `Unknown`, `Mco`, `Emd`, `Voucher`,
+`TravelCredit` or `Other` — and Ordering hardcodes none of them as the universal model. In both cases
+Ordering validates only internal consistency: the amount is present and strictly positive, the currency is
+the sale currency, exactly one settlement accompanies the outcome, and the net customer balance of the
+accepted pricing lines equals the negative of the settled amount. A disagreement is malformed provider
+evidence and fails closed with code 20275 before any inventory, document or monetary call.
 
 **AddCollect is authoritative, never derived.** When the outcome is `ChangeMonetaryOutcome.AddCollect`, the
 accepted result must carry an explicit `AcceptedAddCollect(Amount, CurrencyId)`. Ordering preserves those two
@@ -246,7 +264,8 @@ holds the fail-fast placeholder. The real AirPrice repository was deliberately n
 
 ### Known Semantic Gaps
 
-* `Even` and `AddCollect` are accepted. `Refund`, `Residual` and `Mixed` remain out of scope.
+* `Even`, `AddCollect`, `Refund` and `Residual` are accepted. `Mixed` and netted outcomes remain out of scope,
+  as does any forfeit disposition, which Ordering will not invent as a commercial decision.
 * `FareConstructions` is a pass-through snapshot. Ordering does not validate it against the reissue scope and
   intentionally omits `BrandName`, `CreatedAt`, foreign keys and line items from the projection.
 * The historical context carries no consumed-operational-segment evidence. See `ICC-P3-EXCHANGE-USAGE`.
@@ -495,6 +514,298 @@ money can move; it states the amount, when assurance is required, and what the d
 
 ---
 
+## ICC-P3-EXCHANGE-REFUND-VALUE
+
+### Capability
+
+Returning value to the original refundable source when an exchange reprices negative.
+
+### Authoritative Owner
+
+Payment, as the owner of every movement, protection and reversal of money.
+
+### Ordering Semantic Requirement
+
+Ordering owns the semantic obligation, the orchestration, the stable operation identity, the immutable
+accepted evidence, the durable provider outcome and the reconciliation state. It never chooses the amount, the
+currency or the destination.
+
+The only supported destination in this revision is the **original refundable source**, expressed
+provider-neutrally as the disposition `OriginalFormOfPayment` that P3-D already uses. Ordering accepts no
+arbitrary bank, card or payment destination from the caller and holds no payment instrument details.
+
+**Refund only after the document is authoritatively confirmed.** A failed or unresolved reissue must never
+pay value back while the original accountable document may still be usable.
+
+### Ordering Port / Dependency Boundary
+
+`src/AeroTech.Ordering.Domain/Ports/RefundValue/IRefundValuePort.cs` — **the existing P3-D return-of-value
+boundary, reused rather than duplicated.** There is one shared semantic monetary-return port in Ordering, not
+a refund port per operation.
+
+It was evolved additively, with no change to P3-D behaviour: the request can now name the exchange successor
+document and the source pricing reference, and a result or recovery can now state the `Amount`, `CurrencyId`
+and `Disposition` it acted on, plus an `AsResult()` helper matching the other rails. Those fields are optional
+and P3-D ignores them. The evolution was necessary because the original confirmation carried no amount or
+currency, so an exchange could not have verified that the provider returned the obligation AirPrice priced.
+
+### Request Evidence
+
+Operation key, order id, servicing operation id, predecessor document number, approved amount, currency,
+approved disposition, optional disposition reference, successor document number and source pricing reference.
+All of it comes from the immutable accepted plan; no mutable order state is passed.
+
+### Outcome Semantics
+
+`ProviderOperationOutcome` plus a value-movement reference and the amount, currency and disposition the
+provider acted on. Provider-neutral state is projected as `ExchangeMonetaryState`.
+
+**Confirmed evidence must match the accepted obligation exactly.** The value-movement reference must be
+present, and the amount, currency and disposition must equal the accepted refund-due. Any mismatch is
+contradictory provider evidence, not a business rejection: it is persisted in `RefundDueDetail`, the operation
+becomes `NeedsReconciliation`, nothing is finalized locally and the payout is never retried.
+`ExchangeSettlementEvidencePolicy` is the single place this is decided.
+
+### Identity and Correlation
+
+Predecessor document number plus the Ordering-supplied operation key, with the provider's own reference
+stored and never interpreted.
+
+### Idempotency / Stable Operation Identity
+
+`exchange-refund-value:{predecessorElectronicTicketId}:{operationId}`, derived internally before first
+dispatch. The same key with the same intent answers the same result; the same key with a conflicting amount,
+currency, disposition, document, successor document, order or operation must fail closed.
+
+### NotDispatched / Pending / Unknown / Rejected / Confirmed
+
+All five are modelled. `Pending` and `Unknown` are unresolved, never failures: the operation holds the claim
+in `AwaitingExternal` and is read back on the next replay. `Rejected` after a confirmed document is an
+economic exception and becomes `NeedsReconciliation`.
+
+### Recovery / Read-back
+
+Recover-first. The payout dispatches fresh only when the document confirmation was recorded in this very
+attempt; on any resumed attempt the rail reads back under the same key and dispatches only on
+`WasDispatched = false`. A read-back must preserve the operation's immutable amount, currency and reference,
+and may only resolve `Pending` or `Unknown` to a terminal outcome.
+
+### WasDispatched Requirement
+
+Required. Without it a lost response is indistinguishable from a request that never arrived, and the only
+safe behaviours left are to never retry or to risk paying the customer twice.
+
+### Atomicity / Coupling
+
+The payout outcome is persisted on `AcceptedExchangePlan` before local finalization is attempted, so a crash
+resumes at the payout read-back rather than repeating a financial instruction.
+
+### Irreversible-Step Ordering
+
+```text
+accept AirPrice refund-due  ->  persist plan
+  ->  document eligibility
+  ->  inventory mutation
+  ->  document exchange            [irreversible]
+  ->  persist document confirmation and raw successor evidence
+  ->  return of value              [irreversible]
+  ->  single local finalization transaction
+```
+
+There is no release or compensation path after a confirmed document, because the value is genuinely owed.
+
+### Deterministic Simulator
+
+`src/AeroTech.Ordering.Providers.Deterministic/DeterministicRefundValueAdapter.cs`, upgraded for this bundle
+and shared with P3-D. It records one operation per key with its intent, replays it for a repeated call with
+the same intent and fails closed on a conflicting one, distinguishes never-dispatched from dispatched, keeps
+`Confirmed` and `Rejected` sticky, preserves the amount, currency and reference of an accepted-but-unresolved
+operation through read-back, and offers throw-before-dispatch, throw-after-dispatch and throw-on-recover
+knobs. Its legacy `RecoveredAsDispatched` forcing flag is retained unchanged so P3-D's own tests are
+unaffected. It is **not** evidence of production readiness.
+
+### Consumer Contract Tests
+
+`tests/AeroTech.Ordering.Persistence.Tests/Contracts/RefundValue/` — the reusable contract asserts the
+defined outcome and exact obligation evidence on a confirmation, never-dispatched recovery, same-key
+idempotency, conflicting intent rejected, operation isolation and immutable evidence across read-back. The
+deterministic binding adds the crash boundaries and the unresolved-then-resolved property.
+
+Flow coverage is `RefundDueExchangeFlowTests`, cases A through R.
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION` — no real Payment adapter for return of value exists inside Ordering.
+
+### BLOCKED_INTEGRATION
+
+1. **Exact obligation evidence on a confirmation.** Payment must state the amount, currency and a value
+   movement reference so Ordering can prove it returned the obligation AirPrice priced. Unverified. An adapter
+   must not echo back the request it sent, or the check becomes tautological.
+2. **Read-back by caller key.** Payment must answer, for the key Ordering generated, whether it saw the
+   operation and what the authoritative outcome is, preserving that operation's evidence. Unverified.
+3. **Same-key idempotency, failing closed on conflicting intent.** Unverified, and not addable client-side,
+   because a client-side record is lost exactly when the process crashes.
+4. **Original-source semantics.** Payment must be able to return value to the original refundable source
+   without Ordering naming a destination. The `OriginalFormOfPayment` disposition exists in the P3-D contract
+   but has not been verified against a real provider.
+
+### Explicit Non-Responsibilities
+
+Ordering does not choose the amount, the currency or the destination, does not hold or transmit payment
+instrument details, does not compute refundability, and does not settle or reconcile acquirer files.
+
+---
+
+## ICC-P3-EXCHANGE-RESIDUAL
+
+### Capability
+
+Preserving value in a provider-authoritative residual instrument when an exchange reprices negative and the
+accepted disposition is residual rather than cash.
+
+### Authoritative Owner
+
+**Not yet verified.** Depending on market, carrier and disposition the real owner could be the document host,
+Payment, a stored-value service or another provider. Ordering's semantic requirement is frozen; integration
+ownership is deliberately not asserted.
+
+### Ordering Semantic Requirement
+
+Residual is not a cash refund and must not be routed through the cash return-of-value port merely because
+both return value to the customer. Ordering requires a narrow boundary that creates one authoritative residual
+instrument for an accepted obligation and can later identify it.
+
+Residual mechanisms vary by market and may externally be an MCO, an EMD, a voucher, a travel credit or
+something else. Ordering keeps the family provider-neutral and hardcodes none of them. Generic EMD servicing
+belongs to P3-G, which can enrich this outcome later without redesigning Exchange.
+
+### Ordering Port / Dependency Boundary
+
+`src/AeroTech.Ordering.Domain/Ports/ExchangeResidual/IExchangeResidualValuePort.cs`
+
+```text
+FulfillAsync(ExchangeResidualRequest) -> ExchangeResidualResult
+RecoverAsync(ExchangeResidualRecoveryRequest) -> ExchangeResidualRecovery
+```
+
+### Request Evidence
+
+Operation key, order id, servicing operation id, quoted exchange id, predecessor document number, successor
+document number, beneficiary traveller id, exact accepted amount, currency, accepted disposition, expected
+instrument family and source pricing reference. Every value comes from the immutable accepted plan. No
+mutable order state and no Ordering-local surrogate keys cross the boundary; correlation is by provider-native
+document numbers and the Ordering-supplied operation key.
+
+### Outcome Semantics
+
+`ProviderOperationOutcome`, a provider reference, an instrument reference, a provider-neutral instrument
+family, and the amount and currency acted on.
+
+**A meaningless confirmation fails closed.** A `Confirmed` residual must name a provider reference, an
+instrument reference and an instrument family, and its amount and currency must equal the accepted
+obligation. Anything less is contradictory evidence: persisted in `ResidualDetail`, the operation becomes
+`NeedsReconciliation`, and nothing is finalized locally. A confirmation with no identifiable instrument is
+useless for later servicing and is treated as such.
+
+### Identity and Correlation
+
+Predecessor and successor document numbers plus the operation key. The instrument reference the provider
+returns is stored as the handle to the created value.
+
+### Idempotency / Stable Operation Identity
+
+`exchange-residual:{predecessorElectronicTicketId}:{operationId}`. The same key with the same intent answers
+the same instrument; a conflicting amount, currency, disposition, document, successor document, traveller,
+quote, order or operation must fail closed. Never create a second instrument because Ordering missed the
+first response.
+
+### NotDispatched / Pending / Unknown / Rejected / Confirmed
+
+All five are modelled, with the same discipline as the refund rail. `Pending` and `Unknown` hold the claim in
+`AwaitingExternal` and are read back. `Rejected` after a confirmed document becomes `NeedsReconciliation`.
+
+### Recovery / Read-back
+
+Recover-first, under the same key, preserving the instrument reference. A residual created by the provider
+whose response was lost is recovered, never re-created.
+
+### WasDispatched Requirement
+
+Required, and load-bearing: without it a lost response could cause a duplicate accountable instrument.
+
+### Atomicity / Coupling
+
+The residual outcome and its instrument evidence are persisted on `AcceptedExchangePlan` before local
+finalization.
+
+### Irreversible-Step Ordering
+
+```text
+accept AirPrice residual  ->  persist plan
+  ->  document eligibility
+  ->  inventory mutation
+  ->  document exchange           [irreversible]
+  ->  persist document confirmation and raw successor evidence
+  ->  residual fulfilment         [irreversible]
+  ->  single local finalization transaction
+```
+
+The instrument is never created before the accountable exchange is known to exist, and no exception to that
+was invented for the simulator.
+
+### Deterministic Simulator
+
+`src/AeroTech.Ordering.Providers.Deterministic/DeterministicExchangeResidualAdapter.cs`. One operation per
+key with its intent, conflicting intent rejected, never-dispatched distinguishable, `Confirmed` and
+`Rejected` sticky, instrument evidence preserved through read-back, throw-before-dispatch,
+throw-after-dispatch and throw-on-recover knobs, and overrides that answer with a wrong amount, a wrong
+currency or no instrument so the contradiction paths are exercised. **Not** evidence of production readiness.
+
+### Consumer Contract Tests
+
+`tests/AeroTech.Ordering.Persistence.Tests/Contracts/ExchangeResidual/` — the reusable contract asserts
+instrument identification on a confirmation, never-dispatched recovery, same-key idempotency, conflicting
+intent rejected, operation isolation and immutable evidence across read-back. The deterministic binding adds
+the crash boundaries, the unresolved-then-resolved property and refusal stickiness.
+
+Flow coverage is `ResidualExchangeFlowTests`, cases S through AH.
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION` — there is no real residual integration, and even its owner is unverified.
+`Providers/Unconfigured/UnconfiguredExchangeResidualProvider.cs` fails closed on both operations with code
+20293 and HTTP 501.
+
+### BLOCKED_INTEGRATION
+
+1. **Integration ownership is unverified.** The real owner could be the document host, Payment, a
+   stored-value service or another provider, and it may differ by market or disposition. Ordering's semantic
+   requirement is frozen; the owner is not asserted. This is an integration question, not an unresolved
+   Ordering business rule.
+2. **Authoritative instrument identity.** The provider must return a reference that later servicing can use
+   to find the created value. An adapter cannot mint one, because a locally invented reference would not
+   exist at the provider.
+3. **Read-back by caller key preserving the instrument.** Unverified. Without it a lost response risks a
+   duplicate accountable instrument.
+4. **Same-key idempotency, failing closed on conflicting intent.** Unverified.
+5. **Instrument family mapping.** How a market maps a residual disposition onto an MCO, EMD, voucher or
+   travel credit is unverified. Ordering carries the family provider-neutrally and does not decide it.
+
+### Known Semantic Gaps
+
+* The residual instrument is not modelled as an Ordering aggregate. It is external value identified by a
+  provider reference; the lifecycle belongs to P3-G.
+* No forfeit disposition is implemented, and none will be invented as a commercial decision.
+* Reconciliation is represented durably but not automated.
+
+### Explicit Non-Responsibilities
+
+Ordering does not create, price, revalue, extend, reissue, refund or void residual instruments, does not
+choose the instrument family, and does not implement EMD servicing.
+
+---
+
 ## ICC-P3-EXCHANGE-INVENTORY
 
 ### Capability
@@ -710,9 +1021,21 @@ document eligibility (observational)
   -> inventory mutation
   -> document exchange   [irreversible]
   -> persist raw successor evidence
-  -> funding capture              [add-collect only]
+  -> monetary settlement          [add-collect capture, refund-due payout, or residual fulfilment]
   -> single local finalization transaction
 ```
+
+Local finalization is gated on the monetary leg of whichever outcome AirPrice determined:
+
+```text
+Even        document confirmed
+AddCollect  document confirmed and capture confirmed with exact evidence
+Refund      document confirmed and payout confirmed with exact evidence
+Residual    document confirmed and instrument confirmed with exact evidence
+```
+
+No monetary leg is ever silently ignored, and an unresolved leg keeps the operation recoverable rather than
+finalizing or reconciling prematurely.
 
 The document host is never dispatched without confirmed funding assurance: `EnterDocumentExchangeAsync`
 reconciles rather than dispatching if `IsFundingAssured` is false. A definite document rejection or denial

@@ -817,6 +817,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ExchangeFundingSourceNotConfigured() =>
             new(20263, ExceptionMessages.ExchangeFundingSourceNotConfigured) { HttpStatus = 501 };
 
+        public static BusinessException ExchangeResidualSourceNotConfigured() =>
+            new(20293, ExceptionMessages.ExchangeResidualSourceNotConfigured) { HttpStatus = 501 };
+
         public static BusinessException IdempotencyKeyRequired(params object?[] args) =>
             new(20264, ExceptionMessages.IdempotencyKeyRequired, args) { HttpStatus = 400 };
 

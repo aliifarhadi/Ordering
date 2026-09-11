@@ -39,6 +39,9 @@ namespace AeroTech.Ordering.Providers.Deterministic
             services.AddSingleton<DeterministicExchangeFundingAdapter>();
             services.AddScoped<Domain.Ports.ExchangeFunding.IExchangeFundingPort>(
                 provider => provider.GetRequiredService<DeterministicExchangeFundingAdapter>());
+            services.AddSingleton<DeterministicExchangeResidualAdapter>();
+            services.AddScoped<Domain.Ports.ExchangeResidual.IExchangeResidualValuePort>(
+                provider => provider.GetRequiredService<DeterministicExchangeResidualAdapter>());
             services.AddSingleton<DeterministicDocumentChangeEligibilityAdapter>();
             services.AddScoped<Domain.Ports.DocumentChangeEligibility.IDocumentChangeEligibilityPort>(
                 provider => provider.GetRequiredService<DeterministicDocumentChangeEligibilityAdapter>());

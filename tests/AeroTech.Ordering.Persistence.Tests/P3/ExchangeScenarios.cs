@@ -146,6 +146,64 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 quotedExchangeId,
                 addCollectAmount);
 
+        public static void ComposeSettlement(
+            OrderSliceHarness harness,
+            Order order,
+            IReadOnlyList<long> changed,
+            ChangeMonetaryOutcome monetaryOutcome,
+            decimal settlementAmount = ExchangeSourceFactory.NegativeBalanceAmount,
+            string quotedExchangeId = ExchangeSourceFactory.QuoteId)
+            => harness.ExchangeQuotes.Composer = request => ExchangeSourceFactory.Compose(
+                request,
+                ExchangeSourceFactory.ReplacementsFor(order, changed),
+                monetaryOutcome,
+                quotedExchangeId,
+                ExchangeSourceFactory.AddCollectAmount,
+                settlementAmount);
+
+        public static async Task<ExchangeScenario> NegativeBalanceAsync(
+            OrderingDatabaseFixture fixture,
+            OrderSliceHarness setup,
+            OrderSliceHarness harness,
+            ChangeMonetaryOutcome monetaryOutcome,
+            int[] changedCouponNumbers,
+            int[]? flownCouponNumbers = null,
+            decimal settlementAmount = ExchangeSourceFactory.NegativeBalanceAmount,
+            Func<AcceptedExchange, AcceptedExchange>? shapeAccepted = null,
+            Func<OrderSliceHarness, Task<Order>>? createOrder = null)
+        {
+            var issued = flownCouponNumbers is { Length: > 0 }
+                ? await FlownAsync(fixture, setup, flownCouponNumbers, createOrder)
+                : await IssuedAsync(fixture, setup, roundTrip: true, createOrder: createOrder);
+
+            var order = await ReloadAsync(fixture, issued.OrderId);
+            var ticket = await TicketAsync(fixture, issued.OrderId, issued.TicketId);
+            var coupons = ticket.Coupons.OrderBy(candidate => candidate.CouponNumber).ToList();
+            var couponIds = coupons.ToDictionary(coupon => coupon.CouponNumber, coupon => coupon.Id);
+            var couponServiceIds = coupons.ToDictionary(coupon => coupon.CouponNumber, coupon => coupon.CurrentOrderServiceId);
+            var changed = changedCouponNumbers.Select(number => couponServiceIds[number]).Order().ToList();
+
+            ComposeSettlement(harness, order, changed, monetaryOutcome, settlementAmount);
+
+            await harness.Exchange.QuoteAsync(order.Id, changed);
+
+            if (shapeAccepted is not null)
+                harness.ExchangeQuotes.Reshape(ExchangeSourceFactory.QuoteId, shapeAccepted);
+
+            return new ExchangeScenario(
+                order.Id,
+                changed,
+                ticket.Id,
+                couponIds,
+                couponServiceIds,
+                order.CommercialVersion,
+                order.FinancialSequence,
+                order.ObligationVersion,
+                order.CustomerTotal,
+                ticket.DocumentVersion,
+                harness.ExchangeQuotes.Accepted(ExchangeSourceFactory.QuoteId)!);
+        }
+
         public static async Task<ExchangeScenario> AddCollectAsync(
             OrderingDatabaseFixture fixture,
             OrderSliceHarness setup,

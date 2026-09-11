@@ -65,6 +65,7 @@ namespace AeroTech.Ordering.Providers
             services.AddScoped<Domain.Ports.Exchange.IExchangeQuotePort, UnconfiguredExchangeQuoteProvider>();
             services.AddScoped<Domain.Ports.DocumentExchange.IDocumentExchangePort, UnconfiguredDocumentExchangeProvider>();
             services.AddScoped<Domain.Ports.ExchangeFunding.IExchangeFundingPort, UnconfiguredExchangeFundingProvider>();
+            services.AddScoped<Domain.Ports.ExchangeResidual.IExchangeResidualValuePort, UnconfiguredExchangeResidualProvider>();
 
             return services;
         }

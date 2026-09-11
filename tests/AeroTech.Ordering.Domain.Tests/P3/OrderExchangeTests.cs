@@ -235,8 +235,6 @@ namespace AeroTech.Ordering.Domain.Tests.P3
         }
 
         [Theory]
-        [InlineData("refund", "Refund")]
-        [InlineData("residual", "Residual")]
         [InlineData("mixed", "Mixed")]
         [InlineData("penalty", "Penalty")]
         [InlineData("fee", "Fee")]
@@ -247,8 +245,6 @@ namespace AeroTech.Ordering.Domain.Tests.P3
             var currency = accepted.SaleCurrencyId;
             var shaped = shape switch
             {
-                "refund" => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Refund },
-                "residual" => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Residual },
                 "mixed" => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Mixed },
                 "penalty" => accepted with { PricingLines = [.. accepted.PricingLines, ExchangeSourceFactory.PenaltyLine(currency)] },
                 "fee" => accepted with { PricingLines = [.. accepted.PricingLines, ExchangeSourceFactory.PenaltyLine(currency) with { ComponentType = PricingComponentType.Fee, SourceLineRef = "EXC:FEE" }] },

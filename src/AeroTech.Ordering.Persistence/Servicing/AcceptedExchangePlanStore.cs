@@ -96,7 +96,15 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 row.FundingCaptureReference,
                 row.FundingCaptureDetail,
                 row.FundingReleaseOutcome,
-                row.FundingReleaseDetail);
+                row.FundingReleaseDetail,
+                row.RefundDueOutcome,
+                row.RefundDueReference,
+                row.RefundDueDetail,
+                row.ResidualOutcome,
+                row.ResidualProviderReference,
+                row.ResidualInstrumentReference,
+                row.ResidualInstrument,
+                row.ResidualDetail);
         }
 
         public async Task SaveAsync(AcceptedExchangePlan plan, CancellationToken cancellationToken = default)
@@ -147,6 +155,14 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 FundingCaptureDetail = plan.FundingCaptureDetail,
                 FundingReleaseOutcome = plan.FundingReleaseOutcome,
                 FundingReleaseDetail = plan.FundingReleaseDetail,
+                RefundDueOutcome = plan.RefundDueOutcome,
+                RefundDueReference = plan.RefundDueReference,
+                RefundDueDetail = plan.RefundDueDetail,
+                ResidualOutcome = plan.ResidualOutcome,
+                ResidualProviderReference = plan.ResidualProviderReference,
+                ResidualInstrumentReference = plan.ResidualInstrumentReference,
+                ResidualInstrument = plan.ResidualInstrument,
+                ResidualDetail = plan.ResidualDetail,
                 CreatedAt = now,
                 UpdatedAt = now,
                 Coupons = plan.Coupons
@@ -243,6 +259,40 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
             row.FundingReleaseOutcome = outcome;
             row.FundingReleaseDetail = detail ?? row.FundingReleaseDetail;
+            row.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task RecordRefundDueOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? valueMovementReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireAsync(operationId, cancellationToken);
+
+            row.RefundDueOutcome = outcome;
+            row.RefundDueReference = valueMovementReference ?? row.RefundDueReference;
+            row.RefundDueDetail = detail ?? row.RefundDueDetail;
+            row.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task RecordResidualOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? instrumentReference,
+            ResidualInstrumentKind? instrument,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireAsync(operationId, cancellationToken);
+
+            row.ResidualOutcome = outcome;
+            row.ResidualProviderReference = providerReference ?? row.ResidualProviderReference;
+            row.ResidualInstrumentReference = instrumentReference ?? row.ResidualInstrumentReference;
+            row.ResidualInstrument = instrument ?? row.ResidualInstrument;
+            row.ResidualDetail = detail ?? row.ResidualDetail;
             row.UpdatedAt = _clock.GetDateTime();
         }
 
