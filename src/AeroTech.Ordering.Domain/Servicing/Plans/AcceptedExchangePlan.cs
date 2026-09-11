@@ -85,6 +85,11 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool IsFundingReleased => FundingReleaseOutcome == ProviderOperationOutcome.Confirmed;
 
+        public bool IsFundingReleaseRejected => FundingReleaseOutcome == ProviderOperationOutcome.Rejected;
+
+        public bool IsFundingReleaseUnresolved
+            => FundingReleaseOutcome is ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown;
+
         public bool IsFundingAssured => !RequiresFunding || IsFundingGuaranteed;
 
         public bool IsFundingSettled => !RequiresFunding || IsFundingCaptured;

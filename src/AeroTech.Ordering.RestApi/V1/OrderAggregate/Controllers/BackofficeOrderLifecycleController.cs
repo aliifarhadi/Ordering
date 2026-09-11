@@ -224,7 +224,8 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Controllers
                     request.AcceptExchange!.ChangedOrderServiceIds,
                     request.AcceptExchange.QuotedExchangeId,
                     idempotencyKey,
-                    request.ExpectedCommercialVersion),
+                    request.ExpectedCommercialVersion,
+                    request.AcceptExchange.FundingMethodRef),
                 cancellationToken);
 
             var order = await _mediator.Send(new GetOrderDetailsQuery(orderId), cancellationToken);

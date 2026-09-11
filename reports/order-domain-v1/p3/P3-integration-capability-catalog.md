@@ -449,24 +449,31 @@ ready.
 
 ### BLOCKED_INTEGRATION
 
-1. **Read-back by caller key.** Required: given the operation key Ordering generated, Payment must answer
-   whether it ever saw that operation and what the authoritative outcome is. Unverified: the JetPay contracts
-   in this repository describe an asynchronous instruction-and-fact flow with no evidence of a query keyed by
-   a caller-supplied operation id. An adapter cannot invent this — without it, a lost response leaves Ordering
+1. **Read-back by caller key, for all three stages.** Required: given the operation key Ordering generated,
+   Payment must answer whether it ever saw that operation and what the authoritative outcome is, preserving
+   that operation's amount, currency and provider reference. Unverified: the JetPay contracts in this
+   repository describe an asynchronous instruction-and-fact flow with no evidence of a query keyed by a
+   caller-supplied operation id. An adapter cannot invent this — without it, a lost response leaves Ordering
    unable to distinguish never-dispatched from unknown, and the only safe behaviour is to stop, which is what
-   the rail does today. Must be verified or added during real integration.
-2. **Two-stage guarantee then capture.** Required: authorize or protect an exact amount, then capture it
+   the rail does today. Must be verified or added during real integration for the guarantee, the capture and
+   the release alike.
+2. **Exact obligation evidence on a confirmation.** Required: a `Confirmed` guarantee or capture states the
+   amount, the currency and a provider reference, so Ordering can prove the provider acted on the obligation
+   AirPrice priced. Unverified, and the existing `IPaymentProvider` returns none of them in a usable form. An
+   adapter must not synthesize the amount from the request it just sent; that would make the check
+   tautological and defeat its only purpose, which is detecting a provider that acted on something else.
+3. **Two-stage guarantee then capture.** Required: authorize or protect an exact amount, then capture it
    later against the successor document, then release it if the exchange dies first.
    `RequiredGuarantee.AuthorizedBeforeIssuance` and the `Guaranteed → CommittedForIssuance → Capturing → Paid`
    progression suggest this exists in the JetPay design, but no implemented Ordering-facing operation was
    verified. An adapter must not simulate a guarantee by capturing immediately; that would convert a
    reversible step into an irreversible one behind Ordering's back.
-3. **Same-key idempotency on money operations.** Required: re-sending a guarantee or capture under an
+4. **Same-key idempotency on money operations.** Required: re-sending a guarantee or capture under an
    already-used key must never move money a second time. Unverified. An adapter cannot safely add this on
    the client side, because a client-side dedupe cache is lost exactly when the process crashes.
-4. **Release semantics.** Required: an independently recoverable release that is safe to call once, twice, or
+5. **Release semantics.** Required: an independently recoverable release that is safe to call once, twice, or
    after an unknown outcome. Unverified.
-5. **Capture after an authoritative document.** Required: a reliable completion path for a previously
+6. **Capture after an authoritative document.** Required: a reliable completion path for a previously
    guaranteed amount. If Payment cannot guarantee completion after authorization, the reconciliation state
    this bundle persists is the correct terminal representation and an operator must resolve it.
 

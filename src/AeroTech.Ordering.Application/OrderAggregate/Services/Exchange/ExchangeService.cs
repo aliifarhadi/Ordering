@@ -21,6 +21,7 @@ using AeroTech.Ordering.Domain.Servicing.Operations;
 using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
+using AeroTech.Ordering.Domain.Servicing.Plans.Policies;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain._Shared.Resources;
@@ -315,19 +316,17 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     cancellationToken);
 
             if (plan.IsReservationRejected)
-                return await SettleTerminalAsync(
-                    order,
-                    operation,
-                    predecessor,
-                    await ReleaseFundingAsync(
-                        order, operation, plan, ExchangeFundingReleaseReason.ReservationRejected, cancellationToken),
-                    ExchangeDocumentOutcome.NotAttempted,
-                    isReplay,
-                    cancellationToken);
+                return await ReleaseThenSettleAsync(
+                    order, operation, predecessor, plan, ExchangeFundingReleaseReason.ReservationRejected,
+                    dispatchFresh: false, isReplay, cancellationToken);
+
+            if (plan.IsDocumentExchangeRejected)
+                return await ReleaseThenSettleAsync(
+                    order, operation, predecessor, plan, ExchangeFundingReleaseReason.DocumentRejected,
+                    dispatchFresh: false, isReplay, cancellationToken);
 
             if (await AwaitsReconciliationAsync(operation, cancellationToken)
-                || order.CommercialVersion != plan.ExpectedCommercialVersion
-                || plan.IsDocumentExchangeRejected)
+                || order.CommercialVersion != plan.ExpectedCommercialVersion)
                 return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
 
             if (plan.IsDocumentExchangeConfirmed)
@@ -484,16 +483,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             };
 
             if (result.Outcome == ProviderOperationOutcome.Rejected)
-                return await SettleTerminalAsync(
-                    order,
-                    operation,
-                    predecessor,
-                    await ReleaseFundingAsync(
-                        order, operation, recorded, ExchangeFundingReleaseReason.ReservationRejected,
-                        cancellationToken),
-                    ExchangeDocumentOutcome.NotAttempted,
-                    isReplay,
-                    cancellationToken);
+                return await ReleaseThenSettleAsync(
+                    order, operation, predecessor, recorded, ExchangeFundingReleaseReason.ReservationRejected,
+                    dispatchFresh: true, isReplay, cancellationToken);
 
             if (result.Outcome != ProviderOperationOutcome.Confirmed)
                 return await SettleAsync(
@@ -556,15 +548,24 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 throw;
             }
 
+            var contradiction = result.Outcome == ProviderOperationOutcome.Confirmed
+                ? ExchangeFundingEvidencePolicy.GuaranteeContradiction(plan, result)
+                : null;
+
             await _plans.RecordFundingGuaranteeOutcomeAsync(
-                operation.OperationId, result.Outcome, result.ProviderReference, result.Detail, cancellationToken);
+                operation.OperationId, result.Outcome, result.ProviderReference, contradiction ?? result.Detail,
+                cancellationToken);
 
             var recordedPlan = plan with
             {
                 FundingGuaranteeOutcome = result.Outcome,
                 FundingGuaranteeReference = result.ProviderReference ?? plan.FundingGuaranteeReference,
-                FundingGuaranteeDetail = result.Detail ?? plan.FundingGuaranteeDetail
+                FundingGuaranteeDetail = contradiction ?? result.Detail ?? plan.FundingGuaranteeDetail
             };
+
+            if (contradiction is not null)
+                return await ReconcileAsync(
+                    order, operation, predecessor, recordedPlan, isReplay, cancellationToken);
 
             if (result.Outcome == ProviderOperationOutcome.Rejected)
                 return await SettleTerminalAsync(
@@ -606,36 +607,42 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     plan.FundingMethodRef!),
                 cancellationToken);
 
-        private async Task<AcceptedExchangePlan> ReleaseFundingAsync(
+        private async Task<ExchangeOutcome> ReleaseThenSettleAsync(
             Order order,
             OrderOperation operation,
+            ElectronicTicket predecessor,
             AcceptedExchangePlan plan,
             ExchangeFundingReleaseReason reason,
+            bool dispatchFresh,
+            bool isReplay,
             CancellationToken cancellationToken)
         {
-            if (!plan.IsFundingGuaranteed || plan.FundingReleaseOutcome == ProviderOperationOutcome.Confirmed)
-                return plan;
+            if (plan.IsFundingReleaseRejected)
+                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+
+            if (!plan.RequiresFunding || !plan.IsFundingGuaranteed || plan.IsFundingReleased)
+                return await SettleReleasedAsync(
+                    order, operation, predecessor, plan, reason, isReplay, cancellationToken);
 
             ExchangeFundingResult result;
 
             try
             {
-                var recovered = await _funding.RecoverReleaseAsync(
-                    new ExchangeFundingRecoveryRequest(
-                        FundingReleaseKey(operation, plan), order.Id, operation.OperationId),
-                    cancellationToken);
-
-                result = recovered.WasDispatched
-                    ? recovered.AsResult()
-                    : await _funding.ReleaseAsync(
-                        new ExchangeFundingReleaseRequest(
-                            FundingReleaseKey(operation, plan),
-                            order.Id,
-                            operation.OperationId,
-                            plan.QuotedExchangeId,
-                            plan.FundingGuaranteeReference,
-                            reason),
+                if (dispatchFresh)
+                {
+                    result = await DispatchReleaseAsync(order, operation, plan, reason, cancellationToken);
+                }
+                else
+                {
+                    var recovered = await _funding.RecoverReleaseAsync(
+                        new ExchangeFundingRecoveryRequest(
+                            FundingReleaseKey(operation, plan), order.Id, operation.OperationId),
                         cancellationToken);
+
+                    result = recovered.WasDispatched
+                        ? recovered.AsResult()
+                        : await DispatchReleaseAsync(order, operation, plan, reason, cancellationToken);
+                }
             }
             catch
             {
@@ -648,12 +655,65 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return plan with
+            var released = plan with
             {
                 FundingReleaseOutcome = result.Outcome,
                 FundingReleaseDetail = result.Detail ?? plan.FundingReleaseDetail
             };
+
+            return result.Outcome switch
+            {
+                ProviderOperationOutcome.Confirmed => await SettleReleasedAsync(
+                    order, operation, predecessor, released, reason, isReplay, cancellationToken),
+                ProviderOperationOutcome.Rejected => await ReconcileAsync(
+                    order, operation, predecessor, released, isReplay, cancellationToken),
+                _ => await SettleAsync(
+                    order, operation, predecessor, released,
+                    ServicingOperationStatus.AwaitingExternal,
+                    result.Outcome == ProviderOperationOutcome.Unknown
+                        ? CommandReceiptStatus.Unknown
+                        : CommandReceiptStatus.Pending,
+                    DocumentOutcomeOf(reason),
+                    isReplay,
+                    cancellationToken)
+            };
         }
+
+        private async Task<ExchangeFundingResult> DispatchReleaseAsync(
+            Order order,
+            OrderOperation operation,
+            AcceptedExchangePlan plan,
+            ExchangeFundingReleaseReason reason,
+            CancellationToken cancellationToken)
+            => await _funding.ReleaseAsync(
+                new ExchangeFundingReleaseRequest(
+                    FundingReleaseKey(operation, plan),
+                    order.Id,
+                    operation.OperationId,
+                    plan.QuotedExchangeId,
+                    plan.FundingGuaranteeReference,
+                    reason),
+                cancellationToken);
+
+        private async Task<ExchangeOutcome> SettleReleasedAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
+            AcceptedExchangePlan plan,
+            ExchangeFundingReleaseReason reason,
+            bool isReplay,
+            CancellationToken cancellationToken)
+            => reason == ExchangeFundingReleaseReason.DocumentRejected
+                ? await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken)
+                : await SettleTerminalAsync(
+                    order, operation, predecessor, plan, DocumentOutcomeOf(reason), isReplay, cancellationToken);
+
+        private static ExchangeDocumentOutcome DocumentOutcomeOf(ExchangeFundingReleaseReason reason) => reason switch
+        {
+            ExchangeFundingReleaseReason.DocumentRejected => ExchangeDocumentOutcome.Rejected,
+            ExchangeFundingReleaseReason.DocumentDenied => ExchangeDocumentOutcome.Denied,
+            _ => ExchangeDocumentOutcome.NotAttempted
+        };
 
         private async Task<ExchangeOutcome> EnterDocumentExchangeAsync(
             Order order,
@@ -759,15 +819,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                         order, operation, predecessor, recorded, documentJustConfirmed: true, isReplay,
                         cancellationToken),
                 ProviderOperationOutcome.Rejected
-                    => await ReconcileAsync(
-                        order,
-                        operation,
-                        predecessor,
-                        await ReleaseFundingAsync(
-                            order, operation, recorded, ExchangeFundingReleaseReason.DocumentRejected,
-                            cancellationToken),
-                        isReplay,
-                        cancellationToken),
+                    => await ReleaseThenSettleAsync(
+                        order, operation, predecessor, recorded, ExchangeFundingReleaseReason.DocumentRejected,
+                        dispatchFresh: true, isReplay, cancellationToken),
                 _ => await SettleAsync(
                     order, operation, predecessor, recorded,
                     ServicingOperationStatus.AwaitingExternal,
@@ -882,8 +936,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 throw;
             }
 
+            var contradiction = result.Outcome == ProviderOperationOutcome.Confirmed
+                ? ExchangeFundingEvidencePolicy.CaptureContradiction(plan, result)
+                : null;
+
             await _plans.RecordFundingCaptureOutcomeAsync(
-                operation.OperationId, result.Outcome, result.ProviderReference, result.Detail, cancellationToken);
+                operation.OperationId, result.Outcome, result.ProviderReference, contradiction ?? result.Detail,
+                cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -891,13 +950,24 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             {
                 FundingCaptureOutcome = result.Outcome,
                 FundingCaptureReference = result.ProviderReference ?? plan.FundingCaptureReference,
-                FundingCaptureDetail = result.Detail ?? plan.FundingCaptureDetail
+                FundingCaptureDetail = contradiction ?? result.Detail ?? plan.FundingCaptureDetail
             };
+
+            if (contradiction is not null || result.Outcome == ProviderOperationOutcome.Rejected)
+                return await ReconcileAsync(order, operation, predecessor, settled, isReplay, cancellationToken);
 
             return result.Outcome == ProviderOperationOutcome.Confirmed
                 ? await FinalizeAsync(
                     order, operation, predecessor, settled, documentJustConfirmed: false, isReplay, cancellationToken)
-                : await ReconcileAsync(order, operation, predecessor, settled, isReplay, cancellationToken);
+                : await SettleAsync(
+                    order, operation, predecessor, settled,
+                    ServicingOperationStatus.AwaitingExternal,
+                    result.Outcome == ProviderOperationOutcome.Unknown
+                        ? CommandReceiptStatus.Unknown
+                        : CommandReceiptStatus.Pending,
+                    ExchangeDocumentOutcome.Exchanged,
+                    isReplay,
+                    cancellationToken);
         }
 
         private async Task<ExchangeFundingResult> CaptureAsync(

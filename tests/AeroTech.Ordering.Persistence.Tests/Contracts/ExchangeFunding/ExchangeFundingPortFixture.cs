@@ -55,5 +55,36 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeFunding
             operationKey,
             OrderId,
             operationKey == OtherGuaranteeKey ? OtherOperationId : OperationId);
+
+        public static IEnumerable<ExchangeFundingGuaranteeRequest> ConflictingGuarantees()
+        {
+            var request = Guarantee();
+
+            yield return request with { Amount = request.Amount + 1m };
+            yield return request with { CurrencyId = request.CurrencyId + 7 };
+            yield return request with { FundingMethodRef = $"{request.FundingMethodRef}-OTHER" };
+            yield return request with { OrderId = request.OrderId + 1 };
+            yield return request with { OperationId = request.OperationId + 1 };
+            yield return request with { QuotedExchangeId = $"{request.QuotedExchangeId}-OTHER" };
+            yield return request with { PredecessorDocumentNumber = "T9999999" };
+        }
+
+        public static IEnumerable<ExchangeFundingCaptureRequest> ConflictingCaptures(string? guaranteeReference)
+        {
+            var request = Capture(guaranteeReference);
+
+            yield return request with { Amount = request.Amount + 1m };
+            yield return request with { CurrencyId = request.CurrencyId + 7 };
+            yield return request with { SuccessorDocumentNumber = "T9999999" };
+            yield return request with { GuaranteeReference = $"{guaranteeReference}-OTHER" };
+        }
+
+        public static IEnumerable<ExchangeFundingReleaseRequest> ConflictingReleases(string? guaranteeReference)
+        {
+            var request = Release(guaranteeReference);
+
+            yield return request with { GuaranteeReference = $"{guaranteeReference}-OTHER" };
+            yield return request with { Reason = ExchangeFundingReleaseReason.ReservationRejected };
+        }
     }
 }

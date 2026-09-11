@@ -4,5 +4,6 @@ namespace AeroTech.Ordering.RestApi.V1.OrderAggregate.Requests
 {
     public sealed record AcceptExchange(
         [property: Required] IReadOnlyList<long> ChangedOrderServiceIds,
-        [property: Required] string QuotedExchangeId);
+        [property: Required] string QuotedExchangeId,
+        string? FundingMethodRef = null);
 }

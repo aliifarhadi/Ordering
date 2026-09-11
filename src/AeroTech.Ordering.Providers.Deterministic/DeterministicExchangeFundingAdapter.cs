@@ -27,7 +27,23 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public bool ThrowAfterCaptureDispatch { get; set; }
 
+        public bool ThrowBeforeReleaseDispatch { get; set; }
+
+        public bool ThrowAfterReleaseDispatch { get; set; }
+
         public bool ThrowOnRecover { get; set; }
+
+        public decimal? GuaranteeAmountOverride { get; set; }
+
+        public int? GuaranteeCurrencyOverride { get; set; }
+
+        public bool OmitGuaranteeReference { get; set; }
+
+        public decimal? CaptureAmountOverride { get; set; }
+
+        public int? CaptureCurrencyOverride { get; set; }
+
+        public bool OmitCaptureReference { get; set; }
 
         public List<ExchangeFundingGuaranteeRequest> ObservedGuarantees { get; } = new();
 
@@ -52,7 +68,13 @@ namespace AeroTech.Ordering.Providers.Deterministic
             if (ThrowBeforeGuaranteeDispatch)
                 throw new InvalidOperationException("The exchange funding guarantee never left Ordering.");
 
-            var recorded = Remember(request.OperationKey, GuaranteeOutcome, request.Amount, request.CurrencyId, "GUAR");
+            var recorded = Remember(
+                request.OperationKey,
+                GuaranteeIntent(request),
+                GuaranteeOutcome,
+                OmitGuaranteeReference ? null : $"GUAR-{Reference(request.OperationKey)}",
+                GuaranteeAmountOverride ?? request.Amount,
+                GuaranteeCurrencyOverride ?? request.CurrencyId);
 
             if (ThrowAfterGuaranteeDispatch)
                 throw new InvalidOperationException("The exchange funding guarantee response never reached Ordering.");
@@ -78,7 +100,13 @@ namespace AeroTech.Ordering.Providers.Deterministic
             if (ThrowBeforeCaptureDispatch)
                 throw new InvalidOperationException("The exchange funding capture never left Ordering.");
 
-            var recorded = Remember(request.OperationKey, CaptureOutcome, request.Amount, request.CurrencyId, "CAP");
+            var recorded = Remember(
+                request.OperationKey,
+                CaptureIntent(request),
+                CaptureOutcome,
+                OmitCaptureReference ? null : $"CAP-{Reference(request.OperationKey)}",
+                CaptureAmountOverride ?? request.Amount,
+                CaptureCurrencyOverride ?? request.CurrencyId);
 
             if (ThrowAfterCaptureDispatch)
                 throw new InvalidOperationException("The exchange funding capture response never reached Ordering.");
@@ -101,7 +129,19 @@ namespace AeroTech.Ordering.Providers.Deterministic
         {
             ObservedReleases.Add(request);
 
-            var recorded = Remember(request.OperationKey, ReleaseOutcome, null, null, "REL");
+            if (ThrowBeforeReleaseDispatch)
+                throw new InvalidOperationException("The exchange funding release never left Ordering.");
+
+            var recorded = Remember(
+                request.OperationKey,
+                ReleaseIntent(request),
+                ReleaseOutcome,
+                $"REL-{Reference(request.OperationKey)}",
+                null,
+                null);
+
+            if (ThrowAfterReleaseDispatch)
+                throw new InvalidOperationException("The exchange funding release response never reached Ordering.");
 
             return Task.FromResult(recorded.AsResult());
         }
@@ -117,17 +157,22 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         private DeterministicFundingOperation Remember(
             string operationKey,
+            string intent,
             ProviderOperationOutcome outcome,
+            string? providerReference,
             decimal? amount,
-            int? currencyId,
-            string prefix)
+            int? currencyId)
         {
             if (_dispatched.TryGetValue(operationKey, out var existing))
-                return existing;
+                return string.Equals(existing.Intent, intent, StringComparison.Ordinal)
+                    ? existing
+                    : throw new InvalidOperationException(
+                        $"A different funding intent already owns operation key {operationKey}.");
 
             var recorded = new DeterministicFundingOperation(
+                intent,
                 outcome,
-                outcome == ProviderOperationOutcome.Rejected ? null : $"{prefix}-{Reference(operationKey)}",
+                outcome == ProviderOperationOutcome.Rejected ? null : providerReference,
                 amount,
                 currencyId);
 
@@ -145,18 +190,49 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 return Task.FromResult(new ExchangeFundingRecovery(
                     false, ProviderOperationOutcome.Unknown, Detail: "no such exchange funding operation"));
 
-            var resolved = dispatched.Outcome == ProviderOperationOutcome.Confirmed
-                           || dispatched.Outcome == ProviderOperationOutcome.Rejected
-                ? dispatched.Outcome
-                : recoveryOutcome;
+            var resolved = dispatched.Resolved(recoveryOutcome);
+
+            _dispatched[operationKey] = resolved;
 
             return Task.FromResult(new ExchangeFundingRecovery(
                 true,
-                resolved,
-                resolved == ProviderOperationOutcome.Rejected ? null : dispatched.ProviderReference,
-                dispatched.Amount,
-                dispatched.CurrencyId));
+                resolved.Outcome,
+                resolved.ProviderReference,
+                resolved.Amount,
+                resolved.CurrencyId));
         }
+
+        private static string GuaranteeIntent(ExchangeFundingGuaranteeRequest request)
+            => string.Join(
+                '|',
+                request.OrderId,
+                request.OperationId,
+                request.QuotedExchangeId,
+                request.PredecessorDocumentNumber,
+                request.PayerTravellerId,
+                request.Amount,
+                request.CurrencyId,
+                request.FundingMethodRef);
+
+        private static string CaptureIntent(ExchangeFundingCaptureRequest request)
+            => string.Join(
+                '|',
+                request.OrderId,
+                request.OperationId,
+                request.QuotedExchangeId,
+                request.SuccessorDocumentNumber,
+                request.GuaranteeReference,
+                request.Amount,
+                request.CurrencyId);
+
+        private static string ReleaseIntent(ExchangeFundingReleaseRequest request)
+            => string.Join(
+                '|',
+                request.OrderId,
+                request.OperationId,
+                request.QuotedExchangeId,
+                request.GuaranteeReference,
+                request.Reason);
 
         private static string Reference(string operationKey) => operationKey.Replace(':', '-');
     }

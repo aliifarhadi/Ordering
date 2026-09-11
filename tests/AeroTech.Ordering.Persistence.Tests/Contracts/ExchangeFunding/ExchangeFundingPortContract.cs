@@ -184,6 +184,118 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeFunding
             Assert.Equal(dispatched.ProviderReference, again.ProviderReference);
         }
 
+        // ---------------------------------------------------------------- conflicting intent
+
+        [Fact]
+        public async Task A_guarantee_key_cannot_be_reused_for_a_different_obligation()
+        {
+            var port = Port();
+
+            await port.GuaranteeAsync(ExchangeFundingPortFixture.Guarantee());
+
+            foreach (var conflicting in ExchangeFundingPortFixture.ConflictingGuarantees())
+                await Assert.ThrowsAnyAsync<Exception>(() => port.GuaranteeAsync(conflicting));
+        }
+
+        [Fact]
+        public async Task A_capture_key_cannot_be_reused_for_a_different_obligation()
+        {
+            var port = Port();
+            var guarantee = await port.GuaranteeAsync(ExchangeFundingPortFixture.Guarantee());
+
+            await port.CaptureAsync(ExchangeFundingPortFixture.Capture(guarantee.ProviderReference));
+
+            foreach (var conflicting in ExchangeFundingPortFixture.ConflictingCaptures(guarantee.ProviderReference))
+                await Assert.ThrowsAnyAsync<Exception>(() => port.CaptureAsync(conflicting));
+        }
+
+        [Fact]
+        public async Task A_release_key_cannot_be_reused_for_a_different_intent()
+        {
+            var port = Port();
+            var guarantee = await port.GuaranteeAsync(ExchangeFundingPortFixture.Guarantee());
+
+            await port.ReleaseAsync(ExchangeFundingPortFixture.Release(guarantee.ProviderReference));
+
+            foreach (var conflicting in ExchangeFundingPortFixture.ConflictingReleases(guarantee.ProviderReference))
+                await Assert.ThrowsAnyAsync<Exception>(() => port.ReleaseAsync(conflicting));
+        }
+
+        // ---------------------------------------------------------------- immutable evidence and stickiness
+
+        [Fact]
+        public async Task A_read_back_never_rewrites_the_evidence_of_a_dispatched_operation()
+        {
+            var port = Port();
+            var dispatched = await port.GuaranteeAsync(ExchangeFundingPortFixture.Guarantee());
+
+            var first = await port.RecoverGuaranteeAsync(
+                ExchangeFundingPortFixture.Recovery(ExchangeFundingPortFixture.GuaranteeKey));
+            var second = await port.RecoverGuaranteeAsync(
+                ExchangeFundingPortFixture.Recovery(ExchangeFundingPortFixture.GuaranteeKey));
+
+            Assert.True(first.WasDispatched);
+            Assert.True(second.WasDispatched);
+            Assert.Equal(first.Amount, second.Amount);
+            Assert.Equal(first.CurrencyId, second.CurrencyId);
+
+            if (dispatched.Amount is not null)
+                Assert.Equal(dispatched.Amount, first.Amount);
+
+            if (dispatched.CurrencyId is not null)
+                Assert.Equal(dispatched.CurrencyId, first.CurrencyId);
+        }
+
+        [Fact]
+        public async Task A_terminal_outcome_stays_terminal_across_every_read_back()
+        {
+            var port = Port();
+            var dispatched = await port.GuaranteeAsync(ExchangeFundingPortFixture.Guarantee());
+
+            if (dispatched.Outcome is not (ProviderOperationOutcome.Confirmed or ProviderOperationOutcome.Rejected))
+                return;
+
+            var first = await port.RecoverGuaranteeAsync(
+                ExchangeFundingPortFixture.Recovery(ExchangeFundingPortFixture.GuaranteeKey));
+            var second = await port.RecoverGuaranteeAsync(
+                ExchangeFundingPortFixture.Recovery(ExchangeFundingPortFixture.GuaranteeKey));
+
+            Assert.Equal(dispatched.Outcome, first.Outcome);
+            Assert.Equal(dispatched.Outcome, second.Outcome);
+            Assert.Equal(dispatched.ProviderReference, first.ProviderReference);
+        }
+
+        [Fact]
+        public async Task A_confirmed_guarantee_states_the_exact_obligation_it_protected()
+        {
+            var request = ExchangeFundingPortFixture.Guarantee();
+            var result = await Port().GuaranteeAsync(request);
+
+            if (result.Outcome != ProviderOperationOutcome.Confirmed)
+                return;
+
+            Assert.Equal(request.Amount, result.Amount);
+            Assert.Equal(request.CurrencyId, result.CurrencyId);
+            Assert.False(string.IsNullOrWhiteSpace(result.ProviderReference));
+        }
+
+        [Fact]
+        public async Task A_confirmed_capture_states_the_exact_obligation_it_settled()
+        {
+            var port = Port();
+            var guarantee = await port.GuaranteeAsync(ExchangeFundingPortFixture.Guarantee());
+            var request = ExchangeFundingPortFixture.Capture(guarantee.ProviderReference);
+
+            var result = await port.CaptureAsync(request);
+
+            if (result.Outcome != ProviderOperationOutcome.Confirmed)
+                return;
+
+            Assert.Equal(request.Amount, result.Amount);
+            Assert.Equal(request.CurrencyId, result.CurrencyId);
+            Assert.False(string.IsNullOrWhiteSpace(result.ProviderReference));
+        }
+
         // ---------------------------------------------------------------- stage isolation
 
         [Fact]

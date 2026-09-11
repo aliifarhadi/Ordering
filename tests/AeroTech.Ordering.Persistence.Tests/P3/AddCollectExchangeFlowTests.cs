@@ -458,7 +458,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         [Theory]
         [InlineData(ProviderOperationOutcome.Pending)]
         [InlineData(ProviderOperationOutcome.Unknown)]
-        public async Task O_an_unresolved_capture_after_a_confirmed_reissue_needs_reconciliation(ProviderOperationOutcome unresolved)
+        public async Task O_an_unresolved_capture_after_a_confirmed_reissue_stays_recoverable(ProviderOperationOutcome unresolved)
         {
             await using var setup = NewHarness();
             await using var harness = NewHarness();
@@ -472,9 +472,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var plan = (await harness.ExchangePlans.FindAsync(outcome.OperationId))!;
             var after = await ReloadAsync(_fixture, scenario.OrderId);
 
-            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, outcome.OperationStatus);
-            Assert.True(outcome.RequiresReconciliation);
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, outcome.OperationStatus);
+            Assert.False(outcome.RequiresReconciliation);
             Assert.Equal(ExchangeFundingState.CapturePending, outcome.FundingState);
+            Assert.Equal(ExchangeDocumentOutcome.Exchanged, outcome.DocumentOutcome);
             Assert.True(plan.IsDocumentExchangeConfirmed);
             Assert.NotNull(plan.Successor);
             Assert.Null(outcome.SuccessorElectronicTicketId);
@@ -483,6 +484,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Empty(harness.ExchangeFunding.ObservedReleases);
             Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
             Assert.Equal(scenario.CustomerTotal, after.CustomerTotal);
+            Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
         }
 
         [Fact]
@@ -541,6 +543,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single(harness.DocumentExchanges.ObservedRequests);
             Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
             Assert.Single(after.PriceChangeSets, set => set.Reason == PriceChangeReason.Exchange);
+            Assert.Single(await TicketsAsync(_fixture, scenario.OrderId), candidate => candidate.PredecessorElectronicTicketId == scenario.TicketId);
             Assert.Equal(before.CustomerTotal, after.CustomerTotal);
             Assert.Equal(before.CommercialVersion, after.CommercialVersion);
             Assert.Equal(3, (await TicketsAsync(_fixture, scenario.OrderId)).Count);
@@ -650,20 +653,36 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var scenario = await AddCollectAsync(_fixture, setup, harness, [1]);
 
             harness.ExchangeFunding.CaptureOutcome = ProviderOperationOutcome.Unknown;
+            harness.ExchangeFunding.CaptureRecoveryOutcome = ProviderOperationOutcome.Unknown;
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
+            var unresolved = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
-            Assert.Equal(ChangeMonetaryOutcome.AddCollect, outcome.MonetaryOutcome);
-            Assert.Equal(AddCollect, outcome.AddCollectAmount);
-            Assert.Equal(scenario.Accepted.SaleCurrencyId, outcome.AddCollectCurrencyId);
-            Assert.Equal(ExchangeFundingState.CapturePending, outcome.FundingState);
-            Assert.True(outcome.RequiresReconciliation);
-            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, outcome.OperationStatus);
-            Assert.Equal(ProviderOperationOutcome.Confirmed, outcome.DocumentExchangeOutcome);
-            Assert.Equal(scenario.TicketId, outcome.PredecessorElectronicTicketId);
-            Assert.False(string.IsNullOrWhiteSpace(outcome.SuccessorDocumentNumber));
-            Assert.False(string.IsNullOrWhiteSpace(outcome.FundingProviderReference));
-            Assert.DoesNotContain(ExchangeSourceFactory.FundingMethodRef, outcome.FundingProviderReference);
+            Assert.Equal(ChangeMonetaryOutcome.AddCollect, unresolved.MonetaryOutcome);
+            Assert.Equal(AddCollect, unresolved.AddCollectAmount);
+            Assert.Equal(scenario.Accepted.SaleCurrencyId, unresolved.AddCollectCurrencyId);
+            Assert.Equal(ExchangeFundingState.CapturePending, unresolved.FundingState);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, unresolved.DocumentExchangeOutcome);
+            Assert.Equal(ExchangeDocumentOutcome.Exchanged, unresolved.DocumentOutcome);
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, unresolved.OperationStatus);
+            Assert.False(unresolved.RequiresReconciliation);
+            Assert.Equal(scenario.TicketId, unresolved.PredecessorElectronicTicketId);
+            Assert.False(string.IsNullOrWhiteSpace(unresolved.SuccessorDocumentNumber));
+            Assert.False(string.IsNullOrWhiteSpace(unresolved.FundingProviderReference));
+            Assert.DoesNotContain(ExchangeSourceFactory.FundingMethodRef, unresolved.FundingProviderReference);
+
+            await using var refused = NewHarness();
+            var refusedScenario = await AddCollectAsync(_fixture, NewHarness(), refused, [1]);
+
+            refused.ExchangeFunding.CaptureOutcome = ProviderOperationOutcome.Rejected;
+
+            var rejected = await refused.Exchange.ExchangeAsync(refusedScenario.FundedExecution(NewKey()));
+
+            Assert.Equal(ExchangeFundingState.CaptureRejected, rejected.FundingState);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, rejected.DocumentExchangeOutcome);
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, rejected.OperationStatus);
+            Assert.True(rejected.RequiresReconciliation);
+            Assert.NotEqual(unresolved.FundingState, rejected.FundingState);
+            Assert.NotEqual(unresolved.OperationStatus, rejected.OperationStatus);
         }
 
         [Fact]

@@ -49,7 +49,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         private readonly OrderQueryDbContext _query;
         private readonly ReferenceDbContext _reference;
 
-        public OrderSliceHarness(OrderingDatabaseFixture fixture, ICallerContext caller)
+        public OrderSliceHarness(
+            OrderingDatabaseFixture fixture,
+            ICallerContext caller,
+            DeterministicExchangeFundingAdapter? exchangeFunding = null)
         {
             _fixture = fixture;
 
@@ -164,7 +167,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Refund = new RefundService(Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
             ExchangeQuotes = new DeterministicExchangeQuoteAdapter();
             DocumentExchanges = new DeterministicDocumentExchangeAdapter();
-            ExchangeFunding = new DeterministicExchangeFundingAdapter();
+            ExchangeFunding = exchangeFunding ?? new DeterministicExchangeFundingAdapter();
             ExchangePlans = new AcceptedExchangePlanStore(_command, frameworkClock);
             Exchange = new ExchangeService(
                 Orders,

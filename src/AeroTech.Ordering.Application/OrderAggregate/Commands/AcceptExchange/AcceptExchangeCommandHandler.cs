@@ -16,7 +16,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.AcceptExchange
                     command.ChangedOrderServiceIds,
                     command.QuotedExchangeId,
                     command.IdempotencyKey,
-                    command.ExpectedCommercialVersion),
+                    command.ExpectedCommercialVersion,
+                    command.FundingMethodRef),
                 cancellationToken);
     }
 }
