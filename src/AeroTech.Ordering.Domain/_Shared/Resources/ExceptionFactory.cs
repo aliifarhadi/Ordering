@@ -820,6 +820,36 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ExchangeResidualSourceNotConfigured() =>
             new(20293, ExceptionMessages.ExchangeResidualSourceNotConfigured) { HttpStatus = 501 };
 
+        public static BusinessException AncillaryDispositionSourceNotConfigured() =>
+            new(20294, ExceptionMessages.AncillaryDispositionSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException EmdAssociationSourceNotConfigured() =>
+            new(20295, ExceptionMessages.EmdAssociationSourceNotConfigured) { HttpStatus = 501 };
+
+        public static BusinessException AncillaryDispositionMissing(params object?[] args) =>
+            new(20296, ExceptionMessages.AncillaryDispositionMissing, args) { HttpStatus = 422 };
+
+        public static BusinessException AncillaryDispositionMalformed(params object?[] args) =>
+            new(20297, ExceptionMessages.AncillaryDispositionMalformed, args) { HttpStatus = 422 };
+
+        public static BusinessException AncillaryDispositionNotExecutable(params object?[] args) =>
+            new(20298, ExceptionMessages.AncillaryDispositionNotExecutable, args) { HttpStatus = 422 };
+
+        public static BusinessException ElectronicMiscDocumentCouponNotFound(params object?[] args) =>
+            new(20299, ExceptionMessages.ElectronicMiscDocumentCouponNotFound, args) { HttpStatus = 404 };
+
+        public static BusinessException ElectronicMiscDocumentIsNotAssociable(params object?[] args) =>
+            new(20300, ExceptionMessages.ElectronicMiscDocumentIsNotAssociable, args) { HttpStatus = 422 };
+
+        public static BusinessException ElectronicMiscDocumentCouponIsNotAssociable(params object?[] args) =>
+            new(20301, ExceptionMessages.ElectronicMiscDocumentCouponIsNotAssociable, args) { HttpStatus = 409 };
+
+        public static BusinessException ElectronicMiscDocumentAssociationMoved(params object?[] args) =>
+            new(20302, ExceptionMessages.ElectronicMiscDocumentAssociationMoved, args) { HttpStatus = 409 };
+
+        public static BusinessException ElectronicMiscDocumentNotFound(params object?[] args) =>
+            new(20303, ExceptionMessages.ElectronicMiscDocumentNotFound, args) { HttpStatus = 404 };
+
         public static BusinessException IdempotencyKeyRequired(params object?[] args) =>
             new(20264, ExceptionMessages.IdempotencyKeyRequired, args) { HttpStatus = 400 };
 

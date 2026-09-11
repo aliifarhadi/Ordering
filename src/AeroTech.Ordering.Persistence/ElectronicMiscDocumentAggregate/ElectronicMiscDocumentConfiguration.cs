@@ -55,6 +55,19 @@ namespace AeroTech.Ordering.Persistence.ElectronicMiscDocumentAggregate
         public void Configure(EntityTypeBuilder<EmdCoupon> builder)
         {
             builder.ToTable("EmdCoupons");
+
+            builder.OwnsMany(coupon => coupon.AssociationChanges, history =>
+            {
+                history.ToTable("EmdCouponAssociationChanges");
+                history.WithOwner().HasForeignKey(change => change.EmdCouponId);
+                history.HasKey(change => change.Id);
+                history.Property(change => change.Id).ValueGeneratedNever();
+                history.Property(change => change.PreviousDocumentNumber).HasMaxLength(32);
+                history.Property(change => change.CurrentDocumentNumber).HasMaxLength(32);
+                history.Property(change => change.DecisionReference).HasMaxLength(128);
+                history.Property(change => change.ProviderReference).HasMaxLength(128);
+                history.HasIndex(change => new { change.EmdCouponId, change.Sequence }).IsUnique();
+            });
             builder.HasKey(coupon => coupon.Id);
             builder.Property(coupon => coupon.Id).ValueGeneratedNever();
             builder.Property(coupon => coupon.ReasonForIssuanceSubCode).HasMaxLength(8).IsRequired();

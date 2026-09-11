@@ -1,10 +1,14 @@
 ﻿using AeroTech.Framework.Core.Domain.Entities;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Arguments;
+using AeroTech.Framework.Core.ServiceContracts;
 
 namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
 {
     public sealed class EmdCoupon : Entity<long>
     {
+        private readonly List<EmdCouponAssociationChange> _associationChanges = new();
+
         private EmdCoupon()
         {
         }
@@ -58,6 +62,97 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
 
         public EmdCouponStatus Status { get; private set; }
 
+        public IReadOnlyList<EmdCouponAssociationChange> AssociationChanges
+            => _associationChanges.OrderBy(change => change.Sequence).ToList();
+
+        public bool IsOpenForUse => Status == EmdCouponStatus.OpenForUse;
+
+        public bool IsAssociatedWith(long ticketCouponId) => AssociatedTicketCouponId == ticketCouponId;
+
         internal void Void() => Status = EmdCouponStatus.Void;
+
+        internal void RecordIssuedAssociation(long operationId, IIdGenerator idGenerator, DateTimeOffset now)
+        {
+            if (AssociatedTicketCouponId is not { } associated || _associationChanges.Count > 0)
+                return;
+
+            Append(
+                EmdCouponAssociationChangeKind.Associated,
+                null,
+                null,
+                null,
+                associated,
+                null,
+                null,
+                operationId,
+                null,
+                null,
+                idGenerator,
+                now);
+        }
+
+        internal void Reassociate(EmdCouponReassociation reassociation, IIdGenerator idGenerator, DateTimeOffset now)
+        {
+            ArgumentNullException.ThrowIfNull(reassociation);
+
+            Append(
+                EmdCouponAssociationChangeKind.DisassociatedByReissue,
+                reassociation.PredecessorTicketCouponId,
+                reassociation.PredecessorDocumentNumber,
+                reassociation.PredecessorCouponNumber,
+                null,
+                null,
+                null,
+                reassociation.OperationId,
+                reassociation.DecisionReference,
+                reassociation.ProviderReference,
+                idGenerator,
+                now);
+
+            Append(
+                EmdCouponAssociationChangeKind.Reassociated,
+                reassociation.PredecessorTicketCouponId,
+                reassociation.PredecessorDocumentNumber,
+                reassociation.PredecessorCouponNumber,
+                reassociation.SuccessorTicketCouponId,
+                reassociation.SuccessorDocumentNumber,
+                reassociation.SuccessorCouponNumber,
+                reassociation.OperationId,
+                reassociation.DecisionReference,
+                reassociation.ProviderReference,
+                idGenerator,
+                now);
+
+            AssociatedTicketCouponId = reassociation.SuccessorTicketCouponId;
+        }
+
+        private void Append(
+            EmdCouponAssociationChangeKind kind,
+            long? previousTicketCouponId,
+            string? previousDocumentNumber,
+            int? previousCouponNumber,
+            long? currentTicketCouponId,
+            string? currentDocumentNumber,
+            int? currentCouponNumber,
+            long? operationId,
+            string? decisionReference,
+            string? providerReference,
+            IIdGenerator idGenerator,
+            DateTimeOffset now)
+            => _associationChanges.Add(new EmdCouponAssociationChange(
+                idGenerator.NewId(),
+                Id,
+                _associationChanges.Count + 1,
+                kind,
+                previousTicketCouponId,
+                previousDocumentNumber,
+                previousCouponNumber,
+                currentTicketCouponId,
+                currentDocumentNumber,
+                currentCouponNumber,
+                operationId,
+                decisionReference,
+                providerReference,
+                now));
     }
 }

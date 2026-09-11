@@ -1,3 +1,4 @@
+using AeroTech.Ordering.Domain.Ports.EmdAssociation;
 using AeroTech.Ordering.Domain.Ports.ExchangeResidual;
 using AeroTech.Ordering.Domain.Ports.RefundValue;
 
@@ -31,6 +32,39 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Policies
             return result.Disposition is { } disposition
                    && !string.Equals(disposition, obligation.Disposition, StringComparison.Ordinal)
                 ? $"the confirmed refund used disposition {disposition} against an accepted {obligation.Disposition}"
+                : null;
+        }
+
+        public static string? ReassociationContradiction(
+            AcceptedExchangeAncillaryDisposition disposition,
+            string successorDocumentNumber,
+            int successorCouponNumber,
+            EmdAssociationResult result)
+        {
+            ArgumentNullException.ThrowIfNull(disposition);
+            ArgumentNullException.ThrowIfNull(result);
+
+            if (string.IsNullOrWhiteSpace(result.ProviderReference))
+                return "the confirmed reassociation carries no provider reference";
+
+            if (result.EmdDocumentNumber is { } document
+                && !string.Equals(document, disposition.EmdDocumentNumber, StringComparison.Ordinal))
+                return $"the confirmed reassociation names miscellaneous document {document} "
+                       + $"against a requested {disposition.EmdDocumentNumber}";
+
+            if (result.EmdCouponNumber is { } coupon && coupon != disposition.EmdCouponNumber)
+                return $"the confirmed reassociation names coupon {coupon} "
+                       + $"against a requested {disposition.EmdCouponNumber}";
+
+            if (result.AssociatedDocumentNumber is { } associated
+                && !string.Equals(associated, successorDocumentNumber, StringComparison.Ordinal))
+                return $"the confirmed reassociation attached the ancillary to document {associated} "
+                       + $"against a requested {successorDocumentNumber}";
+
+            return result.AssociatedCouponNumber is { } associatedCoupon
+                   && associatedCoupon != successorCouponNumber
+                ? $"the confirmed reassociation attached the ancillary to coupon {associatedCoupon} "
+                  + $"against a requested {successorCouponNumber}"
                 : null;
         }
 

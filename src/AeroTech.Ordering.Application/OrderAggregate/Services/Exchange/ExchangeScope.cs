@@ -7,5 +7,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         ElectronicTicket PredecessorTicket,
         IReadOnlyList<long> ChangedOrderServiceIds,
         IReadOnlyList<ExchangeScopeCoupon> Coupons,
-        IReadOnlyList<HistoricalUsedCoupon> HistoricalUsedCoupons);
+        IReadOnlyList<HistoricalUsedCoupon> HistoricalUsedCoupons,
+        IReadOnlyList<AffectedAncillaryAssociation> AffectedAncillaries);
 }

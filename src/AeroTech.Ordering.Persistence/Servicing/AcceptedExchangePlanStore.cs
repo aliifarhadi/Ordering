@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
@@ -104,7 +104,27 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 row.ResidualProviderReference,
                 row.ResidualInstrumentReference,
                 row.ResidualInstrument,
-                row.ResidualDetail);
+                row.ResidualDetail,
+                row.Ancillaries
+                    .OrderBy(ancillary => ancillary.EmdDocumentNumber)
+                    .ThenBy(ancillary => ancillary.EmdCouponNumber)
+                    .Select(ancillary => new AcceptedExchangeAncillaryDisposition(
+                        ancillary.ElectronicMiscDocumentId,
+                        ancillary.EmdDocumentNumber,
+                        ancillary.EmdCouponNumber,
+                        ancillary.EmdCouponId,
+                        ancillary.PredecessorTicketCouponId,
+                        ancillary.PredecessorDocumentNumber,
+                        ancillary.PredecessorCouponNumber,
+                        ancillary.Disposition,
+                        ancillary.TargetPredecessorCouponNumber,
+                        ancillary.TargetSuccessorTicketCouponId,
+                        ancillary.DecisionReference,
+                        ancillary.DecisionVersion,
+                        ancillary.AssociationOutcome,
+                        ancillary.AssociationProviderReference,
+                        ancillary.AssociationDetail))
+                    .ToList());
         }
 
         public async Task SaveAsync(AcceptedExchangePlan plan, CancellationToken cancellationToken = default)
@@ -184,6 +204,27 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         SegmentDepartureDateTime = coupon.TicketedSegment.DepartureDateTime,
                         SegmentArrivalDateTime = coupon.TicketedSegment.ArrivalDateTime,
                         SegmentBookingClass = coupon.TicketedSegment.BookingClass
+                    })
+                    .ToList(),
+                Ancillaries = plan.Ancillaries
+                    .Select(ancillary => new AcceptedExchangePlanAncillaryRow
+                    {
+                        OperationId = plan.OperationId,
+                        ElectronicMiscDocumentId = ancillary.ElectronicMiscDocumentId,
+                        EmdDocumentNumber = ancillary.EmdDocumentNumber,
+                        EmdCouponNumber = ancillary.EmdCouponNumber,
+                        EmdCouponId = ancillary.EmdCouponId,
+                        PredecessorTicketCouponId = ancillary.PredecessorTicketCouponId,
+                        PredecessorDocumentNumber = ancillary.PredecessorDocumentNumber,
+                        PredecessorCouponNumber = ancillary.PredecessorCouponNumber,
+                        Disposition = ancillary.Disposition,
+                        TargetPredecessorCouponNumber = ancillary.TargetPredecessorCouponNumber,
+                        TargetSuccessorTicketCouponId = ancillary.TargetSuccessorTicketCouponId,
+                        DecisionReference = ancillary.DecisionReference,
+                        DecisionVersion = ancillary.DecisionVersion,
+                        AssociationOutcome = ancillary.AssociationOutcome,
+                        AssociationProviderReference = ancillary.AssociationProviderReference,
+                        AssociationDetail = ancillary.AssociationDetail
                     })
                     .ToList()
             };
@@ -296,6 +337,30 @@ namespace AeroTech.Ordering.Persistence.Servicing
             row.UpdatedAt = _clock.GetDateTime();
         }
 
+        public async Task RecordAncillaryAssociationOutcomeAsync(
+            long operationId,
+            long emdCouponId,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await _dbContext.Set<AcceptedExchangePlanAncillaryRow>()
+                          .FirstOrDefaultAsync(
+                              ancillary => ancillary.OperationId == operationId
+                                           && ancillary.EmdCouponId == emdCouponId,
+                              cancellationToken)
+                      ?? throw ExceptionFactory.AcceptedExchangePlanNotFound(operationId);
+
+            row.AssociationOutcome = outcome;
+            row.AssociationProviderReference = providerReference ?? row.AssociationProviderReference;
+            row.AssociationDetail = detail ?? row.AssociationDetail;
+
+            var plan = await RequireAsync(operationId, cancellationToken);
+
+            plan.UpdatedAt = _clock.GetDateTime();
+        }
+
         public async Task RecordDocumentExchangeOutcomeAsync(
             long operationId,
             ProviderOperationOutcome outcome,
@@ -360,7 +425,9 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         .ToList());
 
         private IQueryable<AcceptedExchangePlanRow> Query()
-            => _dbContext.Set<AcceptedExchangePlanRow>().Include(plan => plan.Coupons);
+            => _dbContext.Set<AcceptedExchangePlanRow>()
+                .Include(plan => plan.Coupons)
+                .Include(plan => plan.Ancillaries);
 
         private async Task<AcceptedExchangePlanRow> RequireAsync(
             long operationId,

@@ -1,4 +1,4 @@
-# P3 Integration Capability Catalog
+﻿# P3 Integration Capability Catalog
 
 Living catalog of the integration capabilities that Ordering depends on for P3 servicing.
 
@@ -16,7 +16,8 @@ Status vocabulary:
 
 Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
 `ICC-P3-EXCHANGE-REFUND-VALUE`, `ICC-P3-EXCHANGE-RESIDUAL`, `ICC-P3-EXCHANGE-INVENTORY`,
-`ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`.
+`ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`, `ICC-P3-ANCILLARY-EXCHANGE-DISPOSITION`,
+`ICC-P3-EMD-ASSOCIATION`.
 
 Capability scope of this revision: **even, add-collect, refund-due, residual and mixed reissue**, each over
 both supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. This closes
@@ -1276,3 +1277,350 @@ an open integration obligation.
 Ordering does not perform check-in, boarding, departure control, flight close-out or usage reconciliation. It
 does not ask DCS anything synchronously during Exchange and does not derive usage from segment dates, flight
 status or the passage of time.
+
+---
+
+## ICC-P3-ANCILLARY-EXCHANGE-DISPOSITION
+
+### Capability
+
+Deciding, per affected associated ancillary coupon, what must happen to that ancillary when the accountable
+ticket coupon it is attached to is reissued.
+
+### Authoritative Owner
+
+AirPrice, as the owner of every commercial and fare-rule decision about a priced product. Ordering does not
+own this decision and must not infer it.
+
+### Ordering Semantic Requirement
+
+Ordering owns the **affected scope**, the **structural validation**, the **immutable accepted record** and the
+**fail-closed gate**. It never decides a disposition, never defaults one and never carries an ancillary
+forward silently.
+
+The governing invariant of this entry is:
+
+```text
+every affected ancillary carries an explicit authoritative disposition
+before any irreversible exchange work begins
+```
+
+An ancillary is *affected* when, and only when, all of the following hold, mechanically:
+
+* the miscellaneous document is `ElectronicMiscDocumentType.Associated`;
+* the document's `StatusSummary` is not `Voided`;
+* the coupon's `EmdCouponStatus` is `OpenForUse`;
+* the coupon's `AssociatedTicketCouponId` names a coupon inside the current accountable predecessor's
+  **reissue scope**, which is the set of `Open` coupons of the resolved predecessor document.
+
+Nothing else makes an ancillary affected. A standalone EMD, a voided document, a voided coupon and an
+ancillary attached to a `Used` coupon that is historical pricing context are all outside the scope by
+construction, and the disposition source is not consulted at all in those cases.
+
+This revision **executes exactly one disposition**: `ReassociateExisting`. Every other value of
+`AncillaryExchangeDisposition` — `Refund`, `ExchangeToNewEmd`, `RetainAsResidual`, `Cancel`, `ManualReview` —
+is a recognised, recorded, *not executable* decision in this capability. It stops the exchange before the
+first irreversible operation with `AncillaryDispositionNotExecutable` (20298). It is not a silent
+carry-forward, not a guess and not a downgrade to a different disposition.
+
+### Ordering Port / Dependency Boundary
+
+`src/AeroTech.Ordering.Domain/Ports/AncillaryDisposition/IAncillaryExchangeDispositionPort.cs`
+
+One method, `DecideAsync`, which is **side-effect-free**: it obtains a decision and mutates nothing anywhere.
+It therefore carries no operation key, no recovery method and no `WasDispatched` concept. A separate port was
+created rather than extending the existing `IExchangeQuotePort` because no extension point for a per-ancillary
+decision existed on the accepted-exchange contract, and because acceptance of a priced exchange and the
+disposition of an attached ancillary are two different authoritative answers with different lifetimes.
+
+### Request Evidence
+
+Order id, servicing operation id, quoted exchange id, predecessor document number, the reissue-scope coupon
+numbers, and per affected coupon: EMD document number, EMD coupon number, EMD type, coupon purpose, reason for
+issuance sub code, predecessor document number and predecessor coupon number.
+
+Accountable-document terms only. No Ordering surrogate identity — no order service id, no EMD coupon id, no
+ticket coupon id — crosses this boundary.
+
+### Outcome Semantics
+
+A decision reference, a decision version and one `AncillaryCouponDisposition` per affected coupon, each naming
+the EMD coupon, the predecessor coupon it was attached to, the disposition and — for `ReassociateExisting` —
+the `TargetPredecessorCouponNumber`.
+
+The target is expressed as a **predecessor** coupon number on purpose. The successor document number and its
+coupon numbers do not exist when the decision is obtained; the predecessor coupon number is resolvable at
+acceptance time and maps deterministically to the accepted successor coupon through the accepted plan.
+
+### Structural validation — fail closed
+
+`ExchangeAncillaryPlanner` is the single place this is decided. A decision is refused, before anything is
+persisted and before the order is mutated, when:
+
+| Condition | Failure |
+| --- | --- |
+| an affected coupon has no decision | `AncillaryDispositionMissing` (20296, 422) |
+| two decisions name the same coupon | `AncillaryDispositionMalformed` (20297, 422) |
+| a decision names an ancillary outside the affected scope | 20297 |
+| a decision names another predecessor document or coupon | 20297 |
+| `ReassociateExisting` carries no target coupon | 20297 |
+| the target is outside the accepted successor scope | 20297 |
+| the target is a `Used` coupon, i.e. historical context | 20297 |
+| the decision carries no reference of its own | 20297 |
+| the decision is not `ReassociateExisting` | `AncillaryDispositionNotExecutable` (20298, 422) |
+
+All of these are durable rejections: the accepted plan is stored with `AcceptedExchangeDisposition.Rejected`
+and the same code and HTTP status replay terminally under the same command receipt.
+
+### Identity and Correlation
+
+The decision's own `DecisionReference` and `DecisionVersion`, stored verbatim on every accepted disposition
+and carried into the reassociation request and into the EMD association history. Ordering never interprets
+them.
+
+### Idempotency / Stable Operation Identity
+
+N/A — the call has no side effect, so it needs no stable operation identity. It happens once per fresh
+execution, before the accepted plan is persisted; a replay reads the persisted plan and never asks again.
+
+### NotDispatched / Pending / Unknown / Rejected / Confirmed
+
+N/A — a decision lookup is not a durable operation. An unreachable or unconfigured source is not an outcome:
+the servicing operation is left `AwaitingExternal`, no plan is persisted, nothing is mutated and the command
+is retryable from the start.
+
+### Recovery / Read-back
+
+N/A — see above. The *decision* is made durable instead: once accepted it lives in
+`AcceptedExchangePlanAncillaries` and is never re-asked.
+
+### Atomicity / Coupling
+
+The decision is obtained after AirPrice acceptance and strictly **before** `AcceptedExchangePlanStore.SaveAsync`,
+so an accepted exchange plan is never persisted without the complete ancillary plan it implies. Accepted
+dispositions are stored in the same transaction as the plan they belong to.
+
+### Irreversible-Step Ordering
+
+```text
+quote -> accept -> obtain dispositions -> validate -> persist complete plan
+-> eligibility -> funding guarantee -> inventory -> document exchange
+-> monetary settlement -> EMD-A reassociation -> local finalization
+```
+
+The disposition lookup sits before every irreversible step in that chain, which is what makes 20296/20297/20298
+safe to raise: no inventory has moved, no document has been exchanged and no money has moved.
+
+### Deterministic Simulator
+
+`DeterministicAncillaryDispositionAdapter` in `AeroTech.Ordering.Providers.Deterministic`. It defaults to
+`ReassociateExisting` onto the same coupon number and can be steered to omit a decision, duplicate one, add an
+unrelated one, report another predecessor document or coupon, drop the target, retarget, drop its own
+reference, return any disposition per coupon, or throw.
+
+### Consumer Contract Tests
+
+`AncillaryDispositionGateTests` — cases A–T. Scope calculation (A–F), every structural refusal (G–O), every
+non-executable disposition (P–R), and an unreachable or unconfigured source (S–T).
+`UnconfiguredAncillaryProviderTests` covers the 501 refusal.
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. AirPrice exposes no per-ancillary exchange disposition endpoint today. The Ordering-side boundary,
+   validation and fail-closed gate are complete and deterministic; the authoritative source is not wired.
+2. Whether AirPrice will return the target as a predecessor coupon number, as a successor coupon number, or
+   as a segment reference. Ordering's boundary currently requires the predecessor coupon number, which is the
+   only one resolvable at decision time.
+3. Whether the decision reference is stable across a re-ask for the same quoted exchange. Ordering does not
+   depend on it being stable, because it never re-asks after acceptance.
+
+### Known Semantic Gaps
+
+* No partial acceptance. Ordering accepts a decision set for all affected coupons or none.
+* An `Associated` EMD whose coupon points at a ticket coupon of **another** accountable document in the same
+  order is not in this scope, because the reissue scope is resolved per accountable document.
+* Ordering does not ask for a disposition during `QuoteAsync`. The quote stays side-effect-free and the
+  disposition is obtained only when an exchange is actually executed.
+
+### Explicit Non-Responsibilities
+
+Ordering does not price ancillaries, does not decide whether an ancillary survives a reissue, does not choose
+a target coupon, does not decide EMD refundability and does not substitute one disposition for another.
+
+---
+
+## ICC-P3-EMD-ASSOCIATION
+
+### Capability
+
+Moving an open associated EMD coupon from the predecessor ticket coupon it documents to the successor ticket
+coupon produced by a reissue, in the authoritative accountable-document record.
+
+### Authoritative Owner
+
+The accountable-document authority that owns EMD association — the same authority that owns the electronic
+miscellaneous document itself.
+
+### Ordering Semantic Requirement
+
+Ordering owns the stable per-coupon operation identity, the immutable accepted target, the durable provider
+outcome, the evidence check and the reconciliation state. It never invents an association and never mutates
+its own EMD aggregate before the authority has confirmed the move.
+
+The governing invariant is:
+
+```text
+the local association follows the authoritative one, never leads it
+```
+
+Concretely: the local `ElectronicMiscDocument.ReassociateCoupon` runs only inside the finalizing transaction,
+in the same unit of work that mints the successor ticket. Until then the ancillary still points at the
+predecessor coupon, which is the truthful state while the reissue may still fail.
+
+**The move happens after all monetary settlement and before local finalization.** An ancillary is not moved
+onto a successor document whose money has not settled, and a successor document is not created locally while
+an ancillary it must carry is unresolved.
+
+### Ordering Port / Dependency Boundary
+
+`src/AeroTech.Ordering.Domain/Ports/EmdAssociation/IEmdAssociationPort.cs` — `ReassociateAsync` plus
+`RecoverReassociationAsync`, the same two-method durable-operation shape as every other P3 provider rail.
+
+### Request Evidence
+
+Operation key, order id, servicing operation id, EMD document number, EMD coupon number, predecessor document
+number, predecessor coupon number, successor document number, successor coupon number, beneficiary traveller
+id, issuer carrier id and the decision reference that authorised the move.
+
+Accountable-document terms only. No EMD coupon id, no ticket coupon id and no order service id cross the
+boundary. The beneficiary traveller id and issuer carrier id are the only identities, and both are already
+shared identity, not Ordering surrogate keys.
+
+### Outcome Semantics
+
+`ProviderOperationOutcome` plus a provider reference and, optionally, the EMD document and coupon it moved and
+the document and coupon it attached them to. Provider-neutral state is projected as `ExchangeAncillaryState`
+(`NotRequired`, `NotStarted`, `Pending`, `Confirmed`, `Rejected`, `NeedsReconciliation`).
+
+**A confirmation must not contradict what was requested.** `ExchangeSettlementEvidencePolicy.ReassociationContradiction`
+is the single place this is decided. A `Confirmed` result is contradictory when it carries no provider
+reference, or when it names a different EMD document, a different EMD coupon, a different associated document
+or a different associated coupon than the accepted plan asked for. A contradiction is not a business
+rejection: it is persisted in `AssociationDetail`, the operation becomes `NeedsReconciliation`, the local
+association is left untouched and the move is never retried.
+
+### Identity and Correlation
+
+EMD document number plus EMD coupon number plus the Ordering-supplied operation key. The provider's own
+reference is stored and never interpreted; it is also written into the EMD association history as the
+evidence of the move.
+
+### Idempotency / Stable Operation Identity
+
+```text
+emd-reassociate:{emdDocumentNumber}:{emdCouponNumber}:{operationId}
+```
+
+derived internally by `OrderOperationCoordinator.ProviderOperationKey` before first dispatch. **One key per
+affected coupon**, so a multi-coupon exchange has one independently recoverable durable operation per coupon
+and never one aggregate operation whose partial completion is unrepresentable. The same key with the same
+intent answers the same result; the same key with a conflicting document, coupon, predecessor, successor,
+traveller, carrier, decision, order or operation must fail closed.
+
+### NotDispatched / Pending / Unknown / Rejected / Confirmed
+
+All five are modelled. `Pending` and `Unknown` are unresolved, never failures: the operation holds its claim
+in `AwaitingExternal`, the successor document is not created, and the coupon is read back on the next replay.
+`Rejected` becomes `NeedsReconciliation` — after a confirmed document exchange, a refused ancillary move is an
+economic exception for an operator, not something Ordering resolves by itself.
+
+### Recovery / Read-back
+
+`RecoverReassociationAsync` answers per operation key. The stage dispatches fresh **only** when its
+prerequisite confirmed in the same attempt; otherwise it reads back first and dispatches only when the
+recovery says `WasDispatched = false`. In practice the first coupon of an even exchange may dispatch fresh,
+and every later coupon and every replay reads back first, which is the safe direction.
+
+### WasDispatched Requirement
+
+Required and load-bearing. A recovery for a key that never left Ordering must answer `WasDispatched = false`
+with no provider reference, so the stage can dispatch once rather than assume a move that never happened.
+A recovery for a dispatched key must answer `WasDispatched = true` and must never rewrite the evidence of an
+already resolved move.
+
+### Atomicity / Coupling
+
+The provider outcome is persisted per coupon in `AcceptedExchangePlanAncillaries` by
+`RecordAncillaryAssociationOutcomeAsync` and committed before the next coupon is attempted. The local
+aggregate mutation and the successor-ticket issuance share one transaction, so the local association can never
+move without a successor document to move it to.
+
+### Irreversible-Step Ordering
+
+```text
+... document exchange confirmed -> monetary settlement confirmed
+-> for each affected coupon in (document number, coupon number) order:
+       reassociate -> record outcome -> commit
+-> local finalization: successor ticket + local association move + completion
+```
+
+Ordering is `(EMD document number, EMD coupon number)` ordinal, so the dispatch sequence is reproducible
+across replays and restarts.
+
+### Deterministic Simulator
+
+`DeterministicEmdAssociationAdapter` in `AeroTech.Ordering.Providers.Deterministic`. It remembers one
+operation per key with an intent fingerprint, refuses a conflicting intent on a known key, and can be steered
+to any outcome globally or per coupon, to throw before or after dispatch, to fail a read-back, to omit its
+provider reference, and to report a different EMD document, EMD coupon, associated document or associated
+coupon for contradiction testing.
+
+### Consumer Contract Tests
+
+`EmdAssociationPortContract` — the reusable kit any implementation of the port must pass: confirmed evidence
+names what it moved, a never-dispatched key answers `WasDispatched = false`, a dispatched key is recoverable
+under its own key only, a repeated key never moves the coupon twice, a conflicting intent on a known key fails
+closed, one key never consumes another operation's move, a read-back never rewrites resolved evidence, and no
+local Ordering identity is ever reported back.
+
+Bound implementations: `DeterministicEmdAssociationPortTests`, plus `UnconfiguredAncillaryProviderTests` for
+the 501 refusal.
+
+Flow coverage: `EmdReassociationFlowTests` — cases U–AO.
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. No real EMD association authority is wired. `UnconfiguredEmdAssociationProvider` fails closed with
+   `EmdAssociationSourceNotConfigured` (20295, 501) and the exchange moves nothing.
+2. Whether the authority exposes reassociation as its own operation or only as a void-and-reissue of the EMD.
+   If it is only the latter, `ReassociateExisting` is not implementable against that provider and the
+   disposition becomes `ExchangeToNewEmd`, which this revision deliberately does not execute.
+3. Whether the authority echoes the EMD coupon and the associated coupon it acted on. Ordering's evidence
+   check treats every echoed field as optional but verifies each one that is present.
+4. Whether a reassociation is idempotent under Ordering's operation key on the real provider.
+
+### Known Semantic Gaps
+
+* Only `ReassociateExisting` is executed. EMD refund, EMD exchange, EMD residual value and EMD cancellation
+  are out of scope for this revision and are refused explicitly, not approximated.
+* No new `ServicingOperationKind` was introduced. The reassociation is a stage of the Exchange operation, not
+  an operation of its own, so it inherits the Exchange claim, receipt and replay semantics.
+* A `NeedsReconciliation` ancillary has no automated operator remediation command yet. The durable evidence
+  needed for one — accepted target, decision identity, provider outcome, provider reference and contradiction
+  detail — is all persisted.
+* `ExchangeBlockedByAssociatedMiscDocument` (20272) is retained in `ExceptionFactory` but is now unreachable:
+  the blanket refusal it expressed has been replaced by this capability. It is kept so the numbering stays
+  contiguous within 20000–29999.
+
+### Explicit Non-Responsibilities
+
+Ordering does not revalue an ancillary, does not reprice it, does not decide which successor coupon it belongs
+on, does not void or reissue an EMD as part of an exchange, and does not reconcile a refused move on its own.

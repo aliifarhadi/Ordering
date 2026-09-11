@@ -1,6 +1,7 @@
 ﻿using AeroTech.Framework.Core.Domain.Aggregates;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Arguments;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities;
 using AeroTech.Ordering.Domain._Shared.Documents;
@@ -88,6 +89,60 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
 
         public bool IsAssociated => Type == ElectronicMiscDocumentType.Associated;
 
+        public IReadOnlyList<EmdCoupon> CouponsAssociatedWith(IReadOnlyCollection<long> ticketCouponIds)
+        {
+            ArgumentNullException.ThrowIfNull(ticketCouponIds);
+
+            return IsAssociated && StatusSummary != ElectronicMiscDocumentStatus.Voided
+                ? _coupons
+                    .Where(coupon => coupon.IsOpenForUse
+                                     && coupon.AssociatedTicketCouponId is { } associated
+                                     && ticketCouponIds.Contains(associated))
+                    .OrderBy(coupon => coupon.CouponNumber)
+                    .ToList()
+                : [];
+        }
+
+        public bool PermitsReassociation(
+            int emdCouponNumber,
+            long predecessorTicketCouponId,
+            long successorTicketCouponId)
+            => IsAssociated
+               && StatusSummary != ElectronicMiscDocumentStatus.Voided
+               && _coupons.SingleOrDefault(coupon => coupon.CouponNumber == emdCouponNumber) is { } candidate
+               && candidate.IsOpenForUse
+               && (candidate.IsAssociatedWith(predecessorTicketCouponId)
+                   || candidate.IsAssociatedWith(successorTicketCouponId));
+
+        public EmdCoupon RequireCoupon(int couponNumber)
+            => _coupons.SingleOrDefault(coupon => coupon.CouponNumber == couponNumber)
+               ?? throw ExceptionFactory.ElectronicMiscDocumentCouponNotFound(DocumentNumber, couponNumber);
+
+        public void ReassociateCoupon(EmdCouponReassociation reassociation, IIdGenerator idGenerator, IClock clock)
+        {
+            ArgumentNullException.ThrowIfNull(reassociation);
+
+            if (!IsAssociated)
+                throw ExceptionFactory.ElectronicMiscDocumentIsNotAssociable(DocumentNumber, Type);
+
+            var coupon = RequireCoupon(reassociation.EmdCouponNumber);
+
+            if (!coupon.IsOpenForUse)
+                throw ExceptionFactory.ElectronicMiscDocumentCouponIsNotAssociable(
+                    DocumentNumber, coupon.CouponNumber, coupon.Status);
+
+            if (coupon.IsAssociatedWith(reassociation.SuccessorTicketCouponId))
+                return;
+
+            if (!coupon.IsAssociatedWith(reassociation.PredecessorTicketCouponId))
+                throw ExceptionFactory.ElectronicMiscDocumentAssociationMoved(
+                    DocumentNumber, coupon.CouponNumber, reassociation.PredecessorDocumentNumber);
+
+            coupon.Reassociate(reassociation, idGenerator, clock.GetDateTime());
+
+            DocumentVersion++;
+        }
+
         public static ElectronicMiscDocument Issue(
             long id,
             long orderId,
@@ -145,6 +200,8 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                     issuance.AssociatedTicketCouponId,
                     issuance.IssuanceValue,
                     currencyId);
+
+                coupon.RecordIssuedAssociation(operationId, idGenerator, document.IssuedAt);
 
                 document._coupons.Add(coupon);
 

@@ -50,7 +50,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         string? ResidualProviderReference = null,
         string? ResidualInstrumentReference = null,
         ResidualInstrumentKind? ResidualInstrument = null,
-        string? ResidualDetail = null)
+        string? ResidualDetail = null,
+        IReadOnlyList<AcceptedExchangeAncillaryDisposition>? AncillaryDispositions = null)
     {
         public bool IsEligibilityEstablished
             => EligibilityOutcome == DocumentExchangeEligibilityOutcome.Eligible;
@@ -109,6 +110,39 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool RequiresReturnOfValue => RequiresRefundDue || RequiresResidual;
 
         public IReadOnlyList<AcceptedExchangeMonetaryLeg> MonetaryLegs => Accepted.MonetaryLegs();
+
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> Ancillaries
+            => AncillaryDispositions ?? [];
+
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> Reassociations
+            => Ancillaries.Where(disposition => disposition.IsReassociation).ToList();
+
+        public bool RequiresAncillaryReassociation => Reassociations.Count > 0;
+
+        public bool IsAncillarySettled => Reassociations.All(disposition => disposition.IsSettled);
+
+        public bool HasRejectedAncillary => Reassociations.Any(disposition => disposition.IsRejected);
+
+        public ExchangeAncillaryState AncillaryState
+        {
+            get
+            {
+                var states = Reassociations.Select(disposition => disposition.State).ToList();
+
+                if (states.Count == 0)
+                    return ExchangeAncillaryState.NotRequired;
+
+                if (states.Contains(ExchangeAncillaryState.Rejected))
+                    return ExchangeAncillaryState.Rejected;
+
+                if (states.Contains(ExchangeAncillaryState.Pending))
+                    return ExchangeAncillaryState.Pending;
+
+                return states.Contains(ExchangeAncillaryState.NotStarted)
+                    ? ExchangeAncillaryState.NotStarted
+                    : ExchangeAncillaryState.Confirmed;
+            }
+        }
 
         public bool CanReproduceRefundDueRequest => !RequiresRefundDue || RefundDue is not null;
 

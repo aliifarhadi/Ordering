@@ -49,13 +49,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             foreach (var serviceId in changed)
                 order.EnsureNoActiveServiceDependsOn(serviceId);
 
-            await EnsureNoAssociatedMiscDocumentAsync(order.Id, reissued, cancellationToken);
-
             return new ExchangeScope(
                 ticket,
                 changed,
                 reissued.Select(coupon => ScopeCoupon(order, coupon, changed)).ToList(),
-                HistoricalContext(order, ticket));
+                HistoricalContext(order, ticket),
+                await AffectedAncillariesAsync(order.Id, reissued, cancellationToken));
         }
 
         public static IReadOnlyList<long> NormalizeChangedServices(Order order, IReadOnlyList<long>? changedOrderServiceIds)
@@ -148,7 +147,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             => coupon.CurrentOrderServiceId == orderServiceId
                && coupon.FinancialStatus == TicketCouponFinancialStatus.Open;
 
-        private async Task EnsureNoAssociatedMiscDocumentAsync(
+        private async Task<IReadOnlyList<AffectedAncillaryAssociation>> AffectedAncillariesAsync(
             long orderId,
             IReadOnlyList<TicketCoupon> reissued,
             CancellationToken cancellationToken)
@@ -156,16 +155,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             var documents = await _miscDocuments.ListByOrderAsync(orderId, cancellationToken);
             var couponIds = reissued.Select(coupon => coupon.Id).ToHashSet();
 
-            foreach (var document in documents.Where(document => document.StatusSummary != ElectronicMiscDocumentStatus.Voided))
-            {
-                var association = document.Coupons.FirstOrDefault(emdCoupon =>
-                    emdCoupon.AssociatedTicketCouponId is { } associated && couponIds.Contains(associated));
-
-                if (association is not null)
-                    throw ExceptionFactory.ExchangeBlockedByAssociatedMiscDocument(
-                        reissued.Single(coupon => coupon.Id == association.AssociatedTicketCouponId).CouponNumber,
-                        document.DocumentNumber);
-            }
+            return documents
+                .SelectMany(document => document
+                    .CouponsAssociatedWith(couponIds)
+                    .Select(coupon => new AffectedAncillaryAssociation(
+                        document,
+                        coupon,
+                        reissued.Single(candidate => candidate.Id == coupon.AssociatedTicketCouponId))))
+                .OrderBy(association => association.Document.DocumentNumber, StringComparer.Ordinal)
+                .ThenBy(association => association.Coupon.CouponNumber)
+                .ToList();
         }
     }
 }

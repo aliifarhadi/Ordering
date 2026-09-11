@@ -1,4 +1,4 @@
-using AeroTech.Ordering.Domain.Ports.DocumentIssuance;
+﻿using AeroTech.Ordering.Domain.Ports.DocumentIssuance;
 using AeroTech.Ordering.Domain.Ports.Funding;
 using AeroTech.Ordering.Domain.Ports.OrderChange;
 using AeroTech.Ordering.Domain.Ports.Reservation;
@@ -66,6 +66,12 @@ namespace AeroTech.Ordering.Providers.Deterministic
             services.AddSingleton<DeterministicDocumentExchangeAdapter>();
             services.AddScoped<Domain.Ports.DocumentExchange.IDocumentExchangePort>(
                 provider => provider.GetRequiredService<DeterministicDocumentExchangeAdapter>());
+            services.AddSingleton<DeterministicAncillaryDispositionAdapter>();
+            services.AddScoped<Domain.Ports.AncillaryDisposition.IAncillaryExchangeDispositionPort>(
+                provider => provider.GetRequiredService<DeterministicAncillaryDispositionAdapter>());
+            services.AddSingleton<DeterministicEmdAssociationAdapter>();
+            services.AddScoped<Domain.Ports.EmdAssociation.IEmdAssociationPort>(
+                provider => provider.GetRequiredService<DeterministicEmdAssociationAdapter>());
 
             return services;
         }

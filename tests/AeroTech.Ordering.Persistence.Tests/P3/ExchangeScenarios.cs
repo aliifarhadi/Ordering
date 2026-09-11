@@ -1,8 +1,11 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
+using AeroTech.Ordering.Domain._Shared.Documents;
 using AeroTech.Ordering.Domain.Tests._Shared;
+using AeroTech.Ordering.Persistence.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Persistence.ElectronicTicketAggregate;
 using AeroTech.Ordering.Persistence.OrderAggregate;
 using AeroTech.Ordering.Persistence.Tests._Shared;
@@ -315,6 +318,84 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 ticket.DocumentVersion,
                 harness.ExchangeQuotes.Accepted(ExchangeSourceFactory.QuoteId)!);
         }
+
+        public static async Task<ElectronicMiscDocument> AttachAncillaryAsync(
+            OrderingDatabaseFixture fixture,
+            OrderSliceHarness harness,
+            long orderId,
+            string documentNumber,
+            IReadOnlyList<long?> associatedTicketCouponIds,
+            ElectronicMiscDocumentType type = ElectronicMiscDocumentType.Associated)
+        {
+            var order = await ReloadAsync(fixture, orderId);
+            var ticket = (await TicketsAsync(fixture, orderId)).OrderBy(candidate => candidate.Id).First();
+            var pricingLineId = order.PricingLines.First().Id;
+
+            var document = ElectronicMiscDocument.Issue(
+                harness.Ids.NewId(),
+                orderId,
+                ticket.TravelerId,
+                harness.Ids.NewId(),
+                documentNumber,
+                type,
+                "A",
+                OrderSliceHarness.HomeAirlineId,
+                null,
+                DocumentAuthority.Local,
+                order.CurrencyId,
+                associatedTicketCouponIds
+                    .Select(couponId => new EmdCouponIssuance(
+                        EmdCouponPurpose.Fee,
+                        "0DF",
+                        50_000m,
+                        [],
+                        PricingLineId: pricingLineId,
+                        AssociatedTicketCouponId: couponId))
+                    .ToList(),
+                harness.Ids,
+                harness.Clock);
+
+            await harness.MiscDocumentRepository.AddAsync(document);
+            await harness.UnitOfWork.SaveChangesAsync();
+
+            return document;
+        }
+
+        public static async Task<IReadOnlyList<ElectronicMiscDocument>> AncillariesAsync(
+            OrderingDatabaseFixture fixture,
+            long orderId)
+        {
+            await using var context = fixture.NewCommandContext();
+
+            return await new ElectronicMiscDocumentRepository(context).ListByOrderAsync(orderId);
+        }
+
+        public static async Task<ElectronicMiscDocument> AncillaryAsync(
+            OrderingDatabaseFixture fixture,
+            long orderId,
+            string documentNumber)
+            => (await AncillariesAsync(fixture, orderId))
+                .Single(document => document.DocumentNumber == documentNumber);
+
+        public static async Task VoidAncillaryCouponAsync(OrderingDatabaseFixture fixture, long emdCouponId)
+        {
+            await using var command = fixture.NewCommandContext();
+
+            await command.Database.ExecuteSqlRawAsync(
+                "UPDATE [Order].[EmdCoupons] SET [Status] = {0} WHERE [Id] = {1}",
+                (int)EmdCouponStatus.Void, emdCouponId);
+        }
+
+        public static async Task VoidAncillaryAsync(OrderingDatabaseFixture fixture, long documentId)
+        {
+            await using var command = fixture.NewCommandContext();
+
+            await command.Database.ExecuteSqlRawAsync(
+                "UPDATE [Order].[ElectronicMiscDocuments] SET [StatusSummary] = {0} WHERE [Id] = {1}",
+                (int)ElectronicMiscDocumentStatus.Voided, documentId);
+        }
+
+        public static string AncillaryKey(string documentNumber, int couponNumber) => $"{documentNumber}:{couponNumber}";
 
         public static async Task FlyCouponAsync(OrderingDatabaseFixture fixture, long ticketId, long ticketCouponId)
         {

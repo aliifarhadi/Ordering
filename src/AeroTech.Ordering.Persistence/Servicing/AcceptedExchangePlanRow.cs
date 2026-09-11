@@ -107,5 +107,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
         public DateTimeOffset UpdatedAt { get; set; }
 
         public List<AcceptedExchangePlanCouponRow> Coupons { get; set; } = new();
+
+        public List<AcceptedExchangePlanAncillaryRow> Ancillaries { get; set; } = new();
     }
 }

@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
@@ -20,6 +20,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
     public sealed class ExchangeFlowTests
     {
         private readonly OrderingDatabaseFixture _fixture;
+        private readonly string B6Document = $"M{Random.Shared.NextInt64(100_000_000, 999_999_999)}";
 
         public ExchangeFlowTests(OrderingDatabaseFixture fixture) => _fixture = fixture;
 
@@ -436,37 +437,20 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Fact]
-        public async Task B6_an_associated_misc_document_fails_before_acceptance()
+        public async Task B6_an_associated_misc_document_without_a_disposition_fails_before_any_exchange_work()
         {
             await using var harness = NewHarness();
             var scenario = await TicketedAsync(_fixture, harness);
-            var order = await ReloadAsync(_fixture, scenario.OrderId);
-            var ticket = await TicketAsync(_fixture, scenario.OrderId, scenario.TicketId);
 
-            var associated = ElectronicMiscDocument.Issue(
-                harness.Ids.NewId(),
-                order.Id,
-                ticket.TravelerId,
-                harness.Ids.NewId(),
-                $"M{harness.Ids.NewId() % 1_000_000:D6}",
-                ElectronicMiscDocumentType.Associated,
-                "A",
-                OrderSliceHarness.HomeAirlineId,
-                null,
-                DocumentAuthority.Local,
-                order.CurrencyId,
-                [new EmdCouponIssuance(EmdCouponPurpose.Fee, "0DF", 50_000m, [], PricingLineId: order.PricingLines.First().Id, AssociatedTicketCouponId: scenario.CouponId)],
-                harness.Ids,
-                harness.Clock);
-
-            await harness.MiscDocumentRepository.AddAsync(associated);
-            await harness.UnitOfWork.SaveChangesAsync();
+            await AttachAncillaryAsync(_fixture, harness, scenario.OrderId, B6Document, [scenario.CouponId]);
+            harness.AncillaryDispositions.OmittedCoupons.Add(AncillaryKey(B6Document, 1));
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
 
-            Assert.Equal(20272, refusal.Code);
-            await AssertNothingHappenedAsync(harness, scenario);
+            Assert.Equal(20296, refusal.Code);
+            Assert.Empty(harness.EmdAssociations.ObservedRequests);
+            await AssertNothingHappenedAsync(harness, scenario, acceptCalls: 1);
         }
 
         // ---------------------------------------------------------------- C. acceptance binding and pricing consistency

@@ -40,6 +40,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         string? ResidualInstrumentReference,
         ResidualInstrumentKind? ResidualInstrument,
         IReadOnlyList<ExchangeMonetaryLegOutcome> MonetaryLegs,
+        ExchangeAncillaryState AncillaryState,
+        IReadOnlyList<ExchangeAncillaryOutcome> Ancillaries,
         bool RequiresReconciliation,
         bool DeferredToExpandedExchange,
         string? DeferralReason,

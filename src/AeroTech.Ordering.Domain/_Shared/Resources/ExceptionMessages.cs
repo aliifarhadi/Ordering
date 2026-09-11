@@ -357,6 +357,16 @@
         public const string ReservationChangeSourceNotConfigured = "No reservation change provider is configured for this deployment.";
         public const string ExchangeFundingSourceNotConfigured = "No exchange funding provider is configured for this deployment.";
         public const string ExchangeResidualSourceNotConfigured = "No exchange residual fulfilment provider is configured for this deployment.";
+        public const string AncillaryDispositionSourceNotConfigured = "No ancillary exchange disposition authority is configured for this deployment.";
+        public const string EmdAssociationSourceNotConfigured = "No miscellaneous document association provider is configured for this deployment.";
+        public const string AncillaryDispositionMissing = "Coupon {1} of miscellaneous document {0} is associated with the reissue scope but carries no accepted disposition.";
+        public const string AncillaryDispositionMalformed = "The accepted ancillary plan for exchange {0} is malformed: {1}.";
+        public const string AncillaryDispositionNotExecutable = "Coupon {1} of miscellaneous document {0} carries a {2} disposition, which this servicing capability cannot execute.";
+        public const string ElectronicMiscDocumentCouponNotFound = "Miscellaneous document {0} has no coupon {1}.";
+        public const string ElectronicMiscDocumentIsNotAssociable = "Miscellaneous document {0} is a {1} document and carries no ticket coupon association.";
+        public const string ElectronicMiscDocumentCouponIsNotAssociable = "Coupon {1} of miscellaneous document {0} is {2} and cannot be reassociated.";
+        public const string ElectronicMiscDocumentNotFound = "Miscellaneous document {0} was not found.";
+        public const string ElectronicMiscDocumentAssociationMoved = "Coupon {1} of miscellaneous document {0} is no longer associated with document {2}.";
         public const string IdempotencyKeyRequired = "The '{0}' header is required for this operation.";
 
         public const string DocumentChangeEligibilitySourceNotConfigured = "No document change eligibility authority is configured for this deployment.";

@@ -1,4 +1,4 @@
-using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
+﻿using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.Ports.FlightFlow;
 using AeroTech.Ordering.Domain.Ports.Payment;
 using AeroTech.Ordering.Domain.Ports.Pricing;
@@ -66,6 +66,8 @@ namespace AeroTech.Ordering.Providers
             services.AddScoped<Domain.Ports.DocumentExchange.IDocumentExchangePort, UnconfiguredDocumentExchangeProvider>();
             services.AddScoped<Domain.Ports.ExchangeFunding.IExchangeFundingPort, UnconfiguredExchangeFundingProvider>();
             services.AddScoped<Domain.Ports.ExchangeResidual.IExchangeResidualValuePort, UnconfiguredExchangeResidualProvider>();
+            services.AddScoped<Domain.Ports.AncillaryDisposition.IAncillaryExchangeDispositionPort, UnconfiguredAncillaryDispositionProvider>();
+            services.AddScoped<Domain.Ports.EmdAssociation.IEmdAssociationPort, UnconfiguredEmdAssociationProvider>();
 
             return services;
         }

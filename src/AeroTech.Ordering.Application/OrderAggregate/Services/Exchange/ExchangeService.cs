@@ -13,7 +13,12 @@ using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Dto;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Arguments;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
+using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
+using AeroTech.Ordering.Domain.Ports.EmdAssociation;
 using AeroTech.Ordering.Domain.Ports.ExchangeFunding;
 using AeroTech.Ordering.Domain.Ports.ExchangeResidual;
 using AeroTech.Ordering.Domain.Ports.RefundValue;
@@ -42,6 +47,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         public const string FundingReleaseStep = "exchange-funding-release";
         public const string RefundDueStep = "exchange-refund-value";
         public const string ResidualStep = "exchange-residual";
+        public const string ReassociationStep = "emd-reassociate";
 
         private readonly IOrderRepository _orders;
         private readonly IElectronicTicketRepository _tickets;
@@ -52,6 +58,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         private readonly IExchangeFundingPort _funding;
         private readonly IRefundValuePort _refundValues;
         private readonly IExchangeResidualValuePort _residuals;
+        private readonly IAncillaryExchangeDispositionPort _ancillaryDispositions;
+        private readonly IEmdAssociationPort _emdAssociations;
+        private readonly IElectronicMiscDocumentRepository _miscDocuments;
         private readonly IAcceptedExchangePlanStore _plans;
         private readonly IOrderOperationCoordinator _operations;
         private readonly IServicingOperationStore _operationStore;
@@ -72,6 +81,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             IExchangeFundingPort funding,
             IRefundValuePort refundValues,
             IExchangeResidualValuePort residuals,
+            IAncillaryExchangeDispositionPort ancillaryDispositions,
+            IEmdAssociationPort emdAssociations,
+            IElectronicMiscDocumentRepository miscDocuments,
             IAcceptedExchangePlanStore plans,
             IOrderOperationCoordinator operations,
             IServicingOperationStore operationStore,
@@ -91,6 +103,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             _funding = funding;
             _refundValues = refundValues;
             _residuals = residuals;
+            _ancillaryDispositions = ancillaryDispositions;
+            _emdAssociations = emdAssociations;
+            _miscDocuments = miscDocuments;
             _plans = plans;
             _operations = operations;
             _operationStore = operationStore;
@@ -243,17 +258,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     accepted, order, scope, execution.QuotedExchangeId, expectedCommercialVersion, _clock.GetDateTime());
 
                 deferralReason = ExchangePricingPolicy.DeferralReason(accepted);
-
-                if (deferralReason is null)
-                {
-                    ExchangePricingPolicy.EnsureWellFormed(accepted);
-
-                    if (plan.RequiresFunding && string.IsNullOrWhiteSpace(plan.FundingMethodRef))
-                        throw ExceptionFactory.ExchangeFundingMethodRequired(
-                            plan.QuotedExchangeId, plan.AddCollect!.Amount);
-
-                    order.PrepareExchange(ToArgs(plan, scope.PredecessorTicket), _idGenerator, _clock);
-                }
             }
             catch (BusinessException rejection)
             {
@@ -273,6 +277,50 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     },
                     false,
                     cancellationToken);
+
+            AncillaryExchangeDispositionResult? ancillaryDecision;
+
+            try
+            {
+                ancillaryDecision = scope.AffectedAncillaries.Count == 0
+                    ? null
+                    : await _ancillaryDispositions.DecideAsync(
+                        ExchangeAncillaryPlanner.Request(
+                            order.Id, operation.OperationId, execution.QuotedExchangeId, scope),
+                        cancellationToken);
+            }
+            catch
+            {
+                await MarkAwaitingExternalAsync(operation);
+                throw;
+            }
+
+            try
+            {
+                ExchangePricingPolicy.EnsureWellFormed(accepted);
+
+                if (plan.RequiresFunding && string.IsNullOrWhiteSpace(plan.FundingMethodRef))
+                    throw ExceptionFactory.ExchangeFundingMethodRequired(
+                        plan.QuotedExchangeId, plan.AddCollect!.Amount);
+
+                if (ancillaryDecision is not null)
+                {
+                    plan = plan with
+                    {
+                        AncillaryDispositions = ExchangeAncillaryPlanner.Accept(
+                            execution.QuotedExchangeId, scope, plan.Coupons, ancillaryDecision)
+                    };
+
+                    ExchangeAncillaryPlanner.EnsureExecutable(plan.Ancillaries);
+                }
+
+                order.PrepareExchange(ToArgs(plan, scope.PredecessorTicket), _idGenerator, _clock);
+            }
+            catch (BusinessException rejection)
+            {
+                await TryRecordRejectionAsync(order.Id, operation, plan, rejection, cancellationToken);
+                throw;
+            }
 
             try
             {
@@ -859,6 +907,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 return await SettleMonetaryAsync(
                     order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
 
+            if (plan.RequiresAncillaryReassociation && !plan.IsAncillarySettled)
+                return await ReassociateAncillaryAsync(
+                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
+
             var staged = order.PrepareExchange(ToArgs(plan, predecessor), _idGenerator, _clock);
 
             predecessor.MarkExchanged(
@@ -888,6 +940,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 SuccessorIssuance(order, predecessor, plan, successor, exchanged), _idGenerator, _clock);
 
             await _tickets.AddAsync(successorTicket, cancellationToken);
+
+            await ApplyReassociationsAsync(operation, plan, successor, cancellationToken);
 
             await _operationStore.TransitionAsync(
                 operation.OperationId,
@@ -1102,6 +1156,190 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     plan.Residual.ExpectedInstrument,
                     plan.SourcePricingReference),
                 cancellationToken);
+
+        private async Task<ExchangeOutcome> ReassociateAncillaryAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            bool documentJustConfirmed,
+            bool isReplay,
+            CancellationToken cancellationToken)
+        {
+            var pending = plan.Reassociations.FirstOrDefault(disposition => !disposition.IsSettled);
+
+            if (pending is null)
+                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+
+            if (!TargetCouponNumber(plan, successor, pending, out var successorCouponNumber))
+                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+
+            var document = await _miscDocuments.GetAsync(pending.ElectronicMiscDocumentId, cancellationToken)
+                           ?? throw ExceptionFactory.ElectronicMiscDocumentNotFound(
+                               pending.ElectronicMiscDocumentId);
+
+            if (!document.PermitsReassociation(
+                    pending.EmdCouponNumber,
+                    pending.PredecessorTicketCouponId,
+                    pending.TargetSuccessorTicketCouponId!.Value))
+                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+
+            EmdAssociationResult result;
+
+            try
+            {
+                if (documentJustConfirmed)
+                {
+                    result = await DispatchReassociationAsync(
+                        order, operation, document, plan, successor, pending, successorCouponNumber, cancellationToken);
+                }
+                else
+                {
+                    var recovered = await _emdAssociations.RecoverReassociationAsync(
+                        new EmdAssociationRecoveryRequest(
+                            ReassociationKey(operation, pending),
+                            order.Id,
+                            operation.OperationId,
+                            pending.EmdDocumentNumber,
+                            pending.EmdCouponNumber),
+                        cancellationToken);
+
+                    result = recovered.WasDispatched
+                        ? recovered.AsResult()
+                        : await DispatchReassociationAsync(
+                            order, operation, document, plan, successor, pending, successorCouponNumber,
+                            cancellationToken);
+                }
+            }
+            catch
+            {
+                await MarkAwaitingExternalAsync(operation);
+                throw;
+            }
+
+            var contradiction = result.Outcome == ProviderOperationOutcome.Confirmed
+                ? ExchangeSettlementEvidencePolicy.ReassociationContradiction(
+                    pending, successor.DocumentNumber, successorCouponNumber, result)
+                : null;
+
+            await _plans.RecordAncillaryAssociationOutcomeAsync(
+                operation.OperationId,
+                pending.EmdCouponId,
+                result.Outcome,
+                result.ProviderReference,
+                contradiction ?? result.Detail,
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var settled = plan with
+            {
+                AncillaryDispositions = plan.Ancillaries
+                    .Select(disposition => disposition.EmdCouponId == pending.EmdCouponId
+                        ? disposition with
+                        {
+                            AssociationOutcome = result.Outcome,
+                            AssociationProviderReference =
+                                result.ProviderReference ?? disposition.AssociationProviderReference,
+                            AssociationDetail =
+                                contradiction ?? result.Detail ?? disposition.AssociationDetail
+                        }
+                        : disposition)
+                    .ToList()
+            };
+
+            if (contradiction is not null || result.Outcome == ProviderOperationOutcome.Rejected)
+                return await ReconcileAsync(order, operation, predecessor, settled, isReplay, cancellationToken);
+
+            return result.Outcome == ProviderOperationOutcome.Confirmed
+                ? await FinalizeAsync(
+                    order, operation, predecessor, settled, documentJustConfirmed: false, isReplay, cancellationToken)
+                : await SettleAsync(
+                    order, operation, predecessor, settled,
+                    ServicingOperationStatus.AwaitingExternal,
+                    result.Outcome == ProviderOperationOutcome.Unknown
+                        ? CommandReceiptStatus.Unknown
+                        : CommandReceiptStatus.Pending,
+                    ExchangeDocumentOutcome.Exchanged,
+                    isReplay,
+                    cancellationToken);
+        }
+
+        private async Task<EmdAssociationResult> DispatchReassociationAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicMiscDocument document,
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            AcceptedExchangeAncillaryDisposition disposition,
+            int successorCouponNumber,
+            CancellationToken cancellationToken)
+            => await _emdAssociations.ReassociateAsync(
+                new EmdReassociationRequest(
+                    ReassociationKey(operation, disposition),
+                    order.Id,
+                    operation.OperationId,
+                    disposition.EmdDocumentNumber,
+                    disposition.EmdCouponNumber,
+                    disposition.PredecessorDocumentNumber,
+                    disposition.PredecessorCouponNumber,
+                    successor.DocumentNumber,
+                    successorCouponNumber,
+                    plan.PredecessorTravellerId,
+                    document.IssuerCarrierId,
+                    disposition.DecisionReference),
+                cancellationToken);
+
+        private async Task ApplyReassociationsAsync(
+            OrderOperation operation,
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            CancellationToken cancellationToken)
+        {
+            foreach (var disposition in plan.Reassociations)
+            {
+                if (!TargetCouponNumber(plan, successor, disposition, out var successorCouponNumber))
+                    throw ExceptionFactory.AncillaryDispositionMalformed(
+                        plan.QuotedExchangeId,
+                        $"reassociation of {disposition.EmdDocumentNumber} coupon {disposition.EmdCouponNumber} "
+                        + "names no successor coupon");
+
+                var document = await _miscDocuments.GetAsync(disposition.ElectronicMiscDocumentId, cancellationToken)
+                               ?? throw ExceptionFactory.ElectronicMiscDocumentNotFound(
+                                   disposition.ElectronicMiscDocumentId);
+
+                document.ReassociateCoupon(
+                    new EmdCouponReassociation(
+                        disposition.EmdCouponNumber,
+                        disposition.PredecessorTicketCouponId,
+                        disposition.PredecessorDocumentNumber,
+                        disposition.PredecessorCouponNumber,
+                        disposition.TargetSuccessorTicketCouponId!.Value,
+                        successor.DocumentNumber,
+                        successorCouponNumber,
+                        operation.OperationId,
+                        disposition.DecisionReference,
+                        disposition.AssociationProviderReference),
+                    _idGenerator,
+                    _clock);
+            }
+        }
+
+        private static bool TargetCouponNumber(
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            AcceptedExchangeAncillaryDisposition disposition,
+            out int successorCouponNumber)
+        {
+            var target = plan.Coupons.FirstOrDefault(coupon =>
+                disposition.TargetSuccessorTicketCouponId is { } couponId
+                && coupon.SuccessorTicketCouponId == couponId);
+
+            successorCouponNumber = target is null ? 0 : SuccessorCouponNumber(successor, target);
+
+            return target is not null;
+        }
 
         private async Task<ExchangeOutcome> AfterMonetarySettlementAsync(
             Order order,
@@ -1650,6 +1888,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         private string ResidualKey(OrderOperation operation, AcceptedExchangePlan plan)
             => _operations.ProviderOperationKey(operation, $"{ResidualStep}:{plan.PredecessorElectronicTicketId}");
 
+        private string ReassociationKey(OrderOperation operation, AcceptedExchangeAncillaryDisposition disposition)
+            => _operations.ProviderOperationKey(operation, disposition.LegIdentity);
+
         private static IReadOnlyList<ExchangeMonetaryLegOutcome> MonetaryLegsOf(AcceptedExchangePlan plan)
             => plan.MonetaryLegs
                 .Select(leg => new ExchangeMonetaryLegOutcome(
@@ -1662,6 +1903,23 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     plan.LegProviderReference(leg.Kind),
                     leg.Kind == ExchangeMonetaryLegKind.Residual ? plan.ResidualInstrumentReference : null,
                     leg.Kind == ExchangeMonetaryLegKind.Residual ? plan.ResidualInstrument : null))
+                .ToList();
+
+        private static IReadOnlyList<ExchangeAncillaryOutcome> AncillariesOf(AcceptedExchangePlan plan)
+            => plan.Ancillaries
+                .Select(disposition => new ExchangeAncillaryOutcome(
+                    disposition.LegIdentity,
+                    disposition.ElectronicMiscDocumentId,
+                    disposition.EmdDocumentNumber,
+                    disposition.EmdCouponNumber,
+                    disposition.PredecessorCouponNumber,
+                    disposition.TargetPredecessorCouponNumber,
+                    disposition.Disposition,
+                    disposition.State,
+                    disposition.DecisionReference,
+                    disposition.DecisionVersion,
+                    disposition.AssociationProviderReference,
+                    disposition.AssociationDetail))
                 .ToList();
 
         private static ExchangeOutcome Outcome(
@@ -1722,6 +1980,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 plan.ResidualInstrumentReference,
                 plan.ResidualInstrument,
                 MonetaryLegsOf(plan),
+                plan.AncillaryState,
+                AncillariesOf(plan),
                 operationStatus == ServicingOperationStatus.NeedsReconciliation,
                 plan.Disposition == AcceptedExchangeDisposition.DeferredToExpandedExchange,
                 plan.Disposition == AcceptedExchangeDisposition.DeferredToExpandedExchange
