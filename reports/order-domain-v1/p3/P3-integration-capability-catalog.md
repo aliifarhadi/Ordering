@@ -89,6 +89,28 @@ disposition (`Replaced` / `Continued`), a replacement for every `Replaced` coupo
 value with its price links. This bundle accepts only `Even`. `PricingSource.OrderingDerived` is never a
 valid answer and is asserted against in the contract tests.
 
+**Even is defined by the customer balance, not by a gross ledger balance.** The frozen rule is the one
+`ExchangePricingPolicy.NetCustomerBalance` already implements: sum the signed sale amounts of the lines whose
+`PricingEffect` is `CustomerBalance`, and require zero. Informational, accounting and source-explanatory
+lines are not required to gross-balance against each other. The reusable contract calls that policy method
+directly rather than carrying a second balance algorithm.
+
+**Quote being side-effect free is not the same as two independent quotes being identical.** Two independent
+`QuoteAsync` calls may legitimately return different quote ids, different expiry, refreshed source pricing or
+a changed source-authoritative result. The invariant that binds a real adapter is only that each answer stays
+bound to the order, commercial version, predecessor document and requested scope it was asked about. Identity
+equality across independent quotes is a property of the deterministic simulator alone and is asserted only in
+its own adapter-specific test.
+
+**Historical evidence may inform the calculation; it must not be attributed as transferred value.** A
+source-authoritative AirPrice result may legitimately reference historical or `Used` value for valuation
+context, `FareUsed`-related output, audit and explanation, or other source-authoritative decomposition, and
+Ordering must not refuse it merely because the predecessor coupon is `Used`. What is forbidden is the
+mechanical attribution of that value into the successor: resolving a `SuccessorDocumentPriceLink.SourceLineRef`
+to its `AcceptedExchangePricingLine`, any line that is a predecessor-value `Transfer` carrying a
+`PredecessorCorrelationRef` must correlate to the actual `Open` exchange scope. Unattributed
+source-explanatory lines may reference historical evidence freely. Ordering still calculates none of it.
+
 ### Identity and Correlation
 
 Correlation to predecessor value uses the Ordering-owned `ExchangePricingCorrelation` ref
@@ -145,21 +167,41 @@ Acceptance is the first external call and the last fully reversible one.
 fixture `tests/AeroTech.Ordering.Domain.Tests/_Shared/ExchangeSourceFactory.cs`.
 
 The simulator observes the exchange scope, the historical `Used` context, the predecessor pricing evidence
-and the fare-construction context. It prices **only** the reissue scope: it filters predecessor pricing
-evidence to the scope coupon numbers before building transfer lines, so historical `Used` value can never
-become successor value. It produces a deterministic valid partially-used `Even` outcome. It implements no
-ATPCO Cat 31, no `FareUsed` calculation, and no tax, fare or penalty rules.
+and the fare-construction context. It produces a deterministic valid partially-used `Even` outcome. It
+implements no ATPCO Cat 31, no `FareUsed` calculation, and no tax, fare or penalty rules.
+
+Its behaviour is a **deliberately simple Even fixture, not a universal AirPrice contract**. Two simulator
+choices in particular must not be read as provider obligations:
+
+1. it filters predecessor pricing evidence down to the scope coupon numbers before building transfer lines,
+   so no historical correlation ref appears on any of its lines at all;
+2. it answers the same quote id and the same lines for the same request every time.
+
+A real adapter is held only to the semantics in **Outcome Semantics** above. Both simulator properties are
+asserted in `DeterministicExchangeQuotePortTests`, deliberately outside the reusable contract.
 
 ### Consumer Contract Tests
 
 `tests/AeroTech.Ordering.Persistence.Tests/Contracts/ExchangeQuote/`
 
-* `ExchangeQuotePortContract.cs` — the reusable semantic assertions.
+* `ExchangeQuotePortContract.cs` — the reusable semantic assertions. Collections are compared by domain
+  identity, never by enumeration order: the changed scope as a set of order-service ids, the coupon scope by
+  coupon number, and replay equivalence by `SourceLineRef`.
 * `ExchangeQuotePortFixture.cs` — the canonical partially-used request (one `Used` historical coupon, one
-  continued `Open` coupon, one changed `Open` coupon) and a variant carrying a stored fare construction.
-* `DeterministicExchangeQuotePortTests.cs` — binds the contract to the deterministic adapter.
+  continued `Open` coupon, one changed `Open` coupon) and a variant carrying a stored fare construction. The
+  request deliberately carries predecessor pricing evidence for the `Used` coupon as well, so the
+  no-mechanical-attribution rule is actually exercised.
+* `DeterministicExchangeQuotePortTests.cs` — binds the contract to the deterministic adapter and adds the two
+  simulator-only properties described above.
 
 A future ACL adapter satisfies the same base class.
+
+Ordering-visible side-effect freedom is proved where it actually belongs, at the application boundary:
+`PartiallyUsedExchangeFlowTests.A_partially_used_quote_leaves_no_ordering_visible_trace_however_often_it_is_asked`
+quotes three times and proves no servicing operation, no `AcceptedExchangePlan`, no `OrderChange`, no
+`PriceChangeSet`, no inventory or document call, no successor ticket, and no movement in commercial version,
+financial sequence, obligation version, customer total or coupon state. AirPrice remains free to persist its
+own quote.
 
 Flow-level coverage lives in `PartiallyUsedExchangeFlowTests` (cases B, C, D, K, L) and
 `ExchangeFlowTests`.
@@ -282,6 +324,14 @@ unchanged by this bundle; the partially-used contract tests exposed no semantic 
 
 Flow-level coverage: `PartiallyUsedExchangeFlowTests` cases B, C, D and N, plus the existing
 `MultiCouponExchangeFlowTests` plan-level assertions and `ExchangeCrashBoundaryTests` F-series.
+
+The partial-use replay proof is
+`PartiallyUsedExchangeFlowTests.N_an_unresolved_reservation_change_is_read_back_on_replay_and_never_applied_again`:
+with one `Used`, one `Replaced` and one `Continued` coupon, an `Unknown` apply followed by a replay of the
+same operation performs exactly one `ApplyAsync`, recovers under the same operation key, never applies again,
+makes no document exchange call, creates no successor ticket and no exchange order change, leaves the `Used`
+coupon `Used` and every `Open` coupon `Open`, keeps the predecessor `PartiallyUsed`, leaves the commercial
+version untouched, stays `AwaitingExternal` and retains the claim.
 
 ### Real-Service Verification Status
 
@@ -413,6 +463,23 @@ malformed-response knobs `UnknownPredecessorCouponNumber`, `DuplicatePredecessor
 Fail-closed mapping and durable-evidence behaviour are covered at flow level by
 `DocumentExchangeIdentityTests`, `ExchangeCrashBoundaryTests` (H and I series) and
 `PartiallyUsedExchangeFlowTests` cases M and O.
+
+Two partial-use proofs complete that boundary:
+
+* `O_a_durable_document_confirmation_finalizes_in_a_fresh_process_with_no_provider_call` establishes the exact
+  durable boundary (accepted plan persisted, eligibility established, inventory confirmed, document outcome
+  `Confirmed` with its raw successor evidence stored, local finalization not yet done), disposes the harness,
+  and replays the same operation in a fresh one. The fresh process makes zero inventory applies, zero
+  inventory recoveries, zero document exchanges, zero document recoveries and zero acceptances, then finalizes
+  locally: one exchange order change, one exchange price change set, one successor ticket, the predecessor
+  retained and `Exchanged`, the `Used` coupon still `Used` with no successor lineage, only the planned `Open`
+  coupons `Exchanged`, no duplicate service or ticket, customer total unchanged, commercial version and
+  financial sequence each advanced exactly once. A further replay is provider-free and idempotent.
+* `M_a_host_mapping_that_names_the_used_coupon_needs_reconciliation` now also replays. The malformed
+  confirmed mapping is neither normalized nor repaired: the plan still carries the raw successor evidence
+  naming the `Used` coupon, which is what explains the inconsistency, while the plan's own coupon set never
+  contains it. There is no second document dispatch, no successor ticket, unchanged coupon states, a retained
+  claim, and the operation stays `NeedsReconciliation`.
 
 ### Real-Service Verification Status
 

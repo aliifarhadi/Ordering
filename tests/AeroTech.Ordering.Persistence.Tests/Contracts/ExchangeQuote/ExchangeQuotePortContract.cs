@@ -1,4 +1,6 @@
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
+using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Ports.Exchange;
 using Xunit;
 
@@ -18,7 +20,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeQuote
             Assert.Equal(request.CommercialVersion, quote.ExpectedCommercialVersion);
             Assert.Equal(request.SaleCurrencyId, quote.SaleCurrencyId);
             Assert.Equal(request.PredecessorElectronicTicketId, quote.PredecessorElectronicTicketId);
-            Assert.Equal(request.ChangedOrderServiceIds, quote.ChangedOrderServiceIds);
+            Assert.True(quote.ChangedOrderServiceIds.ToHashSet().SetEquals(request.ChangedOrderServiceIds));
             Assert.False(string.IsNullOrWhiteSpace(quote.QuotedExchangeId));
             Assert.False(string.IsNullOrWhiteSpace(quote.SourceSystem));
             Assert.False(string.IsNullOrWhiteSpace(quote.TargetSelectionRef));
@@ -32,15 +34,9 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeQuote
             var request = ExchangeQuotePortFixture.Request();
             var quote = await Port(request).QuoteAsync(request);
 
-            Assert.Equal(
-                request.ExchangeScope.Select(coupon => coupon.CouponNumber).Order(),
-                quote.Coupons.Select(coupon => coupon.PredecessorCouponNumber).Order());
-            Assert.All(
-                request.HistoricalUsedCoupons,
-                historical => Assert.DoesNotContain(
-                    quote.Coupons,
-                    coupon => coupon.PredecessorCouponNumber == historical.CouponNumber
-                              || coupon.PredecessorTicketCouponId == historical.PredecessorTicketCouponId));
+            Assert.True(
+                quote.Coupons.Select(coupon => coupon.PredecessorCouponNumber).ToHashSet()
+                    .SetEquals(request.ExchangeScope.Select(coupon => coupon.CouponNumber)));
 
             foreach (var coupon in quote.Coupons)
             {
@@ -71,26 +67,59 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeQuote
         }
 
         [Fact]
-        public async Task A_quote_carries_no_value_from_a_coupon_that_is_only_history()
+        public async Task A_coupon_that_is_only_history_never_becomes_part_of_the_reissue()
         {
             var request = ExchangeQuotePortFixture.Request();
             var quote = await Port(request).QuoteAsync(request);
-            var historical = request.PredecessorPricing
-                .Where(evidence => request.HistoricalUsedCoupons.Any(coupon => coupon.CouponNumber == evidence.CouponNumber))
-                .Select(evidence => evidence.CorrelationRef)
-                .ToHashSet(StringComparer.Ordinal);
 
-            Assert.NotEmpty(historical);
-            Assert.DoesNotContain(
-                quote.PricingLines,
-                line => line.PredecessorCorrelationRef is { } reference && historical.Contains(reference));
-            Assert.DoesNotContain(
-                quote.Coupons.SelectMany(coupon => coupon.Successor.PriceLinks),
-                link => historical.Any(reference => link.SourceLineRef.Contains(reference, StringComparison.Ordinal)));
+            Assert.NotEmpty(request.HistoricalUsedCoupons);
+            Assert.All(request.HistoricalUsedCoupons, historical =>
+            {
+                Assert.DoesNotContain(
+                    quote.Coupons,
+                    coupon => coupon.PredecessorCouponNumber == historical.CouponNumber
+                              || coupon.PredecessorTicketCouponId == historical.PredecessorTicketCouponId
+                              || coupon.PredecessorOrderServiceId == historical.CurrentOrderServiceId);
+                Assert.DoesNotContain(
+                    quote.Coupons.Where(coupon => coupon.Disposition is ExchangeCouponDisposition.Replaced
+                                                  or ExchangeCouponDisposition.Continued),
+                    coupon => coupon.PredecessorCouponNumber == historical.CouponNumber);
+            });
         }
 
         [Fact]
-        public async Task An_even_quote_transfers_the_same_value_it_withdraws()
+        public async Task Historical_value_is_never_mechanically_attributed_to_a_successor_coupon()
+        {
+            var request = ExchangeQuotePortFixture.Request();
+            var quote = await Port(request).QuoteAsync(request);
+            var reissued = request.ExchangeScope.Select(coupon => coupon.CouponNumber).ToHashSet();
+            var reissuedCorrelations = request.PredecessorPricing
+                .Where(evidence => reissued.Contains(evidence.CouponNumber))
+                .Select(evidence => evidence.CorrelationRef)
+                .ToHashSet(StringComparer.Ordinal);
+            var linesBySourceRef = quote.PricingLines.ToDictionary(line => line.SourceLineRef, StringComparer.Ordinal);
+
+            Assert.Contains(
+                request.PredecessorPricing,
+                evidence => !reissued.Contains(evidence.CouponNumber));
+
+            foreach (var link in quote.Coupons.SelectMany(coupon => coupon.Successor.PriceLinks))
+            {
+                Assert.True(
+                    linesBySourceRef.TryGetValue(link.SourceLineRef, out var attributed),
+                    $"successor attribution {link.SourceLineRef} does not resolve to a quoted pricing line");
+                Assert.Equal(request.SaleCurrencyId, link.CurrencyId);
+
+                if (attributed!.LineRole != PricingLineRole.Transfer
+                    || attributed.PredecessorCorrelationRef is not { } correlation)
+                    continue;
+
+                Assert.Contains(correlation, reissuedCorrelations);
+            }
+        }
+
+        [Fact]
+        public async Task An_even_quote_leaves_the_customer_balance_untouched()
         {
             var request = ExchangeQuotePortFixture.Request();
             var quote = await Port(request).QuoteAsync(request);
@@ -98,15 +127,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeQuote
             if (quote.MonetaryOutcome != ChangeMonetaryOutcome.Even)
                 return;
 
-            var withdrawn = quote.PricingLines
-                .Where(line => line.Direction == OrderPricingLineDirection.Credit)
-                .Sum(line => line.SaleAmount);
-            var applied = quote.PricingLines
-                .Where(line => line.Direction == OrderPricingLineDirection.Debit)
-                .Sum(line => line.SaleAmount);
-
-            Assert.Equal(withdrawn, applied);
-            Assert.All(quote.PricingLines, line => Assert.Equal(request.SaleCurrencyId, line.SaleCurrencyId));
+            Assert.Equal(0m, ExchangePricingPolicy.NetCustomerBalance(quote.PricingLines));
         }
 
         [Fact]
@@ -124,12 +145,12 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeQuote
             Assert.Equal(first.QuotedExchangeId, second.QuotedExchangeId);
             Assert.Equal(first.TargetSelectionRef, second.TargetSelectionRef);
             Assert.Equal(first.MonetaryOutcome, second.MonetaryOutcome);
-            Assert.Equal(
-                first.Coupons.Select(coupon => coupon.PredecessorTicketCouponId),
-                second.Coupons.Select(coupon => coupon.PredecessorTicketCouponId));
-            Assert.Equal(
-                first.PricingLines.Select(line => line.SourceLineRef),
-                second.PricingLines.Select(line => line.SourceLineRef));
+            Assert.True(
+                first.Coupons.Select(coupon => coupon.PredecessorCouponNumber).ToHashSet()
+                    .SetEquals(second.Coupons.Select(coupon => coupon.PredecessorCouponNumber)));
+            Assert.True(
+                first.PricingLines.Select(line => line.SourceLineRef).ToHashSet(StringComparer.Ordinal)
+                    .SetEquals(second.PricingLines.Select(line => line.SourceLineRef)));
         }
 
         [Fact]
@@ -144,15 +165,15 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeQuote
             Assert.Equal(request.OrderId, accepted.OrderId);
             Assert.Equal(request.CommercialVersion, accepted.ExpectedCommercialVersion);
             Assert.Equal(request.PredecessorElectronicTicketId, accepted.PredecessorElectronicTicketId);
-            Assert.Equal(request.ChangedOrderServiceIds, accepted.ChangedOrderServiceIds);
-            Assert.Equal(
-                quote.Coupons.Select(coupon => coupon.PredecessorCouponNumber).Order(),
-                accepted.Coupons.Select(coupon => coupon.PredecessorCouponNumber).Order());
+            Assert.True(accepted.ChangedOrderServiceIds.ToHashSet().SetEquals(request.ChangedOrderServiceIds));
+            Assert.True(
+                accepted.Coupons.Select(coupon => coupon.PredecessorCouponNumber).ToHashSet()
+                    .SetEquals(quote.Coupons.Select(coupon => coupon.PredecessorCouponNumber)));
             Assert.NotEqual(PricingSource.OrderingDerived, accepted.PricingSource);
         }
 
         [Fact]
-        public async Task A_quote_is_free_of_side_effects_and_answers_the_same_way_twice()
+        public async Task A_repeated_independent_quote_still_answers_the_request_it_was_asked()
         {
             var request = ExchangeQuotePortFixture.Request();
             var port = Port(request);
@@ -160,14 +181,16 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeQuote
             var first = await port.QuoteAsync(request);
             var second = await port.QuoteAsync(request);
 
-            Assert.Equal(first.QuotedExchangeId, second.QuotedExchangeId);
-            Assert.Equal(first.MonetaryOutcome, second.MonetaryOutcome);
-            Assert.Equal(
-                first.Coupons.Select(coupon => coupon.PredecessorCouponNumber),
-                second.Coupons.Select(coupon => coupon.PredecessorCouponNumber));
-            Assert.Equal(
-                first.PricingLines.Select(line => line.SourceLineRef),
-                second.PricingLines.Select(line => line.SourceLineRef));
+            Assert.False(string.IsNullOrWhiteSpace(second.QuotedExchangeId));
+            Assert.Equal(first.OrderId, second.OrderId);
+            Assert.Equal(first.ExpectedCommercialVersion, second.ExpectedCommercialVersion);
+            Assert.Equal(first.PredecessorElectronicTicketId, second.PredecessorElectronicTicketId);
+            Assert.True(
+                second.ChangedOrderServiceIds.ToHashSet().SetEquals(first.ChangedOrderServiceIds));
+            Assert.True(
+                second.Coupons.Select(coupon => coupon.PredecessorCouponNumber).ToHashSet()
+                    .SetEquals(first.Coupons.Select(coupon => coupon.PredecessorCouponNumber)));
+            Assert.NotEqual(PricingSource.OrderingDerived, second.PricingSource);
         }
 
         [Fact]
@@ -181,9 +204,9 @@ namespace AeroTech.Ordering.Persistence.Tests.Contracts.ExchangeQuote
 
             var quote = await Port(withConstruction).QuoteAsync(withConstruction);
 
-            Assert.Equal(
-                withConstruction.ExchangeScope.Select(coupon => coupon.CouponNumber).Order(),
-                quote.Coupons.Select(coupon => coupon.PredecessorCouponNumber).Order());
+            Assert.True(
+                quote.Coupons.Select(coupon => coupon.PredecessorCouponNumber).ToHashSet()
+                    .SetEquals(withConstruction.ExchangeScope.Select(coupon => coupon.CouponNumber)));
             Assert.All(
                 withConstruction.HistoricalUsedCoupons,
                 historical => Assert.DoesNotContain(

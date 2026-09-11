@@ -418,8 +418,3 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
-/AeroTech.FlightFlow/02_AeroTech.FlightFlow.Infrastructure/AeroTech.FlightFlow.Infrastructure.Persistence/Migrations/DbContextModelSnapshot.cs
-
-# AI-generated agent context (local-only; not pushed to GitLab)
-/AGENTS.md
-/docs/
