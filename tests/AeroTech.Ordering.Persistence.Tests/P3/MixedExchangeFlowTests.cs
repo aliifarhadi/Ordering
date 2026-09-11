@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Exchange;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
@@ -489,8 +489,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.True(plan.IsFundingCaptureRejected);
             Assert.Empty(harness.RefundValues.ObservedRequests);
             Assert.Empty(harness.ExchangeFunding.ObservedReleases);
-            Assert.Empty(predecessor.Exchanges);
-            Assert.Null(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
+            Assert.Single(predecessor.Exchanges);
+            Assert.NotNull(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
         }
 
         [Theory]
@@ -515,7 +515,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.False(string.IsNullOrWhiteSpace(plan.FundingCaptureDetail));
             Assert.Empty(harness.RefundValues.ObservedRequests);
             Assert.Single(harness.DocumentExchanges.ObservedRequests);
-            Assert.Null(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
+            Assert.NotNull(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
         }
 
         // ---------------------------------------------------------------- X to AB. the refund leg
@@ -596,7 +596,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.True(refusedPlan.IsRefundDueRejected);
             Assert.Empty(harness.ExchangeFunding.ObservedReleases);
             Assert.Single(harness.ExchangeFunding.ObservedCaptures);
-            Assert.Null(await FindTicketAsync(_fixture, refusedPlan.SuccessorElectronicTicketId));
+            Assert.NotNull(await FindTicketAsync(_fixture, refusedPlan.SuccessorElectronicTicketId));
 
             await using var contradictorySetup = NewHarness();
             await using var contradictory = NewHarness();
@@ -836,7 +836,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single(harness.ExchangeResiduals.ObservedRequests);
             Assert.Single(harness.ExchangeFunding.ObservedCaptures);
             Assert.Empty(harness.ExchangeFunding.ObservedReleases);
-            Assert.Null(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
+            Assert.NotNull(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
         }
 
         [Fact]

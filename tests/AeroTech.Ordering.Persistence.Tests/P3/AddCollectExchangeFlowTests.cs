@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Exchange;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
@@ -478,12 +478,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(ExchangeDocumentOutcome.Exchanged, outcome.DocumentOutcome);
             Assert.True(plan.IsDocumentExchangeConfirmed);
             Assert.NotNull(plan.Successor);
-            Assert.Null(outcome.SuccessorElectronicTicketId);
-            Assert.Null(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
+            Assert.NotNull(outcome.SuccessorElectronicTicketId);
+            Assert.NotNull(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
             Assert.Single(harness.ExchangeFunding.ObservedCaptures);
             Assert.Empty(harness.ExchangeFunding.ObservedReleases);
-            Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
-            Assert.Equal(scenario.CustomerTotal, after.CustomerTotal);
+            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
+            Assert.Equal(scenario.CustomerTotal + AddCollect, after.CustomerTotal);
             Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
         }
 
@@ -507,12 +507,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.True(plan.IsDocumentExchangeConfirmed);
             Assert.True(plan.IsFundingCaptureRejected);
             Assert.NotNull(plan.Successor);
-            Assert.Equal(ElectronicTicketStatus.Issued, predecessor.StatusSummary);
-            Assert.Empty(predecessor.Exchanges);
-            Assert.Null(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
+            Assert.Equal(ElectronicTicketStatus.Exchanged, predecessor.StatusSummary);
+            Assert.Single(predecessor.Exchanges);
+            Assert.NotNull(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
             Assert.Empty(harness.ExchangeFunding.ObservedReleases);
             Assert.Single(harness.DocumentExchanges.ObservedRequests);
-            Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
+            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
         }
 
         // ---------------------------------------------------------------- Q. completed replay

@@ -907,12 +907,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 || !await IsUsableSuccessorIdentityAsync(order, operation, predecessor, plan, successor, cancellationToken))
                 return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
 
-            if (plan.RequiresMonetarySettlement && !plan.IsMonetarySettled)
-                return await SettleMonetaryAsync(
-                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
-
             var materialized = await MaterializeAsync(
                 order, operation, predecessor, plan, successor, cancellationToken);
+
+            if (plan.RequiresMonetarySettlement && !plan.IsMonetarySettled)
+                return await SettleMonetaryAsync(
+                    order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
+                    cancellationToken);
 
             if (plan.RequiresAncillaryReassociation && !plan.IsAncillarySettled)
                 return await ReassociateAncillaryAsync(
@@ -973,15 +974,20 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             await _tickets.AddAsync(successorTicket, cancellationToken);
 
-            if (plan.RequiresAncillaryReassociation)
+            await DisassociateAncillariesAsync(operation, plan, cancellationToken);
+
+            if (HasUnsettledDownstreamStage(plan))
             {
-                await DisassociateAncillariesAsync(operation, plan, cancellationToken);
                 await _projector.ProjectAsync(order.Id, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
             return new MaterializedExchange(successorTicket, exchanged.OrderChangeId, exchanged.PriceChangeSetId);
         }
+
+        private static bool HasUnsettledDownstreamStage(AcceptedExchangePlan plan)
+            => (plan.RequiresMonetarySettlement && !plan.IsMonetarySettled)
+               || (plan.RequiresAncillaryReassociation && !plan.IsAncillarySettled);
 
         private async Task DisassociateAncillariesAsync(
             OrderOperation operation,
@@ -1050,26 +1056,32 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             ElectronicTicket predecessor,
             AcceptedExchangePlan plan,
             SuccessorDocumentIdentity successor,
+            MaterializedExchange materialized,
             bool documentJustConfirmed,
             bool isReplay,
             CancellationToken cancellationToken)
         {
             if (plan.RequiresFunding && !plan.IsFundingCaptured)
                 return await CaptureFundingAsync(
-                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
+                    order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
+                    cancellationToken);
 
             if (!plan.IsCollectionSettled)
-                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+                return await ReconcileAsync(
+                    order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
 
             if (plan.RequiresRefundDue && !plan.IsRefundDueSettled)
                 return await SettleRefundDueAsync(
-                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
+                    order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
+                    cancellationToken);
 
             if (plan.RequiresResidual && !plan.IsResidualSettled)
                 return await SettleResidualAsync(
-                    order, operation, predecessor, plan, successor, documentJustConfirmed, isReplay, cancellationToken);
+                    order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
+                    cancellationToken);
 
-            return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+            return await ReconcileAsync(
+                order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
         }
 
         private async Task<ExchangeOutcome> SettleRefundDueAsync(
@@ -1078,12 +1090,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             ElectronicTicket predecessor,
             AcceptedExchangePlan plan,
             SuccessorDocumentIdentity successor,
+            MaterializedExchange materialized,
             bool documentJustConfirmed,
             bool isReplay,
             CancellationToken cancellationToken)
         {
             if (!plan.CanReproduceRefundDueRequest)
-                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+                return await ReconcileAsync(
+                    order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
 
             RefundValueResult result;
 
@@ -1128,7 +1142,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             };
 
             return await AfterMonetarySettlementAsync(
-                order, operation, predecessor, settled, result.Outcome, contradiction, isReplay, cancellationToken);
+                order, operation, predecessor, settled, materialized, result.Outcome, contradiction, isReplay,
+                cancellationToken);
         }
 
         private async Task<RefundValueResult> DispatchRefundDueAsync(
@@ -1157,6 +1172,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             ElectronicTicket predecessor,
             AcceptedExchangePlan plan,
             SuccessorDocumentIdentity successor,
+            MaterializedExchange materialized,
             bool documentJustConfirmed,
             bool isReplay,
             CancellationToken cancellationToken)
@@ -1215,7 +1231,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             };
 
             return await AfterMonetarySettlementAsync(
-                order, operation, predecessor, settled, result.Outcome, contradiction, isReplay, cancellationToken);
+                order, operation, predecessor, settled, materialized, result.Outcome, contradiction, isReplay,
+                cancellationToken);
         }
 
         private async Task<ExchangeResidualResult> DispatchResidualAsync(
@@ -1421,13 +1438,15 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             OrderOperation operation,
             ElectronicTicket predecessor,
             AcceptedExchangePlan settled,
+            MaterializedExchange materialized,
             ProviderOperationOutcome outcome,
             string? contradiction,
             bool isReplay,
             CancellationToken cancellationToken)
         {
             if (contradiction is not null || outcome == ProviderOperationOutcome.Rejected)
-                return await ReconcileAsync(order, operation, predecessor, settled, isReplay, cancellationToken);
+                return await ReconcileAsync(
+                    order, operation, predecessor, settled, isReplay, cancellationToken, materialized);
 
             return outcome == ProviderOperationOutcome.Confirmed
                 ? await FinalizeAsync(
@@ -1440,7 +1459,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                         : CommandReceiptStatus.Pending,
                     ExchangeDocumentOutcome.Exchanged,
                     isReplay,
-                    cancellationToken);
+                    cancellationToken,
+                    materialized);
         }
 
         private async Task<ExchangeOutcome> CaptureFundingAsync(
@@ -1449,12 +1469,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             ElectronicTicket predecessor,
             AcceptedExchangePlan plan,
             SuccessorDocumentIdentity successor,
+            MaterializedExchange materialized,
             bool documentJustConfirmed,
             bool isReplay,
             CancellationToken cancellationToken)
         {
             if (!plan.CanReproduceFundingRequest)
-                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+                return await ReconcileAsync(
+                    order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
 
             ExchangeFundingResult result;
 
@@ -1500,7 +1522,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             };
 
             if (contradiction is not null || result.Outcome == ProviderOperationOutcome.Rejected)
-                return await ReconcileAsync(order, operation, predecessor, settled, isReplay, cancellationToken);
+                return await ReconcileAsync(
+                    order, operation, predecessor, settled, isReplay, cancellationToken, materialized);
 
             return result.Outcome == ProviderOperationOutcome.Confirmed
                 ? await FinalizeAsync(
@@ -1513,7 +1536,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                         : CommandReceiptStatus.Pending,
                     ExchangeDocumentOutcome.Exchanged,
                     isReplay,
-                    cancellationToken);
+                    cancellationToken,
+                    materialized);
         }
 
         private async Task<ExchangeFundingResult> CaptureAsync(

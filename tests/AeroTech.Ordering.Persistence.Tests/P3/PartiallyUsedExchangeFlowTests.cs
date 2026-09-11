@@ -311,7 +311,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Fact]
-        public async Task J_a_miscellaneous_document_on_an_open_scope_coupon_still_blocks_the_reissue()
+        public async Task J_a_miscellaneous_document_on_an_open_scope_coupon_reissues_under_an_explicit_disposition()
         {
             await using var setup = NewHarness();
             var issued = await IssuedAsync(_fixture, setup, roundTrip: true);
@@ -319,14 +319,56 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 .OrderBy(coupon => coupon.CouponNumber)
                 .ToList();
 
-            await AssociateMiscDocumentAsync(setup, issued, coupons[1].Id);
+            var document = await AssociateMiscDocumentAsync(setup, issued, coupons[1].Id);
             await FlyCouponAsync(_fixture, issued.TicketId, coupons[0].Id);
 
             await using var harness = NewHarness();
-            var refusal = await RefuseAsync(harness, issued, [coupons[1].CurrentOrderServiceId]);
+            var scenario = await QuotedAsync(_fixture, harness, issued, [2]);
 
-            Assert.Equal(20272, refusal.Code);
-            await AssertNothingExternalAsync(harness, issued);
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var successor = (await FindTicketAsync(_fixture, outcome.SuccessorElectronicTicketId!.Value))!;
+            var coupon = (await AncillaryAsync(_fixture, issued.OrderId, document)).Coupons.Single();
+
+            Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
+            Assert.Equal(ExchangeAncillaryState.Confirmed, outcome.AncillaryState);
+            Assert.Equal(Assert.Single(successor.Coupons).Id, coupon.AssociatedTicketCouponId);
+            Assert.Single(harness.EmdAssociations.ObservedRequests);
+        }
+
+        [Fact]
+        public async Task J_a_miscellaneous_document_without_a_disposition_fails_closed_before_the_reissue()
+        {
+            await using var setup = NewHarness();
+            var issued = await IssuedAsync(_fixture, setup, roundTrip: true);
+            var coupons = (await TicketAsync(_fixture, issued.OrderId, issued.TicketId)).Coupons
+                .OrderBy(coupon => coupon.CouponNumber)
+                .ToList();
+
+            var document = await AssociateMiscDocumentAsync(setup, issued, coupons[1].Id);
+            await FlyCouponAsync(_fixture, issued.TicketId, coupons[0].Id);
+
+            await using var harness = NewHarness();
+            var scenario = await QuotedAsync(_fixture, harness, issued, [2]);
+
+            harness.AncillaryDispositions.OmittedCoupons.Add(AncillaryKey(document, 1));
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
+
+            var after = await ReloadAsync(_fixture, issued.OrderId);
+            var ticket = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
+            var coupon = (await AncillaryAsync(_fixture, issued.OrderId, document)).Coupons.Single();
+
+            Assert.Equal(20296, refusal.Code);
+            Assert.Empty(harness.ReservationChanges.ObservedApplies);
+            Assert.Empty(harness.DocumentExchanges.ObservedRequests);
+            Assert.Empty(harness.EmdAssociations.ObservedRequests);
+            Assert.Empty(ticket.Exchanges);
+            Assert.Equal(coupons[1].Id, coupon.AssociatedTicketCouponId);
+            Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
+            Assert.All(
+                await TicketsAsync(_fixture, issued.OrderId),
+                candidate => Assert.Null(candidate.PredecessorElectronicTicketId));
         }
 
         // ---------------------------------------------------------------- K, L. accepted scope must equal the reissue scope
@@ -723,20 +765,21 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 order.CommercialVersion)));
         }
 
-        private async Task AssociateMiscDocumentAsync(
+        private async Task<string> AssociateMiscDocumentAsync(
             OrderSliceHarness harness,
             IssuedTicket issued,
             long ticketCouponId)
         {
             var order = await ReloadAsync(_fixture, issued.OrderId);
             var ticket = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
+            var documentNumber = $"M{harness.Ids.NewId() % 1_000_000:D6}";
 
             await harness.MiscDocumentRepository.AddAsync(ElectronicMiscDocument.Issue(
                 harness.Ids.NewId(),
                 order.Id,
                 ticket.TravelerId,
                 harness.Ids.NewId(),
-                $"M{harness.Ids.NewId() % 1_000_000:D6}",
+                documentNumber,
                 ElectronicMiscDocumentType.Associated,
                 "A",
                 OrderSliceHarness.HomeAirlineId,
@@ -756,6 +799,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 harness.Clock));
 
             await harness.UnitOfWork.SaveChangesAsync();
+
+            return documentNumber;
         }
 
         private async Task<int> ServicingOperationCountAsync(long orderId)

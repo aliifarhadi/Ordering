@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Exchange;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
@@ -207,7 +207,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single(harness.ExchangeResiduals.ObservedRequests);
             Assert.NotEmpty(harness.ExchangeResiduals.ObservedRecoveryKeys);
             Assert.True(plan.IsDocumentExchangeConfirmed);
-            Assert.Null(replay.SuccessorElectronicTicketId);
+            Assert.NotNull(replay.SuccessorElectronicTicketId);
             Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
         }
 
@@ -290,10 +290,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.False(string.IsNullOrWhiteSpace(plan.ResidualDetail));
             Assert.Single(harness.ExchangeResiduals.ObservedRequests);
             Assert.Single(harness.DocumentExchanges.ObservedRequests);
-            Assert.Empty(predecessor.Exchanges);
-            Assert.Null(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
-            Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
-            Assert.Equal(scenario.CustomerTotal, after.CustomerTotal);
+            Assert.Single(predecessor.Exchanges);
+            Assert.NotNull(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
+            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
+            Assert.Equal(scenario.CustomerTotal - Owed, after.CustomerTotal);
         }
 
         [Fact]
@@ -319,8 +319,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.True(plan.IsResidualRejected);
             Assert.NotNull(plan.Successor);
             Assert.Single(harness.DocumentExchanges.ObservedRequests);
-            Assert.Equal(ElectronicTicketStatus.Issued, predecessor.StatusSummary);
-            Assert.Null(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
+            Assert.Equal(ElectronicTicketStatus.Exchanged, predecessor.StatusSummary);
+            Assert.NotNull(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
             Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
         }
 

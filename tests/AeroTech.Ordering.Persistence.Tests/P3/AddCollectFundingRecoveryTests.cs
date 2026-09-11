@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Commands.AcceptExchange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Exchange;
@@ -304,7 +304,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var first = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(key));
 
             Assert.Equal(ServicingOperationStatus.AwaitingExternal, first.OperationStatus);
-            Assert.Null(first.SuccessorElectronicTicketId);
+            Assert.NotNull(first.SuccessorElectronicTicketId);
 
             harness.ExchangeFunding.CaptureRecoveryOutcome = ProviderOperationOutcome.Confirmed;
 
@@ -352,7 +352,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.NotEmpty(harness.ExchangeFunding.ObservedCaptureRecoveryKeys);
             Assert.Single(harness.DocumentExchanges.ObservedRequests);
             Assert.True(plan.IsDocumentExchangeConfirmed);
-            Assert.Null(replay.SuccessorElectronicTicketId);
+            Assert.NotNull(replay.SuccessorElectronicTicketId);
             Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
         }
 
@@ -373,9 +373,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => crashed.Exchange.ExchangeAsync(scenario.FundedExecution(key)));
 
             Assert.Single(provider.ObservedCaptures);
-            Assert.DoesNotContain(
+            Assert.Single(
                 await TicketsAsync(_fixture, scenario.OrderId),
-                candidate => candidate.PredecessorElectronicTicketId is not null);
+                candidate => candidate.PredecessorElectronicTicketId == scenario.TicketId);
 
             provider.ThrowAfterCaptureDispatch = false;
 
@@ -441,11 +441,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single(harness.DocumentExchanges.ObservedRequests);
             Assert.Single(harness.ExchangeFunding.ObservedCaptures);
             Assert.Empty(harness.ExchangeFunding.ObservedReleases);
-            Assert.Empty(predecessor.Exchanges);
-            Assert.Equal(ElectronicTicketStatus.Issued, predecessor.StatusSummary);
-            Assert.Null(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
-            Assert.DoesNotContain(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
-            Assert.Equal(scenario.CustomerTotal, after.CustomerTotal);
+            Assert.Single(predecessor.Exchanges);
+            Assert.Equal(ElectronicTicketStatus.Exchanged, predecessor.StatusSummary);
+            Assert.NotNull(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
+            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Exchange);
+            Assert.Equal(scenario.CustomerTotal + AddCollect, after.CustomerTotal);
         }
 
         [Fact]
@@ -471,7 +471,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.NotNull(plan.Successor);
             Assert.Single(harness.DocumentExchanges.ObservedRequests);
             Assert.Empty(harness.ExchangeFunding.ObservedReleases);
-            Assert.Null(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
+            Assert.NotNull(await FindTicketAsync(_fixture, plan.SuccessorElectronicTicketId));
             Assert.Equal(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
         }
 
