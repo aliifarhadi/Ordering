@@ -164,6 +164,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Refund = new RefundService(Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
             ExchangeQuotes = new DeterministicExchangeQuoteAdapter();
             DocumentExchanges = new DeterministicDocumentExchangeAdapter();
+            ExchangeFunding = new DeterministicExchangeFundingAdapter();
             ExchangePlans = new AcceptedExchangePlanStore(_command, frameworkClock);
             Exchange = new ExchangeService(
                 Orders,
@@ -172,6 +173,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 ExchangeQuotes,
                 ReservationChanges,
                 DocumentExchanges,
+                ExchangeFunding,
                 ExchangePlans,
                 coordinator,
                 operationStore,
@@ -266,6 +268,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicExchangeQuoteAdapter ExchangeQuotes { get; }
 
         public DeterministicDocumentExchangeAdapter DocumentExchanges { get; }
+
+        public DeterministicExchangeFundingAdapter ExchangeFunding { get; }
 
         public AcceptedExchangePlanStore ExchangePlans { get; }
 

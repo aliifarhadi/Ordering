@@ -87,7 +87,16 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 row.DocumentExchangeOutcome,
                 row.DocumentExchangeProviderReference,
                 row.DocumentExchangeDetail,
-                SuccessorOf(row));
+                SuccessorOf(row),
+                row.FundingMethodRef,
+                row.FundingGuaranteeOutcome,
+                row.FundingGuaranteeReference,
+                row.FundingGuaranteeDetail,
+                row.FundingCaptureOutcome,
+                row.FundingCaptureReference,
+                row.FundingCaptureDetail,
+                row.FundingReleaseOutcome,
+                row.FundingReleaseDetail);
         }
 
         public async Task SaveAsync(AcceptedExchangePlan plan, CancellationToken cancellationToken = default)
@@ -129,6 +138,15 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 DocumentExchangeProviderReference = plan.DocumentExchangeProviderReference,
                 DocumentExchangeDetail = plan.DocumentExchangeDetail,
                 DocumentExchangeSuccessorEvidence = null,
+                FundingMethodRef = plan.FundingMethodRef,
+                FundingGuaranteeOutcome = plan.FundingGuaranteeOutcome,
+                FundingGuaranteeReference = plan.FundingGuaranteeReference,
+                FundingGuaranteeDetail = plan.FundingGuaranteeDetail,
+                FundingCaptureOutcome = plan.FundingCaptureOutcome,
+                FundingCaptureReference = plan.FundingCaptureReference,
+                FundingCaptureDetail = plan.FundingCaptureDetail,
+                FundingReleaseOutcome = plan.FundingReleaseOutcome,
+                FundingReleaseDetail = plan.FundingReleaseDetail,
                 CreatedAt = now,
                 UpdatedAt = now,
                 Coupons = plan.Coupons
@@ -182,6 +200,49 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
             row.ReservationOutcome = outcome;
             row.ReservationExternalRef = externalReservationRef ?? row.ReservationExternalRef;
+            row.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task RecordFundingGuaranteeOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireAsync(operationId, cancellationToken);
+
+            row.FundingGuaranteeOutcome = outcome;
+            row.FundingGuaranteeReference = providerReference ?? row.FundingGuaranteeReference;
+            row.FundingGuaranteeDetail = detail ?? row.FundingGuaranteeDetail;
+            row.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task RecordFundingCaptureOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireAsync(operationId, cancellationToken);
+
+            row.FundingCaptureOutcome = outcome;
+            row.FundingCaptureReference = providerReference ?? row.FundingCaptureReference;
+            row.FundingCaptureDetail = detail ?? row.FundingCaptureDetail;
+            row.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task RecordFundingReleaseOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireAsync(operationId, cancellationToken);
+
+            row.FundingReleaseOutcome = outcome;
+            row.FundingReleaseDetail = detail ?? row.FundingReleaseDetail;
             row.UpdatedAt = _clock.GetDateTime();
         }
 

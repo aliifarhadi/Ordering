@@ -377,7 +377,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<BusinessException>(() => WithConstruction(broken));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
         }
 
         [Fact]
@@ -392,7 +392,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<BusinessException>(() => WithConstruction(broken));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
         }
 
         [Fact]
@@ -402,7 +402,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<BusinessException>(() => WithConstruction(broken));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
         }
 
         [Fact]
@@ -425,7 +425,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<BusinessException>(() => WithConstruction(broken));
 
-            Assert.Equal(2805, exception.Code);
+            Assert.Equal(20131, exception.Code);
         }
 
         // ---- issue-time fare context ----------------------------------------------------------

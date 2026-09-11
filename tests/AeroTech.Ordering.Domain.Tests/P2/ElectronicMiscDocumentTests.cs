@@ -42,7 +42,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
         {
             var exception = Assert.Throws<BusinessException>(() => Issue(ElectronicMiscDocumentType.Standalone, []));
 
-            Assert.Equal(2870, exception.Code);
+            Assert.Equal(20168, exception.Code);
         }
 
         [Fact]
@@ -67,7 +67,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => Issue(ElectronicMiscDocumentType.Standalone, [ServiceCoupon()], reasonForIssuanceCode: "  "));
 
-            Assert.Equal(2871, exception.Code);
+            Assert.Equal(20169, exception.Code);
         }
 
         [Fact]
@@ -76,7 +76,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => Issue(ElectronicMiscDocumentType.Standalone, [ServiceCoupon(subCode: " ")]));
 
-            Assert.Equal(2872, exception.Code);
+            Assert.Equal(20170, exception.Code);
         }
 
         [Fact]
@@ -147,7 +147,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 ElectronicMiscDocumentType.Standalone,
                 [ServiceCoupon(orderServiceId: null)]));
 
-            Assert.Equal(2875, exception.Code);
+            Assert.Equal(20173, exception.Code);
         }
 
         [Fact]
@@ -165,7 +165,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                         PricingLineId: 777)
                 ]));
 
-            Assert.Equal(2875, exception.Code);
+            Assert.Equal(20173, exception.Code);
         }
 
         [Fact]
@@ -175,7 +175,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 ElectronicMiscDocumentType.Standalone,
                 [new EmdCouponIssuance(EmdCouponPurpose.Fee, "0DF", 100m, [])]));
 
-            Assert.Equal(2876, exception.Code);
+            Assert.Equal(20174, exception.Code);
         }
 
         [Fact]
@@ -193,7 +193,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                         PricingLineId: 777)
                 ]));
 
-            Assert.Equal(2876, exception.Code);
+            Assert.Equal(20174, exception.Code);
         }
 
         [Fact]
@@ -220,7 +220,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 ElectronicMiscDocumentType.Standalone,
                 [new EmdCouponIssuance(purpose, "0DF", 100m, [])]));
 
-            Assert.Equal(2877, exception.Code);
+            Assert.Equal(20175, exception.Code);
         }
 
         [Theory]
@@ -251,7 +251,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => Issue(ElectronicMiscDocumentType.Associated, [ServiceCoupon()]));
 
-            Assert.Equal(2873, exception.Code);
+            Assert.Equal(20171, exception.Code);
         }
 
         [Fact]
@@ -260,7 +260,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => Issue(ElectronicMiscDocumentType.Standalone, [ServiceCoupon(associatedTicketCouponId: 900)]));
 
-            Assert.Equal(2874, exception.Code);
+            Assert.Equal(20172, exception.Code);
         }
 
         [Fact]
@@ -283,7 +283,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => Issue(ElectronicMiscDocumentType.Standalone, [ServiceCoupon(value: -1m)]));
 
-            Assert.Equal(2885, exception.Code);
+            Assert.Equal(20183, exception.Code);
         }
 
         [Fact]

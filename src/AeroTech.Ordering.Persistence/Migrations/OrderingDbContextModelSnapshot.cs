@@ -3877,6 +3877,39 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<int>("ExpectedCommercialVersion")
                         .HasColumnType("int");
 
+                    b.Property<string>("FundingCaptureDetail")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<int?>("FundingCaptureOutcome")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FundingCaptureReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("FundingGuaranteeDetail")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<int?>("FundingGuaranteeOutcome")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FundingGuaranteeReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("FundingMethodRef")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("FundingReleaseDetail")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<int?>("FundingReleaseOutcome")
+                        .HasColumnType("int");
+
                     b.Property<int>("MonetaryOutcome")
                         .HasColumnType("int");
 

@@ -61,7 +61,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 _clock,
                 AncillaryFactory.Baggage(pieces: null, weight: 10m, unit: null)));
 
-            Assert.Equal(2830, exception.Code);
+            Assert.Equal(20144, exception.Code);
         }
 
         [Fact]
@@ -72,7 +72,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 _clock,
                 AncillaryFactory.Baggage(pieces: -1)));
 
-            Assert.Equal(2829, exception.Code);
+            Assert.Equal(20143, exception.Code);
         }
 
         [Fact]
@@ -83,7 +83,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 _clock,
                 AncillaryFactory.Baggage(pieces: null, weight: -1m, unit: BaggageWeightUnit.Kg)));
 
-            Assert.Equal(2829, exception.Code);
+            Assert.Equal(20143, exception.Code);
         }
 
         [Fact]

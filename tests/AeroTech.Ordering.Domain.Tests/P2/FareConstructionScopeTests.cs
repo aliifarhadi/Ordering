@@ -112,7 +112,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<BusinessException>(() => order.ActiveFareComponentFor(outbound));
 
-            Assert.Equal(2807, exception.Code);
+            Assert.Equal(20133, exception.Code);
         }
 
         [Fact]
@@ -124,7 +124,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<BusinessException>(() => order.ResolveIssueFareBasis(outbound));
 
-            Assert.Equal(2807, exception.Code);
+            Assert.Equal(20133, exception.Code);
             Assert.NotNull(service.AirTransportDetail?.TransitionalFareBasis);
         }
 

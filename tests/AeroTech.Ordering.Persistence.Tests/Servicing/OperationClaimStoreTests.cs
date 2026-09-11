@@ -28,7 +28,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
 
             var error = await Assert.ThrowsAsync<BusinessException>(() => store.AcquireAsync(orderId, 2, Lease));
 
-            Assert.Equal(2700, error.Code);
+            Assert.Equal(20070, error.Code);
             Assert.Equal(409, error.HttpStatus);
         }
 
@@ -61,7 +61,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => store.EnsureCurrentGenerationAsync(orderId, 1, first.Generation));
 
-            Assert.Equal(2702, error.Code);
+            Assert.Equal(20072, error.Code);
         }
 
         [Fact]
@@ -76,7 +76,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
 
             var error = await Assert.ThrowsAsync<BusinessException>(() => store.AcquireAsync(orderId, 2, Lease));
 
-            Assert.Equal(2700, error.Code);
+            Assert.Equal(20070, error.Code);
         }
 
         [Fact]
@@ -111,7 +111,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
                     await NewStore(context).AcquireAsync(orderId, operationId, Lease);
                     return true;
                 }
-                catch (BusinessException error) when (error.Code == 2700)
+                catch (BusinessException error) when (error.Code == 20070)
                 {
                     return false;
                 }

@@ -76,7 +76,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
 
             var stale = await Assert.ThrowsAsync<BusinessException>(
                 () => claims.EnsureCurrentGenerationAsync(orderId, first.Operation.OperationId, first.Claim.Generation));
-            Assert.Equal(2702, stale.Code);
+            Assert.Equal(20072, stale.Code);
 
             await claims.EnsureCurrentGenerationAsync(orderId, recovered.Operation.OperationId, recovered.Claim.Generation);
             await claims.ResolveAsync(orderId, recovered.Operation.OperationId, recovered.Claim.Generation);
@@ -105,7 +105,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
             var conflict = await Assert.ThrowsAsync<BusinessException>(
                 () => NewReceiptStore(context, reference, caller).AcquireAsync(ServicingOperationKind.Cancel.ToString(), idempotencyKey, "a-different-body"));
 
-            Assert.Equal(2703, conflict.Code);
+            Assert.Equal(20073, conflict.Code);
 
             await using var verification = _fixture.NewCommandContext();
 
@@ -132,7 +132,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
                 () => NewReceiptStore(context, reference, caller)
                     .AcquireAsync(ServicingOperationKind.Cancel.ToString(), Guid.NewGuid().ToString("N"), "hash"));
 
-            Assert.Equal(2707, error.Code);
+            Assert.Equal(20077, error.Code);
             Assert.Contains(nameof(ProviderInteraction), error.Message);
 
             await using var verification = _fixture.NewCommandContext();
@@ -151,7 +151,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => NewClaimStore(context).AcquireAsync(NewId(), NewId(), Lease));
 
-            Assert.Equal(2707, error.Code);
+            Assert.Equal(20077, error.Code);
         }
 
         [Fact]

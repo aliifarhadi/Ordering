@@ -21,6 +21,26 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Contracts
             string? externalReservationRef,
             CancellationToken cancellationToken = default);
 
+        Task RecordFundingGuaranteeOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
+        Task RecordFundingCaptureOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
+        Task RecordFundingReleaseOutcomeAsync(
+            long operationId,
+            ProviderOperationOutcome outcome,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
         Task RecordDocumentExchangeOutcomeAsync(
             long operationId,
             ProviderOperationOutcome outcome,

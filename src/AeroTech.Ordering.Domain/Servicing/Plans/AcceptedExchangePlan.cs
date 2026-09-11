@@ -2,6 +2,7 @@ using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 
+
 namespace AeroTech.Ordering.Domain.Servicing.Plans
 {
     public sealed record AcceptedExchangePlan(
@@ -32,7 +33,16 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         ProviderOperationOutcome? DocumentExchangeOutcome = null,
         string? DocumentExchangeProviderReference = null,
         string? DocumentExchangeDetail = null,
-        SuccessorDocumentIdentity? Successor = null)
+        SuccessorDocumentIdentity? Successor = null,
+        string? FundingMethodRef = null,
+        ProviderOperationOutcome? FundingGuaranteeOutcome = null,
+        string? FundingGuaranteeReference = null,
+        string? FundingGuaranteeDetail = null,
+        ProviderOperationOutcome? FundingCaptureOutcome = null,
+        string? FundingCaptureReference = null,
+        string? FundingCaptureDetail = null,
+        ProviderOperationOutcome? FundingReleaseOutcome = null,
+        string? FundingReleaseDetail = null)
     {
         public bool IsEligibilityEstablished
             => EligibilityOutcome == DocumentExchangeEligibilityOutcome.Eligible;
@@ -60,5 +70,54 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool CanReproduceDocumentRequest
             => Coupons.Count > 0 && Coupons.All(coupon => coupon.TicketedSegment.IsComplete);
+
+        public AcceptedAddCollect? AddCollect => Accepted.AddCollect;
+
+        public bool RequiresFunding => MonetaryOutcome == ChangeMonetaryOutcome.AddCollect;
+
+        public bool IsFundingGuaranteed => FundingGuaranteeOutcome == ProviderOperationOutcome.Confirmed;
+
+        public bool IsFundingGuaranteeRejected => FundingGuaranteeOutcome == ProviderOperationOutcome.Rejected;
+
+        public bool IsFundingCaptured => FundingCaptureOutcome == ProviderOperationOutcome.Confirmed;
+
+        public bool IsFundingCaptureRejected => FundingCaptureOutcome == ProviderOperationOutcome.Rejected;
+
+        public bool IsFundingReleased => FundingReleaseOutcome == ProviderOperationOutcome.Confirmed;
+
+        public bool IsFundingAssured => !RequiresFunding || IsFundingGuaranteed;
+
+        public bool IsFundingSettled => !RequiresFunding || IsFundingCaptured;
+
+        public bool CanReproduceFundingRequest
+            => !RequiresFunding || (AddCollect is not null && !string.IsNullOrWhiteSpace(FundingMethodRef));
+
+        public ExchangeFundingState FundingState => !RequiresFunding
+            ? ExchangeFundingState.NotRequired
+            : FundingReleaseOutcome switch
+            {
+                ProviderOperationOutcome.Confirmed => ExchangeFundingState.Released,
+                ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown
+                    => ExchangeFundingState.ReleasePending,
+                _ => CaptureState()
+            };
+
+        private ExchangeFundingState CaptureState() => FundingCaptureOutcome switch
+        {
+            ProviderOperationOutcome.Confirmed => ExchangeFundingState.Captured,
+            ProviderOperationOutcome.Rejected => ExchangeFundingState.CaptureRejected,
+            ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown
+                => ExchangeFundingState.CapturePending,
+            _ => GuaranteeState()
+        };
+
+        private ExchangeFundingState GuaranteeState() => FundingGuaranteeOutcome switch
+        {
+            ProviderOperationOutcome.Confirmed => ExchangeFundingState.Guaranteed,
+            ProviderOperationOutcome.Rejected => ExchangeFundingState.GuaranteeRejected,
+            ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown
+                => ExchangeFundingState.GuaranteePending,
+            _ => ExchangeFundingState.GuaranteeRequired
+        };
     }
 }

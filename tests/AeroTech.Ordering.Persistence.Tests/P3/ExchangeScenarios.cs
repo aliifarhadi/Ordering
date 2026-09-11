@@ -14,7 +14,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 {
     internal static class ExchangeScenarios
     {
-        public const int ClaimConflict = 2700;
+        public const int ClaimConflict = 20070;
 
         public static async Task<ExchangeScenario> TicketedAsync(
             OrderingDatabaseFixture fixture,
@@ -132,6 +132,61 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 request,
                 ExchangeSourceFactory.ReplacementsFor(order, changed),
                 quotedExchangeId: quotedExchangeId);
+
+        public static void ComposeAddCollect(
+            OrderSliceHarness harness,
+            Order order,
+            IReadOnlyList<long> changed,
+            decimal addCollectAmount = ExchangeSourceFactory.AddCollectAmount,
+            string quotedExchangeId = ExchangeSourceFactory.QuoteId)
+            => harness.ExchangeQuotes.Composer = request => ExchangeSourceFactory.Compose(
+                request,
+                ExchangeSourceFactory.ReplacementsFor(order, changed),
+                ChangeMonetaryOutcome.AddCollect,
+                quotedExchangeId,
+                addCollectAmount);
+
+        public static async Task<ExchangeScenario> AddCollectAsync(
+            OrderingDatabaseFixture fixture,
+            OrderSliceHarness setup,
+            OrderSliceHarness harness,
+            int[] changedCouponNumbers,
+            int[]? flownCouponNumbers = null,
+            decimal addCollectAmount = ExchangeSourceFactory.AddCollectAmount,
+            Func<AcceptedExchange, AcceptedExchange>? shapeAccepted = null,
+            Func<OrderSliceHarness, Task<Order>>? createOrder = null)
+        {
+            var issued = flownCouponNumbers is { Length: > 0 }
+                ? await FlownAsync(fixture, setup, flownCouponNumbers, createOrder)
+                : await IssuedAsync(fixture, setup, roundTrip: true, createOrder: createOrder);
+
+            var order = await ReloadAsync(fixture, issued.OrderId);
+            var ticket = await TicketAsync(fixture, issued.OrderId, issued.TicketId);
+            var coupons = ticket.Coupons.OrderBy(candidate => candidate.CouponNumber).ToList();
+            var couponIds = coupons.ToDictionary(coupon => coupon.CouponNumber, coupon => coupon.Id);
+            var couponServiceIds = coupons.ToDictionary(coupon => coupon.CouponNumber, coupon => coupon.CurrentOrderServiceId);
+            var changed = changedCouponNumbers.Select(number => couponServiceIds[number]).Order().ToList();
+
+            ComposeAddCollect(harness, order, changed, addCollectAmount);
+
+            await harness.Exchange.QuoteAsync(order.Id, changed);
+
+            if (shapeAccepted is not null)
+                harness.ExchangeQuotes.Reshape(ExchangeSourceFactory.QuoteId, shapeAccepted);
+
+            return new ExchangeScenario(
+                order.Id,
+                changed,
+                ticket.Id,
+                couponIds,
+                couponServiceIds,
+                order.CommercialVersion,
+                order.FinancialSequence,
+                order.ObligationVersion,
+                order.CustomerTotal,
+                ticket.DocumentVersion,
+                harness.ExchangeQuotes.Accepted(ExchangeSourceFactory.QuoteId)!);
+        }
 
         public static async Task FlyCouponAsync(OrderingDatabaseFixture fixture, long ticketId, long ticketCouponId)
         {

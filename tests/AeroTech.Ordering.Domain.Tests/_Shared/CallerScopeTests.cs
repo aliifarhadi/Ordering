@@ -80,7 +80,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
 
             var error = Assert.Throws<BusinessException>(() => CallerScope.For(caller));
 
-            Assert.Equal(2704, error.Code);
+            Assert.Equal(20074, error.Code);
             Assert.Equal(401, error.HttpStatus);
         }
 
@@ -92,7 +92,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
 
             var error = Assert.Throws<BusinessException>(() => CallerScope.For(caller));
 
-            Assert.Equal(2705, error.Code);
+            Assert.Equal(20075, error.Code);
             Assert.Equal(403, error.HttpStatus);
         }
 
@@ -102,7 +102,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             var caller = FakeCallerContext.AgencyUser(11, "subject-a");
             caller.AuthorizationSurface = null;
 
-            Assert.Equal(2705, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
+            Assert.Equal(20075, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
         }
 
         [Fact]
@@ -111,7 +111,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             var caller = FakeCallerContext.AgencyUser(11, "subject-a");
             caller.ContextType = null;
 
-            Assert.Equal(2705, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
+            Assert.Equal(20075, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
         }
 
         [Fact]
@@ -120,7 +120,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             var caller = FakeCallerContext.AgencyUser(11, "subject-a");
             caller.Subject = null;
 
-            Assert.Equal(2705, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
+            Assert.Equal(20075, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
         }
 
         [Fact]
@@ -145,7 +145,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             var caller = ServiceCaller("ordering-worker");
             caller.ServiceCode = null;
 
-            Assert.Equal(2705, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
+            Assert.Equal(20075, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
         }
 
         [Fact]
@@ -164,7 +164,7 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             var caller = FakeCallerContext.AgencyUser(11, "subject-a");
             caller.TravelAgencyOfficeId = null;
 
-            Assert.Equal(2705, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
+            Assert.Equal(20075, Assert.Throws<BusinessException>(() => CallerScope.For(caller)).Code);
         }
 
         [Fact]

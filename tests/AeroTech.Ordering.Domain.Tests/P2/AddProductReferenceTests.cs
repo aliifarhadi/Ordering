@@ -21,7 +21,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => order.AddProduct(WithService(order, service => service with { BeneficiaryTravellerIds = [] }), _ids, _clock));
 
-            Assert.Equal(2821, exception.Code);
+            Assert.Equal(20135, exception.Code);
         }
 
         [Fact]
@@ -32,7 +32,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => order.AddProduct(WithService(order, service => service with { BeneficiaryTravellerIds = [-1L] }), _ids, _clock));
 
-            Assert.Equal(2858, exception.Code);
+            Assert.Equal(20161, exception.Code);
         }
 
         [Fact]
@@ -48,7 +48,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                     _ids,
                     _clock));
 
-            Assert.Equal(2858, exception.Code);
+            Assert.Equal(20161, exception.Code);
         }
 
         [Fact]
@@ -64,7 +64,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                     _ids,
                     _clock));
 
-            Assert.Equal(2858, exception.Code);
+            Assert.Equal(20161, exception.Code);
         }
 
         [Fact]
@@ -78,7 +78,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<BusinessException>(() => order.AddProduct(addition, _ids, _clock));
 
-            Assert.Equal(2859, exception.Code);
+            Assert.Equal(20162, exception.Code);
         }
 
         [Fact]
@@ -99,7 +99,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                     _ids,
                     _clock));
 
-            Assert.Equal(2858, exception.Code);
+            Assert.Equal(20161, exception.Code);
         }
 
         [Fact]
@@ -124,7 +124,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => order.AddProduct(ProductAdditionFactory.Args(addition), _ids, _clock));
 
-            Assert.Equal(2858, exception.Code);
+            Assert.Equal(20161, exception.Code);
         }
 
         [Fact]
@@ -193,7 +193,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                     _ids,
                     _clock));
 
-            Assert.Equal(2858, exception.Code);
+            Assert.Equal(20161, exception.Code);
         }
 
         [Fact]
@@ -262,7 +262,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => order.AddProduct(ProductAdditionFactory.Args(addition), _ids, _clock));
 
-            Assert.Equal(2852, exception.Code);
+            Assert.Equal(20155, exception.Code);
         }
 
         [Fact]
@@ -299,7 +299,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => order.AddProduct(ProductAdditionFactory.Args(duplicated), _ids, _clock));
 
-            Assert.Equal(2861, exception.Code);
+            Assert.Equal(20164, exception.Code);
         }
 
         private static AeroTech.Ordering.Domain.OrderAggregate.Arguments.AcceptedAddServiceChangeArgs WithService(

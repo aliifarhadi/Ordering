@@ -97,7 +97,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Create.CreateAsync(different, MultiPassengerOrderFactory.AcceptedSource(harness.Clock), key));
 
-            Assert.Equal(2703, error.Code);
+            Assert.Equal(20073, error.Code);
         }
 
         [Fact]

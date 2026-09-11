@@ -143,7 +143,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<Framework.Core.Domain.Exceptions.BusinessException>(() => CreateFrom(source));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
         }
 
         private Order CreateFrom(AcceptedOrderSource source)

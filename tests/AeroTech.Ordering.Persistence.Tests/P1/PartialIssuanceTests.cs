@@ -212,7 +212,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => claims.EnsureCurrentGenerationAsync(context.OrderId, first.OperationId, staleGeneration));
 
-            Assert.Equal(2702, error.Code);
+            Assert.Equal(20072, error.Code);
 
             await claims.EnsureCurrentGenerationAsync(context.OrderId, first.OperationId, currentGeneration);
         }

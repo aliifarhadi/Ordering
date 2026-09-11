@@ -36,6 +36,9 @@ namespace AeroTech.Ordering.Providers.Deterministic
             services.AddSingleton<DeterministicReservationChangeAdapter>();
             services.AddScoped<Domain.Ports.ReservationChange.IReservationChangePort>(
                 provider => provider.GetRequiredService<DeterministicReservationChangeAdapter>());
+            services.AddSingleton<DeterministicExchangeFundingAdapter>();
+            services.AddScoped<Domain.Ports.ExchangeFunding.IExchangeFundingPort>(
+                provider => provider.GetRequiredService<DeterministicExchangeFundingAdapter>());
             services.AddSingleton<DeterministicDocumentChangeEligibilityAdapter>();
             services.AddScoped<Domain.Ports.DocumentChangeEligibility.IDocumentChangeEligibilityPort>(
                 provider => provider.GetRequiredService<DeterministicDocumentChangeEligibilityAdapter>());

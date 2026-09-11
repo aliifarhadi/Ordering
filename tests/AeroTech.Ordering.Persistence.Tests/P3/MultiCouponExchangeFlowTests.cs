@@ -214,7 +214,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(() => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
 
-            Assert.Equal(2979, refusal.Code);
+            Assert.Equal(20273, refusal.Code);
             Assert.Single(harness.ExchangeQuotes.ObservedSelections);
             Assert.Empty(harness.ReservationChanges.ObservedApplies);
             Assert.Empty(harness.DocumentExchanges.ObservedRequests);

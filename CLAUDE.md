@@ -98,7 +98,9 @@ Real servicing operations belong on `Backoffice`; `Internal` mirrors them as a m
 ## Error handling
 
 Throw via **`ExceptionFactory`** (Domain `_Shared/Resources/`) — never `new BusinessException("...")` inline.
-Codes start at **2000** (Ordering's block); messages live in `ExceptionMessages`. Each factory method sets a
+Ordering's code block is **20000–29999**. Every code lives inside it — the old 2000–2999 block is retired
+and was renumbered contiguously from **20001**, so allocate each new code as the next free number after the
+last one in the file. Messages live in `ExceptionMessages`. Each factory method sets a
 REST-accurate `HttpStatus` (404 not-found, 409 state-conflict, 422 rule-violation, 500 system, 502 upstream
 provider). `ExceptionHandlingMiddleware` surfaces both `Code` and `HttpStatus` in the response body. This
 mirrors StoredValue's Framework pattern.

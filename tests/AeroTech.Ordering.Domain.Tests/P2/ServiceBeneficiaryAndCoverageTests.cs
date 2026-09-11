@@ -56,7 +56,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, noBeneficiary));
 
-            Assert.Equal(2821, exception.Code);
+            Assert.Equal(20135, exception.Code);
         }
 
         [Fact]
@@ -67,7 +67,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, shared));
 
-            Assert.Equal(2822, exception.Code);
+            Assert.Equal(20136, exception.Code);
         }
 
         [Fact]
@@ -79,7 +79,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<BusinessException>(() => hotel.SoleBeneficiaryId);
 
-            Assert.Equal(2822, exception.Code);
+            Assert.Equal(20136, exception.Code);
         }
 
         [Fact]
@@ -90,7 +90,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, unknown));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
         }
 
         [Fact]
@@ -175,7 +175,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, broken));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
         }
 
         [Fact]
@@ -190,7 +190,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, broken));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
         }
 
         [Fact]
@@ -203,7 +203,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, AncillaryFactory.Seat(seatRef), broken));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
         }
 
         [Fact]
@@ -242,7 +242,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, borrowed));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
             Assert.NotEmpty(otherServiceIds);
         }
 

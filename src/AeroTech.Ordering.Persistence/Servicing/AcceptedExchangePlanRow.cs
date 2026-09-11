@@ -68,6 +68,24 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public DateTimeOffset? SuccessorVoidDeadline { get; set; }
 
+        public string? FundingMethodRef { get; set; }
+
+        public ProviderOperationOutcome? FundingGuaranteeOutcome { get; set; }
+
+        public string? FundingGuaranteeReference { get; set; }
+
+        public string? FundingGuaranteeDetail { get; set; }
+
+        public ProviderOperationOutcome? FundingCaptureOutcome { get; set; }
+
+        public string? FundingCaptureReference { get; set; }
+
+        public string? FundingCaptureDetail { get; set; }
+
+        public ProviderOperationOutcome? FundingReleaseOutcome { get; set; }
+
+        public string? FundingReleaseDetail { get; set; }
+
         public DateTimeOffset CreatedAt { get; set; }
 
         public DateTimeOffset UpdatedAt { get; set; }

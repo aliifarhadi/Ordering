@@ -42,7 +42,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, unknown));
 
-            Assert.Equal(2826, exception.Code);
+            Assert.Equal(20140, exception.Code);
         }
 
         [Fact]
@@ -53,7 +53,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, future));
 
-            Assert.Equal(2827, exception.Code);
+            Assert.Equal(20141, exception.Code);
         }
 
         [Fact]
@@ -64,7 +64,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, incomplete));
 
-            Assert.Equal(2828, exception.Code);
+            Assert.Equal(20142, exception.Code);
         }
 
         [Fact]
@@ -75,7 +75,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, nulled));
 
-            Assert.Equal(2828, exception.Code);
+            Assert.Equal(20142, exception.Code);
         }
 
         [Fact]
@@ -86,7 +86,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, broken));
 
-            Assert.Equal(2828, exception.Code);
+            Assert.Equal(20142, exception.Code);
         }
 
         [Fact]
@@ -97,7 +97,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, broken));
 
-            Assert.Equal(2828, exception.Code);
+            Assert.Equal(20142, exception.Code);
         }
 
         [Fact]
@@ -126,7 +126,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, mismatched));
 
-            Assert.Equal(2824, exception.Code);
+            Assert.Equal(20138, exception.Code);
         }
 
         [Fact]

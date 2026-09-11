@@ -254,7 +254,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
 
             var exception = Assert.Throws<BusinessException>(() => order.AddProduct(addition, _ids, _clock));
 
-            Assert.Equal(2850, exception.Code);
+            Assert.Equal(20153, exception.Code);
         }
 
         [Fact]

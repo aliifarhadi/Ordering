@@ -40,7 +40,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
                 Now,
                 charges: [new OfferCharge("TAX-1", (AirChargeKind)99, "XX", "Unknown", true)])));
 
-            Assert.Equal(2785, exception.Code);
+            Assert.Equal(20123, exception.Code);
         }
 
         [Fact]
@@ -50,7 +50,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
                 Now,
                 charges: [])));
 
-            Assert.Equal(2785, exception.Code);
+            Assert.Equal(20123, exception.Code);
         }
 
         [Fact]
@@ -192,7 +192,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => _normalizer.Normalize(AirPriceOfferFixture.Offer(Now, baggageUnit: unit)));
 
-            Assert.Equal(2786, exception.Code);
+            Assert.Equal(20124, exception.Code);
         }
 
         [Fact]

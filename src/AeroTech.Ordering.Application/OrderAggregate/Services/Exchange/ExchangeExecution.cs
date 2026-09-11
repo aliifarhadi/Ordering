@@ -5,5 +5,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         IReadOnlyList<long> ChangedOrderServiceIds,
         string QuotedExchangeId,
         string IdempotencyKey,
-        int? ExpectedCommercialVersion);
+        int? ExpectedCommercialVersion,
+        string? FundingMethodRef = null);
 }

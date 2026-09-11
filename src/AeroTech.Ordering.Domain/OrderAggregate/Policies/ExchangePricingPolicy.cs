@@ -10,9 +10,23 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
         {
             ArgumentNullException.ThrowIfNull(accepted);
 
-            if (accepted.MonetaryOutcome != ChangeMonetaryOutcome.Even)
-                return accepted.MonetaryOutcome.ToString();
+            return accepted.MonetaryOutcome switch
+            {
+                ChangeMonetaryOutcome.Even => EvenDeferralReason(accepted),
+                ChangeMonetaryOutcome.AddCollect => null,
+                _ => accepted.MonetaryOutcome.ToString()
+            };
+        }
 
+        public static bool RequiresFunding(AcceptedExchange accepted)
+        {
+            ArgumentNullException.ThrowIfNull(accepted);
+
+            return accepted.MonetaryOutcome == ChangeMonetaryOutcome.AddCollect;
+        }
+
+        private static string? EvenDeferralReason(AcceptedExchange accepted)
+        {
             if (accepted.PricingLines.Any(line => line.ComponentType == PricingComponentType.Penalty))
                 return nameof(PricingComponentType.Penalty);
 
@@ -37,6 +51,36 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
             EnsureCouponScopeIsWellFormed(accepted);
             EnsureTransferLinesAreWellFormed(accepted);
             EnsureSuccessorAttributionIsWellFormed(accepted);
+            EnsureMonetaryOutcomeIsWellFormed(accepted);
+        }
+
+        private static void EnsureMonetaryOutcomeIsWellFormed(AcceptedExchange accepted)
+        {
+            var balance = NetCustomerBalance(accepted.PricingLines);
+
+            if (accepted.MonetaryOutcome != ChangeMonetaryOutcome.AddCollect)
+            {
+                if (accepted.AddCollect is not null)
+                    throw Malformed(accepted, $"a {accepted.MonetaryOutcome} outcome carries an add-collect amount");
+
+                return;
+            }
+
+            if (accepted.AddCollect is not { } addCollect)
+                throw Malformed(accepted, "an add-collect outcome carries no authoritative amount");
+
+            if (addCollect.Amount <= 0m)
+                throw Malformed(accepted, $"add-collect amount {addCollect.Amount} is not payable");
+
+            if (addCollect.CurrencyId != accepted.SaleCurrencyId)
+                throw Malformed(
+                    accepted,
+                    $"add-collect currency {addCollect.CurrencyId} is outside the sale currency {accepted.SaleCurrencyId}");
+
+            if (balance != addCollect.Amount)
+                throw Malformed(
+                    accepted,
+                    $"add-collect amount {addCollect.Amount} contradicts the customer balance {balance} of its pricing lines");
         }
 
         private static void EnsureCouponScopeIsWellFormed(AcceptedExchange accepted)

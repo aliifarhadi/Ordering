@@ -61,7 +61,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => voiding.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey()));
 
-            Assert.Equal(2911, error.Code);
+            Assert.Equal(20205, error.Code);
             Assert.Empty(voiding.DocumentVoids.ObservedEligibilityKeys);
             Assert.Empty(voiding.DocumentVoids.ObservedVoidKeys);
 
@@ -84,7 +84,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => voiding.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey()));
 
-            Assert.Equal(2910, error.Code);
+            Assert.Equal(20204, error.Code);
             Assert.Empty(voiding.DocumentVoids.ObservedVoidKeys);
         }
 
@@ -128,7 +128,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => voiding.VoidDocument.VoidAsync(order.Id, ticket.Id, Reason, Detail, Actor, NewKey()));
 
-            Assert.Equal(2912, error.Code);
+            Assert.Equal(20206, error.Code);
             Assert.Empty(voiding.DocumentVoids.ObservedVoidKeys);
         }
 

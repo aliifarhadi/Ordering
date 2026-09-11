@@ -18,6 +18,8 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
         public const long ReplacementCapacityReference = 987_654L;
         public const string ReplacementBookingClass = "Q";
         public const string ReplacementFlightNumber = "W5 1236";
+        public const decimal AddCollectAmount = 250_000m;
+        public const string FundingMethodRef = "FOP-CONTRACT-1";
 
         public static string OutRef(string correlationRef) => $"EXC:OUT:{correlationRef}";
 
@@ -27,7 +29,8 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
             ExchangeQuoteRequest request,
             IReadOnlyDictionary<long, AcceptedChangeReplacement> replacements,
             ChangeMonetaryOutcome monetaryOutcome = ChangeMonetaryOutcome.Even,
-            string quotedExchangeId = QuoteId)
+            string quotedExchangeId = QuoteId,
+            decimal addCollectAmount = AddCollectAmount)
         {
             var reissued = request.ExchangeScope.Select(coupon => coupon.CouponNumber).ToHashSet();
             var carried = request.PredecessorPricing.Where(evidence => reissued.Contains(evidence.CouponNumber)).ToList();
@@ -44,6 +47,14 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                     SuccessorCoupon(lines, carried, coupon.CouponNumber, request.SaleCurrencyId)))
                 .ToList();
 
+            var addCollect = monetaryOutcome == ChangeMonetaryOutcome.AddCollect
+                ? new AcceptedAddCollect(addCollectAmount, request.SaleCurrencyId)
+                : null;
+
+            var pricingLines = addCollect is null
+                ? lines
+                : [.. lines, PenaltyLine(request.SaleCurrencyId, addCollect.Amount)];
+
             return new AcceptedExchange(
                 SourceSystem,
                 quotedExchangeId,
@@ -56,9 +67,10 @@ namespace AeroTech.Ordering.Domain.Tests._Shared
                 request.ChangedOrderServiceIds,
                 coupons,
                 monetaryOutcome,
-                lines,
+                pricingLines,
                 DateTimeOffset.UtcNow.AddHours(1),
-                PricingReference);
+                PricingReference,
+                addCollect);
         }
 
         public static IReadOnlyList<AcceptedExchangePricingLine> EvenTransferLines(

@@ -336,7 +336,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()) with { ExpectedCommercialVersion = scenario.CommercialVersion + 5 }));
 
-            Assert.Equal(2730, refusal.Code);
+            Assert.Equal(20089, refusal.Code);
             await AssertNothingHappenedAsync(harness, scenario);
             Assert.NotEqual(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
         }
@@ -357,16 +357,16 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
 
-            Assert.Equal(2997, quoteRefusal.Code);
-            Assert.Equal(2997, refusal.Code);
+            Assert.Equal(20292, quoteRefusal.Code);
+            Assert.Equal(20292, refusal.Code);
             Assert.Empty(harness.ExchangeQuotes.ObservedQuoteRequests);
             await AssertNothingHappenedAsync(harness, scenario);
         }
 
         [Theory]
-        [InlineData("empty", 2994)]
-        [InlineData("duplicate", 2994)]
-        [InlineData("two-documents", 2995)]
+        [InlineData("empty", 20289)]
+        [InlineData("duplicate", 20289)]
+        [InlineData("two-documents", 20290)]
         public async Task B3_an_invalid_changed_scope_fails_before_acceptance(string shape, int code)
         {
             await using var harness = NewHarness();
@@ -401,7 +401,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
 
-            Assert.Equal(2990, refusal.Code);
+            Assert.Equal(20285, refusal.Code);
             await AssertNothingHappenedAsync(harness, scenario);
         }
 
@@ -427,8 +427,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(() => harness.Exchange.ExchangeAsync(
                 new Application.OrderAggregate.Services.Exchange.ExchangeExecution(order.Id, changed, ExchangeSourceFactory.QuoteId, NewKey(), order.CommercialVersion)));
 
-            Assert.Equal(2965, quoteRefusal.Code);
-            Assert.Equal(2965, refusal.Code);
+            Assert.Equal(20258, quoteRefusal.Code);
+            Assert.Equal(20258, refusal.Code);
             Assert.Empty(harness.ExchangeQuotes.ObservedQuoteRequests);
             Assert.Empty(harness.ExchangeQuotes.ObservedSelections);
             Assert.Empty(harness.ReservationChanges.ObservedApplies);
@@ -465,7 +465,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
 
-            Assert.Equal(2978, refusal.Code);
+            Assert.Equal(20272, refusal.Code);
             await AssertNothingHappenedAsync(harness, scenario);
         }
 
@@ -485,13 +485,13 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(key)));
 
-            Assert.Equal(2979, refusal.Code);
+            Assert.Equal(20273, refusal.Code);
             Assert.Single(harness.ExchangeQuotes.ObservedSelections);
 
             var replay = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(key)));
 
-            Assert.Equal(2979, replay.Code);
+            Assert.Equal(20273, replay.Code);
             Assert.Single(harness.ExchangeQuotes.ObservedSelections);
             await AssertNothingHappenedAsync(harness, scenario, acceptCalls: 1);
             Assert.NotEqual(ClaimConflict, await SecondOperationCodeAsync(harness, scenario));
@@ -506,22 +506,22 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
 
-            Assert.Equal(2980, refusal.Code);
+            Assert.Equal(20274, refusal.Code);
             await AssertNothingHappenedAsync(harness, scenario, acceptCalls: 1);
         }
 
         [Fact]
-        public async Task C4_a_non_even_outcome_is_deferred_before_inventory_and_releases_the_claim()
+        public async Task C4_an_unsupported_monetary_outcome_is_deferred_before_inventory_and_releases_the_claim()
         {
             await using var harness = NewHarness();
-            var scenario = await TicketedAsync(_fixture, harness, accepted => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.AddCollect });
+            var scenario = await TicketedAsync(_fixture, harness, accepted => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Refund });
             var key = NewKey();
 
             var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(key));
 
             Assert.True(outcome.DeferredToExpandedExchange);
-            Assert.Equal(nameof(ChangeMonetaryOutcome.AddCollect), outcome.DeferralReason);
-            Assert.Equal(ChangeMonetaryOutcome.AddCollect, outcome.MonetaryOutcome);
+            Assert.Equal(nameof(ChangeMonetaryOutcome.Refund), outcome.DeferralReason);
+            Assert.Equal(ChangeMonetaryOutcome.Refund, outcome.MonetaryOutcome);
             Assert.Equal(ServicingOperationStatus.Rejected, outcome.OperationStatus);
             Assert.Null(outcome.SuccessorElectronicTicketId);
 
@@ -555,12 +555,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Theory]
-        [InlineData("no-transfer", 2981)]
-        [InlineData("no-group", 2981)]
-        [InlineData("duplicate-ref", 2981)]
-        [InlineData("ordering-derived", 2981)]
-        [InlineData("unresolved-attribution", 2983)]
-        [InlineData("foreign-lineage", 2982)]
+        [InlineData("no-transfer", 20275)]
+        [InlineData("no-group", 20275)]
+        [InlineData("duplicate-ref", 20275)]
+        [InlineData("ordering-derived", 20275)]
+        [InlineData("unresolved-attribution", 20278)]
+        [InlineData("foreign-lineage", 20277)]
         public async Task C5_C6_malformed_or_foreign_pricing_fails_before_inventory(string shape, int code)
         {
             await using var harness = NewHarness();
@@ -600,10 +600,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var operationId = harness.ExchangeQuotes.ObservedSelections.Single().OperationId;
             var plan = await harness.ExchangePlans.FindAsync(operationId);
 
-            Assert.Equal(2981, refusal.Code);
+            Assert.Equal(20275, refusal.Code);
             Assert.NotNull(plan);
             Assert.Equal(AcceptedExchangeDisposition.Rejected, plan!.Disposition);
-            Assert.Equal(2981, plan.RejectionCode);
+            Assert.Equal(20275, plan.RejectionCode);
             Assert.Equal(ExchangeCouponDisposition.Replaced, Assert.Single(plan.Coupons).Disposition);
             Assert.Null(Assert.Single(plan.Coupons).ReplacementOrderServiceId);
             Assert.Null(Assert.Single(plan.Coupons).ReplacementOrderSegmentId);

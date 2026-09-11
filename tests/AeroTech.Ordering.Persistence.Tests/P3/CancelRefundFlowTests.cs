@@ -398,7 +398,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.CancelRefund.CancelRefundAsync(Execution(order.Id, ticket, refund)));
 
-            Assert.Equal(2949, refusal.Code);
+            Assert.Equal(20242, refusal.Code);
             Assert.Empty(harness.DocumentRefundCorrections.ObservedEligibilityKeys);
             Assert.Empty(harness.DocumentRefundCorrections.ObservedCorrectionKeys);
             Assert.Empty((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
@@ -480,7 +480,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.CancelRefund.CancelRefundAsync(Execution(order.Id, ticket, refund)));
 
-            Assert.Equal(2951, refusal.Code);
+            Assert.Equal(20244, refusal.Code);
             Assert.Equal(403, refusal.HttpStatus);
             Assert.Empty(harness.DocumentRefundCorrections.ObservedEligibilityKeys);
             Assert.Empty(harness.DocumentRefundCorrections.ObservedCorrectionKeys);
@@ -508,7 +508,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => harness.CancelRefund.CancelRefundAsync(
                     Execution(order.Id, ticket, refund, NewKey(), settled.CommercialVersion)));
 
-            Assert.Equal(2947, refusal.Code);
+            Assert.Equal(20240, refusal.Code);
             Assert.Single((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
         }
 

@@ -217,7 +217,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await using var harness = NewHarness();
             var refusal = await RefuseAsync(harness, issued, [used.CurrentOrderServiceId]);
 
-            Assert.Equal(2997, refusal.Code);
+            Assert.Equal(20292, refusal.Code);
             await AssertNothingExternalAsync(harness, issued);
         }
 
@@ -235,7 +235,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await using var harness = NewHarness();
             var refusal = await RefuseAsync(harness, issued, [coupons[0].CurrentOrderServiceId]);
 
-            Assert.Equal(2976, refusal.Code);
+            Assert.Equal(20270, refusal.Code);
             Assert.Contains("capability", refusal.Message, StringComparison.OrdinalIgnoreCase);
             await AssertNothingExternalAsync(harness, issued);
         }
@@ -250,7 +250,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await using var harness = NewHarness();
             var refusal = await RefuseAsync(harness, issued, [ticket.Coupons.First().CurrentOrderServiceId]);
 
-            Assert.Equal(2997, refusal.Code);
+            Assert.Equal(20292, refusal.Code);
             Assert.Equal(ElectronicTicketStatus.Used, ticket.StatusSummary);
             Assert.All(ticket.Coupons, coupon => Assert.Equal(TicketCouponFinancialStatus.Used, coupon.FinancialStatus));
             await AssertNothingExternalAsync(harness, issued);
@@ -325,7 +325,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await using var harness = NewHarness();
             var refusal = await RefuseAsync(harness, issued, [coupons[1].CurrentOrderServiceId]);
 
-            Assert.Equal(2978, refusal.Code);
+            Assert.Equal(20272, refusal.Code);
             await AssertNothingExternalAsync(harness, issued);
         }
 
@@ -368,7 +368,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
 
-            Assert.Equal(2979, refusal.Code);
+            Assert.Equal(20273, refusal.Code);
             Assert.Single(harness.ExchangeQuotes.ObservedSelections);
             Assert.Empty(harness.ReservationChanges.ObservedApplies);
             Assert.Empty(harness.DocumentExchanges.ObservedRequests);
@@ -696,7 +696,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(() => harness.Exchange.ExchangeAsync(
                 scenario.Execution(NewKey()) with { ExpectedCommercialVersion = scenario.CommercialVersion + 5 }));
 
-            Assert.Equal(2730, refusal.Code);
+            Assert.Equal(20089, refusal.Code);
             Assert.Empty(harness.ExchangeQuotes.ObservedSelections);
             Assert.Empty(harness.ReservationChanges.ObservedApplies);
             Assert.Empty(harness.DocumentExchanges.ObservedRequests);

@@ -61,7 +61,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, incomplete));
 
-            Assert.Equal(2828, exception.Code);
+            Assert.Equal(20142, exception.Code);
         }
 
         [Fact]
@@ -77,7 +77,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, incomplete));
 
-            Assert.Equal(2828, exception.Code);
+            Assert.Equal(20142, exception.Code);
         }
 
         [Fact]

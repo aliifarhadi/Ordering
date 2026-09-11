@@ -93,7 +93,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => NewController(harness).Get(foreign.OrderId, default));
 
-            Assert.Equal(2500, error.Code);
+            Assert.Equal(20049, error.Code);
             Assert.Equal(404, error.HttpStatus);
         }
 
@@ -142,7 +142,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => NewController(harness).Get(order.Id, default));
 
-            Assert.Equal(2890, error.Code);
+            Assert.Equal(20184, error.Code);
             Assert.Equal(403, error.HttpStatus);
         }
 
@@ -160,7 +160,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => NewController(harness).Get(order.Id, default));
 
-            Assert.Equal(2890, error.Code);
+            Assert.Equal(20184, error.Code);
         }
 
         [Fact]
@@ -176,7 +176,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => NewController(harness, NewKey()).Change(foreign.OrderId, ChangeRequest(foreign.Order), default));
 
-            Assert.Equal(2500, error.Code);
+            Assert.Equal(20049, error.Code);
             Assert.Equal(404, error.HttpStatus);
 
             Assert.Equal(0, harness.Quotes.CallCount);
@@ -203,7 +203,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => NewController(harness, NewKey()).Change(foreign.OrderId, request, default));
 
-            Assert.Equal(2500, error.Code);
+            Assert.Equal(20049, error.Code);
             Assert.Equal(404, error.HttpStatus);
             Assert.Equal(0, harness.CancellationQuotes.CallCount);
             Assert.Empty(harness.Reservation.ObservedOperationKeys);
@@ -250,7 +250,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => NewController(intruder, key).Change(order.Id, ChangeRequest(order), default));
 
-            Assert.Equal(2500, error.Code);
+            Assert.Equal(20049, error.Code);
             Assert.Equal(404, error.HttpStatus);
             Assert.Equal(0, intruder.Quotes.CallCount);
             Assert.DoesNotContain(ForeignCustomerId.ToString(), error.Message, StringComparison.Ordinal);

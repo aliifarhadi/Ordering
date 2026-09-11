@@ -192,23 +192,23 @@ namespace AeroTech.Ordering.Domain.Tests.P3
 
             var refusal = Assert.Throws<BusinessException>(() => scenario.Order.PrepareExchange(scenario.Args(shaped), _ids, _clock));
 
-            Assert.Equal(2982, refusal.Code);
+            Assert.Equal(20277, refusal.Code);
         }
 
         // ---------------------------------------------------------------- policy
 
         [Theory]
-        [InlineData("no-transfer", 2981)]
-        [InlineData("no-group", 2981)]
-        [InlineData("duplicate-ref", 2981)]
-        [InlineData("ordering-derived", 2981)]
-        [InlineData("manual", 2981)]
-        [InlineData("unresolved-attribution", 2983)]
-        [InlineData("foreign-currency-attribution", 2981)]
-        [InlineData("duplicate-coupon", 2981)]
-        [InlineData("continued-with-replacement", 2981)]
-        [InlineData("replaced-without-replacement", 2981)]
-        [InlineData("changed-set-mismatch", 2981)]
+        [InlineData("no-transfer", 20275)]
+        [InlineData("no-group", 20275)]
+        [InlineData("duplicate-ref", 20275)]
+        [InlineData("ordering-derived", 20275)]
+        [InlineData("manual", 20275)]
+        [InlineData("unresolved-attribution", 20278)]
+        [InlineData("foreign-currency-attribution", 20275)]
+        [InlineData("duplicate-coupon", 20275)]
+        [InlineData("continued-with-replacement", 20275)]
+        [InlineData("replaced-without-replacement", 20275)]
+        [InlineData("changed-set-mismatch", 20275)]
         public void Malformed_exchange_pricing_is_refused_by_policy(string shape, int code)
         {
             var accepted = Scenario(roundTrip: true, changedCouponNumbers: [1]).Accepted;
@@ -235,7 +235,9 @@ namespace AeroTech.Ordering.Domain.Tests.P3
         }
 
         [Theory]
-        [InlineData("add-collect", "AddCollect")]
+        [InlineData("refund", "Refund")]
+        [InlineData("residual", "Residual")]
+        [InlineData("mixed", "Mixed")]
         [InlineData("penalty", "Penalty")]
         [InlineData("fee", "Fee")]
         [InlineData("unbalanced", "NonZeroCustomerBalance")]
@@ -245,7 +247,9 @@ namespace AeroTech.Ordering.Domain.Tests.P3
             var currency = accepted.SaleCurrencyId;
             var shaped = shape switch
             {
-                "add-collect" => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.AddCollect },
+                "refund" => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Refund },
+                "residual" => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Residual },
+                "mixed" => accepted with { MonetaryOutcome = ChangeMonetaryOutcome.Mixed },
                 "penalty" => accepted with { PricingLines = [.. accepted.PricingLines, ExchangeSourceFactory.PenaltyLine(currency)] },
                 "fee" => accepted with { PricingLines = [.. accepted.PricingLines, ExchangeSourceFactory.PenaltyLine(currency) with { ComponentType = PricingComponentType.Fee, SourceLineRef = "EXC:FEE" }] },
                 _ => accepted with { PricingLines = accepted.PricingLines.Where(line => line.Direction == OrderPricingLineDirection.Debit).ToList() }
@@ -253,6 +257,63 @@ namespace AeroTech.Ordering.Domain.Tests.P3
 
             Assert.Equal(reason, ExchangePricingPolicy.DeferralReason(shaped));
             Assert.Null(ExchangePricingPolicy.DeferralReason(accepted));
+        }
+
+        [Fact]
+        public void An_add_collect_priced_by_the_provider_is_supported_and_needs_funding()
+        {
+            var accepted = AddCollectAccepted(ExchangeSourceFactory.AddCollectAmount);
+
+            Assert.Null(ExchangePricingPolicy.DeferralReason(accepted));
+            Assert.True(ExchangePricingPolicy.RequiresFunding(accepted));
+            Assert.False(ExchangePricingPolicy.RequiresFunding(Scenario(roundTrip: false, changedCouponNumbers: [1]).Accepted));
+            Assert.Equal(
+                ExchangeSourceFactory.AddCollectAmount,
+                ExchangePricingPolicy.NetCustomerBalance(accepted.PricingLines));
+
+            ExchangePricingPolicy.EnsureWellFormed(accepted);
+        }
+
+        [Theory]
+        [InlineData("no-amount")]
+        [InlineData("zero")]
+        [InlineData("negative")]
+        [InlineData("foreign-currency")]
+        [InlineData("contradicts-lines")]
+        [InlineData("even-with-amount")]
+        public void A_malformed_add_collect_amount_is_refused_by_the_pricing_policy(string shape)
+        {
+            var priced = AddCollectAccepted(ExchangeSourceFactory.AddCollectAmount);
+            var currency = priced.SaleCurrencyId;
+            var shaped = shape switch
+            {
+                "no-amount" => priced with { AddCollect = null },
+                "zero" => priced with { AddCollect = new AcceptedAddCollect(0m, currency) },
+                "negative" => priced with { AddCollect = new AcceptedAddCollect(-1m, currency) },
+                "foreign-currency" => priced with { AddCollect = new AcceptedAddCollect(priced.AddCollect!.Amount, currency + 7) },
+                "contradicts-lines" => priced with { AddCollect = new AcceptedAddCollect(priced.AddCollect!.Amount + 1m, currency) },
+                _ => priced with
+                {
+                    MonetaryOutcome = ChangeMonetaryOutcome.Even,
+                    PricingLines = [.. priced.PricingLines.Where(line => line.ComponentType != PricingComponentType.Penalty)]
+                }
+            };
+
+            var refusal = Assert.Throws<BusinessException>(() => ExchangePricingPolicy.EnsureWellFormed(shaped));
+
+            Assert.Equal(20275, refusal.Code);
+        }
+
+        private AcceptedExchange AddCollectAccepted(decimal amount)
+        {
+            var accepted = Scenario(roundTrip: false, changedCouponNumbers: [1]).Accepted;
+
+            return accepted with
+            {
+                MonetaryOutcome = ChangeMonetaryOutcome.AddCollect,
+                AddCollect = new AcceptedAddCollect(amount, accepted.SaleCurrencyId),
+                PricingLines = [.. accepted.PricingLines, ExchangeSourceFactory.PenaltyLine(accepted.SaleCurrencyId, amount)]
+            };
         }
 
         // ---------------------------------------------------------------- document lineage
@@ -318,7 +379,7 @@ namespace AeroTech.Ordering.Domain.Tests.P3
                 predecessor,
                 predecessor.Coupons.Select(coupon => new ExchangeCouponScope(coupon.Id, coupon.CurrentOrderServiceId)).ToList()));
 
-            Assert.Equal(2977, again.Code);
+            Assert.Equal(20271, again.Code);
         }
 
         [Fact]
@@ -344,8 +405,8 @@ namespace AeroTech.Ordering.Domain.Tests.P3
             var withHistory = Assert.Throws<BusinessException>(() => ExchangeCapabilityPolicy.EnsureEligible(predecessor, wholeDocument));
             var flown = Assert.Throws<BusinessException>(() => predecessor.EnsureCouponsCanBeExchanged(wholeDocument));
 
-            Assert.Equal(2993, withHistory.Code);
-            Assert.Equal(2997, flown.Code);
+            Assert.Equal(20288, withHistory.Code);
+            Assert.Equal(20292, flown.Code);
             Assert.DoesNotContain("capability", flown.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(TicketCouponFinancialStatus.Used, coupons[0].FinancialStatus);
             Assert.Equal(TicketCouponFinancialStatus.Open, coupons[1].FinancialStatus);
@@ -406,7 +467,7 @@ namespace AeroTech.Ordering.Domain.Tests.P3
 
             var refusal = Assert.Throws<BusinessException>(() => ExchangeCapabilityPolicy.ReissueScope(scenario.Predecessor));
 
-            Assert.Equal(2976, refusal.Code);
+            Assert.Equal(20270, refusal.Code);
             Assert.Contains("capability", refusal.Message, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -423,8 +484,8 @@ namespace AeroTech.Ordering.Domain.Tests.P3
                 scenario.Predecessor,
                 [new ExchangeCouponScope(coupons[0].Id, coupons[0].CurrentOrderServiceId), new ExchangeCouponScope(coupons[0].Id, coupons[0].CurrentOrderServiceId)]));
 
-            Assert.Equal(2993, partial.Code);
-            Assert.Equal(2993, duplicated.Code);
+            Assert.Equal(20288, partial.Code);
+            Assert.Equal(20288, duplicated.Code);
         }
 
         // ---------------------------------------------------------------- support

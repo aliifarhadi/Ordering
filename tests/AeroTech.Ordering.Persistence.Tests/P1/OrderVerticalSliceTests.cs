@@ -190,7 +190,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Issue.IssueAsync(order.Id, NewKey(), null));
 
-            Assert.Equal(2729, error.Code);
+            Assert.Equal(20088, error.Code);
 
             await using var verification = _fixture.NewCommandContext();
             Assert.Equal(0, await verification.ElectronicTickets.CountAsync(ticket => ticket.CurrentServicingOrderId == order.Id));
@@ -214,7 +214,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Issue.IssueAsync(order.Id, NewKey(), null));
 
-            Assert.Equal(2729, error.Code);
+            Assert.Equal(20088, error.Code);
         }
 
         [Fact]
@@ -234,7 +234,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Issue.IssueAsync(order.Id, NewKey(), null));
 
-            Assert.Equal(2700, error.Code);
+            Assert.Equal(20070, error.Code);
 
             await using var verification = _fixture.NewCommandContext();
 
@@ -310,7 +310,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Withdraw.WithdrawAsync(order.Id, VoidReason.CustomerRequest, NewKey(), null));
 
-            Assert.Equal(2729, error.Code);
+            Assert.Equal(20088, error.Code);
         }
 
         [Fact]
@@ -328,7 +328,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Withdraw.WithdrawAsync(order.Id, VoidReason.CustomerRequest, NewKey(), null));
 
-            Assert.Equal(2700, error.Code);
+            Assert.Equal(20070, error.Code);
         }
 
         [Fact]

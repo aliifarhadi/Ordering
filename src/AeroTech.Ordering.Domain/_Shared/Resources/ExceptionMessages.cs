@@ -335,7 +335,8 @@
 
         public const string ChangeQuoteExpired = "Change quote {0} expired at {1}.";
 
-        public const string ChangeMonetaryOutcomeNotSupported = "Change quote {0} carries a {1} monetary outcome; only an even change is supported in this phase.";
+        public const string ChangeMonetaryOutcomeNotSupported = "Change quote {0} carries a {1} monetary outcome that this servicing capability does not support.";
+        public const string ExchangeFundingMethodRequired = "The accepted exchange {0} collects {1} and therefore requires a funding method reference.";
 
         public const string ChangeScopeServiceNotInOrder = "Order service {0} does not belong to order {1}.";
 
@@ -354,6 +355,8 @@
         public const string ChangeQuoteSourceNotConfigured = "No voluntary change quote authority is configured for this deployment.";
 
         public const string ReservationChangeSourceNotConfigured = "No reservation change provider is configured for this deployment.";
+        public const string ExchangeFundingSourceNotConfigured = "No exchange funding provider is configured for this deployment.";
+        public const string IdempotencyKeyRequired = "The '{0}' header is required for this operation.";
 
         public const string DocumentChangeEligibilitySourceNotConfigured = "No document change eligibility authority is configured for this deployment.";
 

@@ -1,4 +1,5 @@
 using AeroTech.Framework.Core.Domain.Exceptions;
+using AeroTech.Ordering.Domain._Shared.Resources;
 using Microsoft.AspNetCore.Http;
 
 namespace AeroTech.Ordering.RestApi._Shared
@@ -12,10 +13,7 @@ namespace AeroTech.Ordering.RestApi._Shared
             var key = request.Headers[HeaderName].ToString();
 
             if (string.IsNullOrWhiteSpace(key))
-                throw new BusinessException(2731, $"The '{HeaderName}' header is required for this operation.")
-                {
-                    HttpStatus = 400
-                };
+                throw ExceptionFactory.IdempotencyKeyRequired(HeaderName);
 
             return key;
         }

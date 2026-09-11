@@ -124,7 +124,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Issue.IssueAsync(order.Id, NewKey(), null));
 
-            Assert.Equal(2883, exception.Code);
+            Assert.Equal(20181, exception.Code);
             Assert.Empty(await DocumentsAsync(order.Id));
         }
 
@@ -139,7 +139,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Issue.IssueAsync(order.Id, NewKey(), null));
 
-            Assert.Equal(2880, exception.Code);
+            Assert.Equal(20178, exception.Code);
             Assert.Empty(await DocumentsAsync(order.Id));
         }
 
@@ -157,7 +157,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Issue.IssueAsync(order.Id, NewKey(), null));
 
-            Assert.Equal(2881, exception.Code);
+            Assert.Equal(20179, exception.Code);
         }
 
         [Fact]
@@ -262,7 +262,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Issue.IssueAsync(order.Id, NewKey(), null));
 
-            Assert.Equal(2878, exception.Code);
+            Assert.Equal(20176, exception.Code);
             Assert.Empty(await DocumentsAsync(order.Id));
         }
 

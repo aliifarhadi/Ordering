@@ -56,7 +56,7 @@ namespace AeroTech.Ordering.Domain.Tests.P1
 
             var error = Assert.Throws<BusinessException>(() => stock.Allocate(2, "Ticket:1", _ids, _clock));
 
-            Assert.Equal(2723, error.Code);
+            Assert.Equal(20081, error.Code);
             Assert.Equal(DocumentStockStatus.Exhausted, stock.Status);
         }
 
@@ -81,7 +81,7 @@ namespace AeroTech.Ordering.Domain.Tests.P1
 
             var error = Assert.Throws<BusinessException>(() => stock.Allocate(1, "Ticket:1", _ids, _clock));
 
-            Assert.Equal(2726, error.Code);
+            Assert.Equal(20084, error.Code);
         }
 
         private DocumentStock NewStock(long rangeFrom = 100, long rangeTo = 999) =>

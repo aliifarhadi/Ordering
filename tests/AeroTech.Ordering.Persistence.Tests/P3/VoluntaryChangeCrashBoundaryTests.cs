@@ -405,7 +405,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
         // ---------------------------------------------------------------- fixture
 
-        private const int ClaimConflict = 2700;
+        private const int ClaimConflict = 20070;
 
         private static async Task<int?> SecondOperationCodeAsync(OrderSliceHarness harness, Scenario scenario)
         {

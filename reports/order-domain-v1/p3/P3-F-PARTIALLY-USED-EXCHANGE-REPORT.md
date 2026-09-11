@@ -24,10 +24,10 @@ coupon now reissues successfully.
 * **Predecessor** becomes `Exchanged` after provider confirmation. The successor holds successors of the
   `Open` scope only. Lineage stays A→B, then A→B→C.
 * Any coupon state other than `Open` or `Used` is refused as an application capability limit before any
-  irreversible work, with code 2976 (`ExchangeCouponStateNotSupported`).
-* A changed service covered only by a non-`Open` coupon is refused with code **2997**
+  irreversible work, with code 20270 (`ExchangeCouponStateNotSupported`).
+* A changed service covered only by a non-`Open` coupon is refused with code **20292**
   (`CouponIsNotExchangeable`), the most accurate existing exception. No new exception code was added. This
-  retargets `ExchangeFlowTests.B2`, which previously expected 2915.
+  retargets `ExchangeFlowTests.B2`, which previously expected 20209.
 
 The F2 accountable-document resolver is unchanged:
 `CurrentOrderServiceId == serviceId && FinancialStatus == Open`.
@@ -110,7 +110,7 @@ integration obligation. No synchronous DCS call was added.
 | Crash after document dispatch, O | 1 | 1 | 1 | 1 |
 | Host maps a `Used` coupon, M | 1 | 1 | 1 | 0 |
 
-Case N holds the claim, so a second operation returns 2700. Case O recovers under the same operation key and
+Case N holds the claim, so a second operation returns 20070. Case O recovers under the same operation key and
 never dispatches twice. Case M reaches `NeedsReconciliation` with the plan marked document-confirmed, no
 successor ticket, the predecessor still `PartiallyUsed`, and no order change.
 
@@ -123,14 +123,14 @@ B through Q are in `tests/AeroTech.Ordering.Persistence.Tests/P3/PartiallyUsedEx
 
 | Case | Result | Case | Result |
 | --- | --- | --- | --- |
-| A fully unused baseline | Pass | J EMD on open scope, 2978 | Pass |
-| B used plus one open | Pass | K accepted adds used coupon, 2979 | Pass |
-| C replaced plus continued | Pass | L accepted omits open coupon, 2979 | Pass |
+| A fully unused baseline | Pass | J EMD on open scope, 20272 | Pass |
+| B used plus one open | Pass | K accepted adds used coupon, 20273 | Pass |
+| C replaced plus continued | Pass | L accepted omits open coupon, 20273 | Pass |
 | D two changed | Pass | M host maps used coupon | Pass |
-| E change used service, 2997 | Pass | N inventory unknown | Pass |
-| F refunded coupon, 2976 | Pass | O crash after dispatch | Pass |
-| G fully used, 2997 | Pass | P repeated reissue A to B to C | Pass |
-| H revalidated then used | Pass | Q stale version, 2730 | Pass |
+| E change used service, 20292 | Pass | N inventory unknown | Pass |
+| F refunded coupon, 20270 | Pass | O crash after dispatch | Pass |
+| G fully used, 20292 | Pass | P repeated reissue A to B to C | Pass |
+| H revalidated then used | Pass | Q stale version, 20089 | Pass |
 | I EMD on used only | Pass | | |
 
 The obsolete `A_partly_used_document_is_refused_as_a_capability_limit_before_any_provider_call` was retired,

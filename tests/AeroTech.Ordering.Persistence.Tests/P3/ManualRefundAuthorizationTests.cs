@@ -37,7 +37,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(ManualExecution(order, ticket)));
 
-            Assert.Equal(2943, refusal.Code);
+            Assert.Equal(20236, refusal.Code);
             Assert.Equal(403, refusal.HttpStatus);
             Assert.Single(harness.ManualRefundAuthorizations.ObservedRequests);
         }
@@ -55,7 +55,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(ManualExecution(order, ticket)));
 
-            Assert.Equal(2943, refusal.Code);
+            Assert.Equal(20236, refusal.Code);
 
             await AssertNothingHappenedAsync(harness, order, ticket);
         }
@@ -72,7 +72,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(ManualExecution(order, ticket)));
 
-            Assert.Equal(2944, refusal.Code);
+            Assert.Equal(20237, refusal.Code);
             Assert.Equal(502, refusal.HttpStatus);
 
             await AssertNothingHappenedAsync(harness, order, ticket);
@@ -91,7 +91,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(ManualExecution(order, ticket)));
 
-            Assert.Equal(2944, refusal.Code);
+            Assert.Equal(20237, refusal.Code);
 
             await AssertNothingHappenedAsync(harness, order, ticket);
         }

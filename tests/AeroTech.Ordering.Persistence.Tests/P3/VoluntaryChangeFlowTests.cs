@@ -139,7 +139,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.VoluntaryChange.ChangeAsync(Execution(order.Id, target, before)));
 
-            Assert.Equal(2958, refusal.Code);
+            Assert.Equal(20251, refusal.Code);
             await AssertNothingHappenedAsync(harness, before, target);
         }
 
@@ -156,7 +156,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                     new VoluntaryChangeExecution(
                         order.Id, target.ServiceId, QuoteId, NewKey(), before.CommercialVersion + 5)));
 
-            Assert.Equal(2730, refusal.Code);
+            Assert.Equal(20089, refusal.Code);
             await AssertNothingHappenedAsync(harness, before, target);
         }
 

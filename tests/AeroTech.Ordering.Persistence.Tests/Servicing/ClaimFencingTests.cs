@@ -41,7 +41,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
 
             Assert.Single(winners);
             Assert.Single(losers);
-            Assert.Equal(2706, losers[0].Error!.Code);
+            Assert.Equal(20076, losers[0].Error!.Code);
 
             await using var verification = _fixture.NewCommandContext();
             var stored = await verification.Set<OperationOrderClaim>()
@@ -75,7 +75,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
             Assert.Single(claims);
             Assert.True(claims[0].IsBlocking);
             Assert.Equal(claims.Single().Generation, outcomes.Where(o => o.Claim is not null).Max(o => o.Claim!.Generation));
-            Assert.All(outcomes.Where(o => o.Error is not null), o => Assert.Contains(o.Error!.Code, new[] { 2700, 2706 }));
+            Assert.All(outcomes.Where(o => o.Error is not null), o => Assert.Contains(o.Error!.Code, new[] { 20070, 20076 }));
         }
 
         [Fact]
@@ -95,7 +95,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => store.EnsureCurrentGenerationAsync(orderId, operationId, stale.Generation));
 
-            Assert.Equal(2702, error.Code);
+            Assert.Equal(20072, error.Code);
         }
 
         [Fact]
@@ -113,7 +113,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => store.ResolveAsync(orderId, operationId, stale.Generation));
 
-            Assert.Equal(2702, error.Code);
+            Assert.Equal(20072, error.Code);
 
             await using var verification = _fixture.NewCommandContext();
             Assert.True(await verification.Set<OperationOrderClaim>()

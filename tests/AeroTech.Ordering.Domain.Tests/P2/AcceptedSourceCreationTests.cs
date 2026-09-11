@@ -171,7 +171,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<Framework.Core.Domain.Exceptions.BusinessException>(
                 () => Order.Create(OrderFactory.Args(), source, OrderFactory.OwnerAirlineId, _ids, _clock));
 
-            Assert.Equal(2780, exception.Code);
+            Assert.Equal(20118, exception.Code);
         }
 
         [Fact]
@@ -186,7 +186,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<Framework.Core.Domain.Exceptions.BusinessException>(
                 () => Order.Create(OrderFactory.Args(), broken, OrderFactory.OwnerAirlineId, _ids, _clock));
 
-            Assert.Equal(2784, exception.Code);
+            Assert.Equal(20122, exception.Code);
         }
 
         private static void AssertNoPublicMutators(Type type)

@@ -8,5 +8,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Commands.AcceptExchange
         IReadOnlyList<long> ChangedOrderServiceIds,
         string QuotedExchangeId,
         string IdempotencyKey,
-        int? ExpectedCommercialVersion) : IRequest<ExchangeOutcome>;
+        int? ExpectedCommercialVersion,
+        string? FundingMethodRef = null) : IRequest<ExchangeOutcome>;
 }

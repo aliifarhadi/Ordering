@@ -378,7 +378,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => refunding.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), reloaded.CommercialVersion)));
 
-            Assert.Equal(2938, refusal.Code);
+            Assert.Equal(20231, refusal.Code);
             Assert.Equal(409, refusal.HttpStatus);
             Assert.Empty(refunding.DocumentRefunds.ObservedRefundKeys);
         }
@@ -403,7 +403,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var terminal = await Assert.ThrowsAsync<BusinessException>(
                 () => again.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), reloaded.CommercialVersion)));
 
-            Assert.Equal(2917, terminal.Code);
+            Assert.Equal(20211, terminal.Code);
             Assert.Equal(409, terminal.HttpStatus);
         }
 
@@ -425,7 +425,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => refunding.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), reloaded.CommercialVersion)));
 
-            Assert.Equal(2919, refusal.Code);
+            Assert.Equal(20213, refusal.Code);
             Assert.Empty(refunding.DocumentRefunds.ObservedEligibilityKeys);
         }
 
@@ -443,7 +443,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
-            Assert.Equal(2922, refusal.Code);
+            Assert.Equal(20215, refusal.Code);
             Assert.Equal(ElectronicTicketStatus.Issued, (await FirstTicketAsync(order.Id)).StatusSummary);
             Assert.Empty(harness.DocumentRefunds.ObservedRefundKeys);
         }
@@ -462,7 +462,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
-            Assert.Equal(2926, refusal.Code);
+            Assert.Equal(20219, refusal.Code);
             Assert.Equal(ElectronicTicketStatus.Issued, (await FirstTicketAsync(order.Id)).StatusSummary);
         }
 
@@ -565,7 +565,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
-            Assert.Equal(2770, refusal.Code);
+            Assert.Equal(20110, refusal.Code);
 
             await AssertNothingHappenedAsync(harness, order, ticket);
         }
@@ -603,7 +603,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
-            Assert.Equal(2934, refusal.Code);
+            Assert.Equal(20227, refusal.Code);
 
             await AssertNothingHappenedAsync(harness, order, ticket);
         }
@@ -622,7 +622,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion)));
 
-            Assert.Equal(2935, refusal.Code);
+            Assert.Equal(20228, refusal.Code);
 
             await AssertNothingHappenedAsync(harness, order, ticket);
         }

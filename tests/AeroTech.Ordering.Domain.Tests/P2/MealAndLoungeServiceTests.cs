@@ -31,7 +31,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, AncillaryFactory.Meal(quantity: 0)));
 
-            Assert.Equal(2831, exception.Code);
+            Assert.Equal(20145, exception.Code);
         }
 
         [Fact]
@@ -75,7 +75,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, AncillaryFactory.Lounge(airportId: 0)));
 
-            Assert.Equal(2832, exception.Code);
+            Assert.Equal(20146, exception.Code);
         }
 
         [Fact]
@@ -84,7 +84,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, AncillaryFactory.Lounge(guestCount: -1)));
 
-            Assert.Equal(2833, exception.Code);
+            Assert.Equal(20147, exception.Code);
         }
 
         [Fact]
@@ -97,7 +97,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 _clock,
                 AncillaryFactory.Lounge(accessStart: start, accessEnd: start.AddHours(-1))));
 
-            Assert.Equal(2834, exception.Code);
+            Assert.Equal(20148, exception.Code);
         }
 
         [Fact]
@@ -138,7 +138,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, mismatched));
 
-            Assert.Equal(2824, exception.Code);
+            Assert.Equal(20138, exception.Code);
         }
 
         private static OrderService Of(Order order, OrderServiceType serviceType)

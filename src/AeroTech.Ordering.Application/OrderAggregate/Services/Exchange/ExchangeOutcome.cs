@@ -28,6 +28,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         ExchangeDocumentOutcome DocumentOutcome,
         ServicingOperationStatus OperationStatus,
         ChangeMonetaryOutcome? MonetaryOutcome,
+        decimal? AddCollectAmount,
+        int? AddCollectCurrencyId,
+        ExchangeFundingState FundingState,
+        string? FundingProviderReference,
+        bool RequiresReconciliation,
         bool DeferredToExpandedExchange,
         string? DeferralReason,
         bool IsReplay);

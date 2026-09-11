@@ -139,7 +139,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => order.AddProduct(ProductAdditionFactory.Args(reversing), _ids, _clock));
 
-            Assert.Equal(2853, exception.Code);
+            Assert.Equal(20156, exception.Code);
         }
 
         [Fact]
@@ -156,7 +156,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => order.AddProduct(ProductAdditionFactory.Args(duplicated), _ids, _clock));
 
-            Assert.Equal(2776, exception.Code);
+            Assert.Equal(20116, exception.Code);
         }
 
         [Fact]
@@ -178,7 +178,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => order.AddProduct(ProductAdditionFactory.Args(broken), _ids, _clock));
 
-            Assert.Equal(2857, exception.Code);
+            Assert.Equal(20160, exception.Code);
             AssertUnchanged(order, snapshot);
         }
 
@@ -296,7 +296,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => order.AddProduct(ProductAdditionFactory.Args(taxOnly), _ids, _clock));
 
-            Assert.Equal(2854, exception.Code);
+            Assert.Equal(20157, exception.Code);
         }
 
         [Fact]
@@ -338,7 +338,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 _ids,
                 _clock));
 
-            Assert.Equal(2768, exception.Code);
+            Assert.Equal(20109, exception.Code);
         }
 
         private static (int Items, int Services, int Lines, int Sets, int Links, int Changes, decimal Total, int Commercial, long Financial, long Obligation) Snapshot(Order order)

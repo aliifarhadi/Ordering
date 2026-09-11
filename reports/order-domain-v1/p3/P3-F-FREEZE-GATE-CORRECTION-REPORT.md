@@ -109,7 +109,7 @@ predecessor with one `Used`, one `Replaced` and one `Continued` coupon.
 | Operation id across replay | identical |
 | Final operation status | `AwaitingExternal` on both attempts |
 | Plan reservation outcome | `Pending` or `Unknown` |
-| Claim | retained, a second operation returns 2700 |
+| Claim | retained, a second operation returns 20070 |
 
 Coupon states after the replay: coupon 1 `Used`, coupons 2 and 3 `Open`, predecessor `PartiallyUsed` with an
 empty exchange record. No successor ticket exists, no ticket has a predecessor link, commercial version is
@@ -171,7 +171,7 @@ first `NeedsReconciliation`.
 * Raw evidence: the plan still carries the malformed successor mapping naming `Used` coupon 1, unrepaired and
   unnormalized, while the plan's own coupon set never contains coupon 1. That difference is exactly what
   explains the inconsistency.
-* Claim: retained, a second operation returns 2700.
+* Claim: retained, a second operation returns 20070.
 * Commercial version unchanged, no exchange `OrderChange`.
 
 ---

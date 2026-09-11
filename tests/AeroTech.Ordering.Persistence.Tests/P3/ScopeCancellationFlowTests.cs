@@ -416,7 +416,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => harness.ScopeCancel.CancelItemAsync(
                     order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
 
-            Assert.Equal(2909, error.Code);
+            Assert.Equal(20203, error.Code);
             Assert.Empty(ReleaseKeys(harness));
             Assert.Equal(before, await SnapshotAsync(order.Id));
         }
@@ -442,7 +442,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => harness.ScopeCancel.RemoveServicesAsync(
                     order.Id, scope, QuoteId, NewKey(), order.CommercialVersion));
 
-            Assert.Equal(2909, error.Code);
+            Assert.Equal(20203, error.Code);
             Assert.Empty(ReleaseKeys(harness));
             Assert.Equal(before, await SnapshotAsync(order.Id));
         }
@@ -465,7 +465,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => harness.ScopeCancel.CancelItemAsync(
                     order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
 
-            Assert.Equal(2908, wrongIntent.Code);
+            Assert.Equal(20202, wrongIntent.Code);
 
             harness.CancellationQuotes.Quote(Bound(
                 order,
@@ -478,7 +478,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => harness.ScopeCancel.CancelItemAsync(
                     order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
 
-            Assert.Equal(2908, wrongOrder.Code);
+            Assert.Equal(20202, wrongOrder.Code);
 
             harness.CancellationQuotes.Quote(Bound(
                 order,
@@ -491,7 +491,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => harness.ScopeCancel.CancelItemAsync(
                     order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
 
-            Assert.Equal(2908, wrongVersion.Code);
+            Assert.Equal(20202, wrongVersion.Code);
 
             harness.CancellationQuotes.Quote(Bound(
                 order,
@@ -504,7 +504,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => harness.ScopeCancel.CancelItemAsync(
                     order.Id, item.Id, QuoteId, NewKey(), order.CommercialVersion));
 
-            Assert.Equal(2908, wrongCurrency.Code);
+            Assert.Equal(20202, wrongCurrency.Code);
             Assert.Empty(ReleaseKeys(harness));
         }
 
@@ -581,7 +581,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => harness.ScopeCancel.RemoveServicesAsync(
                     order.Id, [air.Id], QuoteId, NewKey(), reloaded.CommercialVersion));
 
-            Assert.Equal(2895, error.Code);
+            Assert.Equal(20189, error.Code);
             Assert.Equal(0, harness.CancellationQuotes.CallCount);
             Assert.Empty(ReleaseKeys(harness));
             Assert.Equal(before, await SnapshotAsync(order.Id));

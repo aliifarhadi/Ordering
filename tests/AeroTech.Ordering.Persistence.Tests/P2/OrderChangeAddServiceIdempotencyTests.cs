@@ -121,7 +121,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.OrderChange.AddServiceAsync(order.Id, Selection(SecondOfferId), key, 1));
 
-            Assert.Equal(2703, exception.Code);
+            Assert.Equal(20073, exception.Code);
         }
 
         [Fact]
@@ -143,7 +143,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
                     key,
                     1));
 
-            Assert.Equal(2703, exception.Code);
+            Assert.Equal(20073, exception.Code);
         }
 
         [Fact]
@@ -160,7 +160,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.OrderChange.AddServiceAsync(order.Id, Selection(), key, 2));
 
-            Assert.Equal(2703, exception.Code);
+            Assert.Equal(20073, exception.Code);
         }
 
         [Fact]
@@ -174,7 +174,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.OrderChange.AddServiceAsync(order.Id, Selection(), NewKey(), 7));
 
-            Assert.Equal(2730, exception.Code);
+            Assert.Equal(20089, exception.Code);
 
             var reloaded = await ReloadAsync(order.Id);
 
@@ -210,7 +210,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.OrderChange.AddServiceAsync(order.Id, Selection(), NewKey(), null));
 
-            Assert.Equal(2856, exception.Code);
+            Assert.Equal(20159, exception.Code);
         }
 
         [Fact]

@@ -232,7 +232,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var exception = await Assert.ThrowsAsync<Framework.Core.Domain.Exceptions.BusinessException>(
                 () => harness.OrderChange.AddServiceAsync(order.Id, Selection(), NewKey(), 1));
 
-            Assert.Equal(2862, exception.Code);
+            Assert.Equal(20165, exception.Code);
 
             var reloaded = await ReloadAsync(order.Id);
 
@@ -413,7 +413,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
                     NewKey(),
                     1));
 
-            Assert.Equal(2864, exception.Code);
+            Assert.Equal(20167, exception.Code);
             Assert.Equal(0, harness.Quotes.CallCount);
 
             var reloaded = await ReloadAsync(order.Id);

@@ -44,7 +44,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => new ReferenceDataHomeOperatorProvider(reference).GetOwnerAirlineIdAsync());
 
-            Assert.Equal(2710, error.Code);
+            Assert.Equal(20090, error.Code);
             Assert.Contains(OperatorScopeKey.HomeOperator, error.Message);
 
             await SeedHomeOperatorAsync(HomeAirlineId);
@@ -116,7 +116,7 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => AcquireAsync(caller, key, requestHash: "hash-b"));
 
-            Assert.Equal(2703, error.Code);
+            Assert.Equal(20073, error.Code);
         }
 
         [Fact]

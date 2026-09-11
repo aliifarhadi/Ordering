@@ -23,6 +23,12 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.Property(plan => plan.DocumentExchangeDetail).HasMaxLength(512);
             builder.Property(plan => plan.DocumentExchangeSuccessorEvidence).HasColumnType("nvarchar(max)");
             builder.Property(plan => plan.SuccessorDocumentNumber).HasMaxLength(32);
+            builder.Property(plan => plan.FundingMethodRef).HasMaxLength(128);
+            builder.Property(plan => plan.FundingGuaranteeReference).HasMaxLength(128);
+            builder.Property(plan => plan.FundingGuaranteeDetail).HasMaxLength(512);
+            builder.Property(plan => plan.FundingCaptureReference).HasMaxLength(128);
+            builder.Property(plan => plan.FundingCaptureDetail).HasMaxLength(512);
+            builder.Property(plan => plan.FundingReleaseDetail).HasMaxLength(512);
 
             builder.HasIndex(plan => plan.OrderId);
             builder.HasIndex(plan => plan.PredecessorElectronicTicketId);

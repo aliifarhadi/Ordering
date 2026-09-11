@@ -45,7 +45,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => NewOtaController(harness).CreateFromOffer(Request(), default));
 
-            Assert.Equal(2890, error.Code);
+            Assert.Equal(20184, error.Code);
             Assert.Equal(403, error.HttpStatus);
 
             Assert.Equal(0, _handler.Invocations);
@@ -63,7 +63,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var error = await Assert.ThrowsAsync<BusinessException>(
                 () => NewOtaPanelController(harness).CreateFromOffer(Request(), default));
 
-            Assert.Equal(2890, error.Code);
+            Assert.Equal(20184, error.Code);
             Assert.Equal(403, error.HttpStatus);
 
             Assert.Equal(0, _handler.Invocations);
@@ -88,8 +88,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             var panel = await Assert.ThrowsAsync<BusinessException>(
                 () => NewOtaPanelController(harness).CreateFromOffer(Request(), default));
 
-            Assert.Equal(2890, api.Code);
-            Assert.Equal(2890, panel.Code);
+            Assert.Equal(20184, api.Code);
+            Assert.Equal(20184, panel.Code);
             Assert.Equal(0, _handler.Invocations);
             Assert.Equal(before, await OrderCountAsync());
         }

@@ -33,7 +33,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
             var exception = Assert.Throws<BusinessException>(
                 () => AncillaryFactory.OrderWith(_ids, _clock, pseudo));
 
-            Assert.Equal(2820, exception.Code);
+            Assert.Equal(20134, exception.Code);
         }
 
         [Fact]

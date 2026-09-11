@@ -178,7 +178,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 reversal.Refundability,
                 OriginalPricingLineId: reversal.Id)));
 
-            Assert.Equal(2772, exception.Code);
+            Assert.Equal(20112, exception.Code);
         }
 
         [Fact]
@@ -209,7 +209,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 Fee(10m) with { SourceLineRef = "OFFER-1:T1:B1:5001:I6", OccurrenceKey = "1" },
                 Fee(10m) with { SourceLineRef = "OFFER-1:T1:B1:5001:I6", OccurrenceKey = "1" }));
 
-            Assert.Equal(2776, exception.Code);
+            Assert.Equal(20116, exception.Code);
             AssertUnchanged(order, before);
         }
 
@@ -475,7 +475,7 @@ namespace AeroTech.Ordering.Domain.Tests.P2
                 ]
             }));
 
-            Assert.Equal(2777, exception.Code);
+            Assert.Equal(20117, exception.Code);
         }
 
         // ---- helpers -------------------------------------------------------------

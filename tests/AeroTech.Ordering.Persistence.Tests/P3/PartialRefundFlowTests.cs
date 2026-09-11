@@ -199,7 +199,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 () => harness.Refund.RefundAsync(
                     Execution(order.Id, ticket, [coupons[0].Id], QuoteId, NewKey(), order.CommercialVersion)));
 
-            Assert.Equal(2923, refusal.Code);
+            Assert.Equal(20216, refusal.Code);
             Assert.Empty(harness.DocumentRefunds.ObservedRefundKeys);
             Assert.Empty((await TicketAsync(order.Id, ticket.Id)).Refunds);
         }
@@ -292,7 +292,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                             Disposition,
                             RefundLines(order, 400_000m, 0m)))));
 
-            Assert.Equal(2935, refusal.Code);
+            Assert.Equal(20228, refusal.Code);
             Assert.Empty(harness.DocumentRefunds.ObservedRefundKeys);
             Assert.Empty((await TicketAsync(order.Id, ticket.Id)).Refunds);
             Assert.Equal(order.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
@@ -320,7 +320,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                             Disposition,
                             RefundLines(order, 500_000m, 0m)))));
 
-            Assert.Equal(2941, refusal.Code);
+            Assert.Equal(20234, refusal.Code);
             Assert.Equal(403, refusal.HttpStatus);
             Assert.Empty(harness.DocumentRefunds.ObservedEligibilityKeys);
         }

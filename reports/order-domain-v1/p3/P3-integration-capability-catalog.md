@@ -14,15 +14,25 @@ Status vocabulary:
 | `BLOCKED_INTEGRATION` | The real provider's capability is unverified from inside Ordering. Does not block the deterministic Ordering capability. |
 | `BLOCKED_DEVELOPMENT` | An unresolved Ordering business semantic. Blocks implementation. |
 
-Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-INVENTORY`,
-`ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`.
+Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
+`ICC-P3-EXCHANGE-INVENTORY`, `ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`.
 
-Capability scope of this revision: **partially-used even reissue** — a predecessor electronic ticket with at
-least one `Used` coupon and at least one `Open` coupon. The reissue scope is **all** `Open` coupons. `Used`
-coupons are historical pricing context only. The governing invariant is:
+Capability scope of this revision: **even reissue and add-collect reissue**, each over both supported exchange
+shapes (fully unused and partially used).
+
+For a partially-used predecessor — at least one `Used` coupon and at least one `Open` coupon — the reissue
+scope is **all** `Open` coupons and `Used` coupons are historical pricing context only. The governing
+invariant is:
 
 ```text
 pricing context != document mutation scope
+```
+
+For an add-collect reissue the governing invariant is:
+
+```text
+no successor document is knowingly issued without funding assurance
+and no crash or replay can charge the customer twice
 ```
 
 ---
@@ -101,6 +111,18 @@ a changed source-authoritative result. The invariant that binds a real adapter i
 bound to the order, commercial version, predecessor document and requested scope it was asked about. Identity
 equality across independent quotes is a property of the deterministic simulator alone and is asserted only in
 its own adapter-specific test.
+
+**AddCollect is authoritative, never derived.** When the outcome is `ChangeMonetaryOutcome.AddCollect`, the
+accepted result must carry an explicit `AcceptedAddCollect(Amount, CurrencyId)`. Ordering preserves those two
+values exactly and never recalculates, infers, normalizes, splits, rounds, converts or reconstructs the amount
+from pricing lines. It validates only that the authoritative amount is coherent: present, strictly positive,
+in the sale currency, and equal to `ExchangePricingPolicy.NetCustomerBalance` of the accepted pricing lines. A
+disagreement is malformed provider evidence and fails closed with code 20275 before any funding, inventory or
+document call. `FareUsed`, fare difference, taxes, penalties and fees remain entirely AirPrice's to compute.
+
+Penalty and fee pricing lines are legitimate in an add-collect result and are exactly what usually produces
+one. They remain a deferral reason for an `Even` outcome, where they would contradict the zero customer
+balance. `Refund`, `Residual` and `Mixed` stay deferred.
 
 **Historical evidence may inform the calculation; it must not be attributed as transferred value.** A
 source-authoritative AirPrice result may legitimately reference historical or `Used` value for valuation
@@ -217,10 +239,14 @@ holds the fail-fast placeholder. The real AirPrice repository was deliberately n
 2. Whether AirPrice can consume the stored fare-construction snapshot in this shape.
 3. Whether AirPrice honours an Ordering-supplied operation key with replay-safe acceptance.
 4. Whether AirPrice returns a partially-used `Even` outcome at all, or always prices an add-collect.
+5. Whether AirPrice returns an explicit authoritative add-collect amount and currency alongside its pricing
+   lines, rather than leaving the caller to total the lines. Ordering requires the explicit value and will not
+   derive it, so an adapter cannot fill this gap by summing lines — that would silently make Ordering the
+   pricing authority.
 
 ### Known Semantic Gaps
 
-* Only `Even` is accepted. Add-collect, residual and penalty settlement are out of scope for this bundle.
+* `Even` and `AddCollect` are accepted. `Refund`, `Residual` and `Mixed` remain out of scope.
 * `FareConstructions` is a pass-through snapshot. Ordering does not validate it against the reissue scope and
   intentionally omits `BrandName`, `CreatedAt`, foreign keys and line items from the projection.
 * The historical context carries no consumed-operational-segment evidence. See `ICC-P3-EXCHANGE-USAGE`.
@@ -228,8 +254,237 @@ holds the fail-fast placeholder. The real AirPrice repository was deliberately n
 ### Explicit Non-Responsibilities
 
 Ordering does not price, re-price, calculate `FareUsed`, apply fare or tax rules, compute penalties or
-residual value, perform FX, or derive a monetary outcome. `PricingSource.OrderingDerived` is never produced.
-No payment, stored value, wallet or ledger movement belongs to this capability.
+residual value, perform FX, or derive a monetary outcome. `PricingSource.OrderingDerived` is never produced,
+and is rejected outright by `EnsureWellFormed`. Moving money is not this capability's concern either — see
+`ICC-P3-EXCHANGE-FUNDING`. No stored value, wallet or ledger movement belongs to any capability in this
+revision.
+
+---
+
+## ICC-P3-EXCHANGE-FUNDING
+
+### Capability
+
+Collecting the authoritative add-collect amount for a voluntary reissue.
+
+### Authoritative Owner
+
+Payment. Payment owns the actual movement, protection, collection and reversal of money, the tender, the
+provider attempt and every acquirer-facing rule.
+
+### Ordering Semantic Requirement
+
+Ordering owns only the semantic funding requirement, the orchestration, the stable operation identity, the
+immutable accepted instruction, the durable external outcome and the reconciliation state.
+
+The requirement is a **two-stage funding contract**:
+
+1. **Guarantee** the exact accepted amount before the document host is asked to reissue;
+2. **Capture** it after the document host has authoritatively confirmed the successor document;
+3. **Release** the guarantee if the exchange definitely terminates before document confirmation.
+
+The decisive rules are:
+
+* no successor document is knowingly issued without confirmed funding assurance;
+* a crash or a replay can never charge the customer twice;
+* a definite downstream failure can never silently leave the customer overcollected;
+* `Pending` and `Unknown` are recoverable states, never failures;
+* Ordering never invents a provider guarantee, and an adapter may translate protocol or shape but must never
+  fabricate a Payment capability that does not exist.
+
+**Chosen model and rationale.** The two-stage guarantee-then-capture model was chosen over one-step
+collection plus compensation, for three reasons. First, it is the model the shared contracts already
+anticipate: `Contracts/AeroTech.Messages/JetPay/` carries `RequiredGuarantee.AuthorizedBeforeIssuance` and
+`PaidBeforeIssuance`, a `PaymentIntentStatus` running `Guaranteed → CommittedForIssuance → Capturing → Paid`
+with `PaidUnapplied` and `Exception` beside it, `InstructionType.Issuance` and `DocumentOutcome`, and the
+integration events `PaymentIntentGuaranteed` and `PaymentCompleted`. The staging is therefore aligned with an
+existing design, not invented here. Second, a guarantee is reversible by an independent release operation,
+whereas a completed collection would require a compensating refund that this revision explicitly does not
+implement. Third, it keeps the window in which the customer's money is committed but the document is not yet
+issued as short as the document call itself.
+
+**Stage placement.** The guarantee is dispatched **after document eligibility and before the inventory
+mutation**. The reason is that the inventory mutation is the first step this bundle cannot reverse within its
+own scope, while the guarantee is reversible by design. Guaranteeing first means every definite failure after
+that point — inventory rejected, document rejected, document denied — has one defined release path, and no
+capacity is mutated for an exchange the customer cannot fund. The alternative, guaranteeing after inventory,
+would leave a confirmed capacity change stranded whenever funding is refused, which is the "silent partial
+success" the acceptance matrix forbids.
+
+### Ordering Port / Dependency Boundary
+
+`src/AeroTech.Ordering.Domain/Ports/ExchangeFunding/IExchangeFundingPort.cs`
+
+```text
+GuaranteeAsync(ExchangeFundingGuaranteeRequest) -> ExchangeFundingResult
+RecoverGuaranteeAsync(ExchangeFundingRecoveryRequest) -> ExchangeFundingRecovery
+CaptureAsync(ExchangeFundingCaptureRequest)     -> ExchangeFundingResult
+RecoverCaptureAsync(ExchangeFundingRecoveryRequest)   -> ExchangeFundingRecovery
+ReleaseAsync(ExchangeFundingReleaseRequest)     -> ExchangeFundingResult
+RecoverReleaseAsync(ExchangeFundingRecoveryRequest)   -> ExchangeFundingRecovery
+```
+
+This is Ordering-owned vocabulary. It is deliberately **not** shaped around the current Payment service API.
+The existing `IPaymentProvider.CaptureAsync` returns only a reference and a timestamp, with no outcome, no
+pending or unknown state, no read-back and no dispatch knowledge, and `IFundingCoveragePort` verifies coverage
+of an existing obligation with no recovery semantics. Neither satisfies this contract, and neither was
+extended to pretend otherwise.
+
+### Request Evidence
+
+| Stage | Evidence |
+| --- | --- |
+| Guarantee | operation key, order id, operation id, quoted exchange id, predecessor document number, payer traveller id, exact amount, currency, funding-method reference |
+| Capture | operation key, order id, operation id, quoted exchange id, **successor document number**, guarantee reference, exact amount, currency |
+| Release | operation key, order id, operation id, quoted exchange id, guarantee reference, `ExchangeFundingReleaseReason` |
+| Recovery | operation key, order id, operation id |
+
+The capture carries the successor document number as its economic justification: the money is captured
+because that document exists. The funding-method reference is an opaque safe reference supplied by the
+caller. No credential, card number, CVV or unrestricted token is accepted, persisted or logged.
+
+### Outcome Semantics
+
+`ProviderOperationOutcome` — `Confirmed`, `Pending`, `Unknown`, `Rejected` — plus an optional provider
+reference and the amount and currency the provider acted on. A confirmed guarantee must name a provider
+reference. A rejected outcome carries none. Provider-neutral state is projected as `ExchangeFundingState`:
+`NotRequired`, `GuaranteeRequired`, `GuaranteePending`, `Guaranteed`, `GuaranteeRejected`, `CapturePending`,
+`Captured`, `CaptureRejected`, `ReleasePending`, `Released`.
+
+### Identity and Correlation
+
+Correlation is by the Ordering-supplied operation key plus the provider's own reference, which Ordering
+stores but never interprets. Ordering never adopts a Payment primary key as its own identity.
+
+### Idempotency / Stable Operation Identity
+
+Each stage owns its own stable key, derived internally before first dispatch:
+
+```text
+exchange-funding-guarantee:{predecessorElectronicTicketId}:{operationId}
+exchange-funding-capture:{predecessorElectronicTicketId}:{operationId}
+exchange-funding-release:{predecessorElectronicTicketId}:{operationId}
+```
+
+The same key with the same intent must answer the same authoritative result. One key can never consume
+another operation's result.
+
+### NotDispatched / Pending / Unknown / Rejected / Confirmed
+
+All five are modelled and all five are load-bearing. `WasDispatched = false` is the only safe basis for a
+fresh dispatch. `Rejected` at the guarantee stage is terminal and mutates nothing. `Pending` and `Unknown` at
+the guarantee stage hold the claim in `AwaitingExternal` and block the document call. `Pending`, `Unknown` or
+`Rejected` at the capture stage, which can only happen after the document is confirmed, produce
+`NeedsReconciliation`.
+
+### Recovery / Read-back
+
+Recover-first, per stage, always. Before any redispatch the rail calls the matching `Recover*` operation under
+the same key. A recovery answer for a key the provider never saw must report `WasDispatched = false` and must
+not report `Confirmed`. A guarantee that the provider confirmed but whose answer never reached Ordering is
+recovered as `Confirmed`, never repeated.
+
+### WasDispatched Requirement
+
+Required, and the single most important element of this contract. Without it, a lost response is
+indistinguishable from a request that never arrived, and the only safe behaviours left are to never retry, or
+to risk double-charging the customer.
+
+### Atomicity / Coupling
+
+Each stage's outcome is persisted on `AcceptedExchangePlan` before the next stage is attempted. The plan is
+the single durable record of the economic position, so a crash resumes from the last persisted stage rather
+than reissuing a financial instruction.
+
+### Irreversible-Step Ordering
+
+```text
+accept AirPrice add-collect  ->  persist plan and every stable operation key
+  ->  document eligibility
+  ->  funding guarantee                     [reversible by release]
+  ->  inventory mutation
+  ->  document exchange                     [irreversible]
+  ->  persist document confirmation and raw successor evidence
+  ->  funding capture
+  ->  single local finalization transaction
+```
+
+Release paths: inventory rejected, or document rejected or denied, release the guarantee under its own key
+and then settle terminally or reconcile as the frozen rail already does. There is no release path after a
+confirmed document, because the money is then genuinely owed.
+
+### Economic uncertainty after a confirmed document
+
+Once the document host has authoritatively confirmed the successor, Ordering never pretends a later Payment
+problem rolls the reissue back. It does not create another successor, does not retry the document exchange,
+does not restore the predecessor, and does not report the operation as if no exchange occurred. It persists
+the truth — document confirmed, successor identity known, settlement unresolved or refused — and requires
+reconciliation. The local finalization has not run, so no successor ticket exists locally and the predecessor
+is untouched; the confirmed provider evidence on the plan is what an operator reconciles from.
+
+### Deterministic Simulator
+
+`src/AeroTech.Ordering.Providers.Deterministic/DeterministicExchangeFundingAdapter.cs`. It records one
+operation per key, replays it for a repeated call, distinguishes never-dispatched from dispatched, keeps
+`Confirmed` and `Rejected` sticky across read-back while letting `Pending` and `Unknown` resolve, and offers
+throw-before-dispatch and throw-after-dispatch knobs for the crash boundaries. It is a development and test
+substitute and is **not** evidence of production readiness.
+
+### Consumer Contract Tests
+
+`tests/AeroTech.Ordering.Persistence.Tests/Contracts/ExchangeFunding/` —
+`ExchangeFundingPortContract.cs` holds the reusable semantic assertions across all three stages and both
+recovery directions, `ExchangeFundingPortFixture.cs` the canonical requests and keys, and
+`DeterministicExchangeFundingPortTests.cs` binds them to the simulator and adds the crash-boundary and
+sticky-outcome properties. A future Payment ACL satisfies the same base class.
+
+Flow-level coverage is `AddCollectExchangeFlowTests`, cases A through X.
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION` — no real Payment adapter for exchange funding exists inside Ordering.
+`Providers/Unconfigured/UnconfiguredExchangeFundingProvider.cs` fails closed on all six operations with code
+20263 and HTTP 501. The presence of a passing deterministic simulator does not make Payment integration
+ready.
+
+### BLOCKED_INTEGRATION
+
+1. **Read-back by caller key.** Required: given the operation key Ordering generated, Payment must answer
+   whether it ever saw that operation and what the authoritative outcome is. Unverified: the JetPay contracts
+   in this repository describe an asynchronous instruction-and-fact flow with no evidence of a query keyed by
+   a caller-supplied operation id. An adapter cannot invent this — without it, a lost response leaves Ordering
+   unable to distinguish never-dispatched from unknown, and the only safe behaviour is to stop, which is what
+   the rail does today. Must be verified or added during real integration.
+2. **Two-stage guarantee then capture.** Required: authorize or protect an exact amount, then capture it
+   later against the successor document, then release it if the exchange dies first.
+   `RequiredGuarantee.AuthorizedBeforeIssuance` and the `Guaranteed → CommittedForIssuance → Capturing → Paid`
+   progression suggest this exists in the JetPay design, but no implemented Ordering-facing operation was
+   verified. An adapter must not simulate a guarantee by capturing immediately; that would convert a
+   reversible step into an irreversible one behind Ordering's back.
+3. **Same-key idempotency on money operations.** Required: re-sending a guarantee or capture under an
+   already-used key must never move money a second time. Unverified. An adapter cannot safely add this on
+   the client side, because a client-side dedupe cache is lost exactly when the process crashes.
+4. **Release semantics.** Required: an independently recoverable release that is safe to call once, twice, or
+   after an unknown outcome. Unverified.
+5. **Capture after an authoritative document.** Required: a reliable completion path for a previously
+   guaranteed amount. If Payment cannot guarantee completion after authorization, the reconciliation state
+   this bundle persists is the correct terminal representation and an operator must resolve it.
+
+### Known Semantic Gaps
+
+* Only `AddCollect` is funded. `Refund`, `Residual` and `Mixed` are out of scope, so no refund or reversal
+  instruction exists in this revision.
+* Stored value, wallet and ledger integration are out of scope; the funding-method reference is opaque.
+* Reconciliation is represented durably but is not automated. There is no background settlement poller in
+  this revision.
+* A guarantee left `Pending` or `Unknown` is held rather than expired; no guarantee-expiry handling exists
+  yet, although `PaymentIntentGuaranteed.EarliestGuaranteeExpiry` shows the provider design expects one.
+
+### Explicit Non-Responsibilities
+
+Ordering does not select tenders, authenticate cardholders, handle 3-D Secure, retry acquirers, price
+currency conversion, settle, reconcile acquirer files, or hold payment credentials. It does not decide whether
+money can move; it states the amount, when assurance is required, and what the document outcome was.
 
 ---
 
@@ -309,7 +564,12 @@ at the document stage rather than re-holding inventory.
 ### Irreversible-Step Ordering
 
 Inventory is mutated **after** AirPrice acceptance is persisted and document eligibility has been checked, and
-**before** the document exchange. Plan-level Apply and Recover semantics are unchanged by this bundle.
+**before** the document exchange. Plan-level Apply and Recover semantics are unchanged.
+
+For an add-collect reissue one step is inserted immediately before it: the funding guarantee. Inventory is
+therefore mutated only once the customer's money is assured, and a rejected inventory change releases that
+guarantee under its own key before settling terminally. For an even reissue nothing changes — no funding stage
+exists and the sequence is exactly as before.
 
 ### Deterministic Simulator
 
@@ -439,11 +699,18 @@ services and writes the order change. The eligibility check is observational and
 
 ```text
 document eligibility (observational)
+  -> funding guarantee            [add-collect only, reversible by release]
   -> inventory mutation
   -> document exchange   [irreversible]
   -> persist raw successor evidence
+  -> funding capture              [add-collect only]
   -> single local finalization transaction
 ```
+
+The document host is never dispatched without confirmed funding assurance: `EnterDocumentExchangeAsync`
+reconciles rather than dispatching if `IsFundingAssured` is false. A definite document rejection or denial
+releases the guarantee before the frozen settle-or-reconcile behaviour runs. After a confirmed reissue the
+money is owed, so there is no release path and an unresolved or refused capture becomes reconciliation.
 
 After provider confirmation the predecessor becomes `Exchanged`, its `Used` coupons stay `Used`, and the
 successor contains successors of the Open scope only. Lineage is A→B, then A→B→C. Never A→C.
@@ -548,7 +815,7 @@ Read-side only. `TicketCouponFinancialStatus` values are frozen: `Open = 1`, `Us
 `PartiallyUsed = 2`, `Used = 3`, `Voided = 4`, `Exchanged = 5`, `Refunded = 6`, `Suspended = 7`.
 
 This capability supports `Open` and `Used` only. Any other coupon state on the predecessor is refused as an
-application capability limit (`ExchangeCouponStateNotSupported`, code 2976) before any irreversible work. That
+application capability limit (`ExchangeCouponStateNotSupported`, code 20270) before any irreversible work. That
 refusal is a limit of **this exchange capability**, not a universal domain statement about coupon states.
 
 ### Identity and Correlation
@@ -581,7 +848,7 @@ loaded `ElectronicTicket` aggregate it later mutates. No cross-service transacti
 ### Irreversible-Step Ordering
 
 The usage fact is read during preflight, before any external call. A predecessor whose changed service is
-covered only by a non-`Open` coupon is refused there with `CouponIsNotExchangeable` (code 2997) — the most
+covered only by a non-`Open` coupon is refused there with `CouponIsNotExchangeable` (code 20292) — the most
 accurate existing exception, chosen over adding a new code.
 
 ### Deterministic Simulator

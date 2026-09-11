@@ -23,5 +23,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
         public ExchangeExecution Execution(string key)
             => new(OrderId, ChangedOrderServiceIds, ExchangeSourceFactory.QuoteId, key, CommercialVersion);
+
+        public ExchangeExecution FundedExecution(string key, string? fundingMethodRef = ExchangeSourceFactory.FundingMethodRef)
+            => Execution(key) with { FundingMethodRef = fundingMethodRef };
     }
 }
