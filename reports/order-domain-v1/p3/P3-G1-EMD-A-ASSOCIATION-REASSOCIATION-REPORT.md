@@ -1,4 +1,4 @@
-# P3-G1 — EMD-A Association Lifecycle and Reissue Reassociation
+﻿# P3-G1 — EMD-A Association Lifecycle and Reissue Reassociation
 
 Closing report for P3-G1, the first slice of P3-G ancillary servicing.
 
@@ -682,7 +682,44 @@ tests/AeroTech.Ordering.Persistence.Tests/P1/OrderSliceHarness.cs
 tests/AeroTech.Ordering.Persistence.Tests/P3/EmdReassociationFlowTests.cs
 tests/AeroTech.Ordering.Persistence.Tests/P3/PartiallyUsedExchangeFlowTests.cs
 tests/AeroTech.Ordering.Persistence.Tests/Contracts/EmdAssociation/UnconfiguredAncillaryProviderTests.cs
-REPOINTED_TESTS_PLACEHOLDER
+tests/AeroTech.Ordering.Persistence.Tests/P3/AddCollectExchangeFlowTests.cs
+tests/AeroTech.Ordering.Persistence.Tests/P3/AddCollectFundingRecoveryTests.cs
+tests/AeroTech.Ordering.Persistence.Tests/P3/MixedExchangeFlowTests.cs
+tests/AeroTech.Ordering.Persistence.Tests/P3/RefundDueExchangeFlowTests.cs
+tests/AeroTech.Ordering.Persistence.Tests/P3/ResidualExchangeFlowTests.cs
+```
+
+**Frozen P3-F tests repointed to the corrected post-document truth**
+
+Seventeen `Assert.Null(...SuccessorElectronicTicketId)` / `Assert.Null(await FindTicketAsync(...))` sites and
+fifteen companion assertion groups (`DoesNotContain(Changes, Exchange)`, `Empty(predecessor.Exchanges)`,
+`Equal(ElectronicTicketStatus.Issued, ...)`, unchanged `CustomerTotal`) were repointed, scoped test by test:
+
+| Test | Was | Now |
+| --- | --- | --- |
+| `AddCollectExchangeFlowTests.O` (Pending, Unknown) | no successor while capture unresolved | successor present, order change committed, total includes the add-collect |
+| `AddCollectExchangeFlowTests.P` | predecessor `Issued`, no exchange, no order change | predecessor `Exchanged`, one exchange, one order change |
+| `AddCollectFundingRecoveryTests.H_I` (Pending, Unknown) | no successor on the unresolved pass | successor present on the unresolved pass |
+| `AddCollectFundingRecoveryTests.J` | no successor on replay | successor present and stable across replay |
+| `AddCollectFundingRecoveryTests.K` | **no successor after the crash** — this assertion *was* the defect | the confirmed reissue survived the crash; the resume creates no second successor |
+| `AddCollectFundingRecoveryTests.L` (3 shapes) | reissue not durable on contradictory capture | reissue durable, as the test's own name already claimed |
+| `AddCollectFundingRecoveryTests.M` | no successor on refused capture | successor retained |
+| `MixedExchangeFlowTests.V`, `W` (2 shapes) | no successor on refused/contradictory capture | successor retained |
+| `MixedExchangeFlowTests.Z_AA`, `AL_AM_AN` (3 shapes) | no successor on failed second leg | successor retained, capture not reversed |
+| `RefundDueExchangeFlowTests.I`, `K_L_M` (4 shapes), `N` | no successor while refund unresolved/refused | successor retained, total reflects the exchange |
+| `ResidualExchangeFlowTests.Y`, `AA_AB_AC` (4 shapes), `AD` | no successor while residual unresolved/refused | successor retained |
+
+**Deliberately not repointed** — these are pre-document cases where nothing is materialized, so a hidden
+successor is still correct:
+
+```text
+AddCollectExchangeFlowTests.F   refused guarantee
+AddCollectExchangeFlowTests.I   refused reservation
+AddCollectExchangeFlowTests.L   refused reissue (document Rejected)
+AddCollectFundingRecoveryTests.B   contradictory guarantee
+AddCollectFundingRecoveryTests.E   unresolved release
+RefundDueExchangeFlowTests.R    document Rejected
+DocumentExchangeIdentityTests   inconsistent / invalid confirmed coupon mapping (not a valid Confirmed)
 ```
 
 **Modified — Reports**
