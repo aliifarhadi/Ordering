@@ -147,13 +147,19 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public IReadOnlyList<AcceptedExchangeAncillaryDisposition> AncillaryEmdExchanges
             => Ancillaries.Where(disposition => disposition.IsEmdExchange).ToList();
 
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> AncillaryRetentions
+            => Ancillaries.Where(disposition => disposition.IsRetention).ToList();
+
         public IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup> ExchangeGroups
             => AncillaryExchangeGroups ?? [];
 
         public IReadOnlyList<AcceptedExchangeAncillaryDisposition> ExecutableAncillaries
             => Ancillaries
                 .Where(disposition =>
-                    disposition.IsReassociation || disposition.IsRefund || disposition.IsEmdExchange)
+                    disposition.IsReassociation
+                    || disposition.IsRefund
+                    || disposition.IsEmdExchange
+                    || disposition.IsRetention)
                 .ToList();
 
         public AcceptedExchangeAncillaryDisposition? NextUnsettledAncillary
@@ -173,6 +179,24 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool RequiresAncillaryRefund => AncillaryRefunds.Count > 0;
 
         public bool RequiresAncillaryEmdExchange => ExchangeGroups.Count > 0;
+
+        public bool RequiresAncillaryRetention => AncillaryRetentions.Count > 0;
+
+        public AcceptedExchangePlan WithAncillaryRetention(
+            AcceptedExchangeAncillaryDisposition retained,
+            DateTimeOffset settledAt)
+        {
+            ArgumentNullException.ThrowIfNull(retained);
+
+            return this with
+            {
+                AncillaryDispositions = Ancillaries
+                    .Select(disposition => disposition.EmdCouponId == retained.EmdCouponId
+                        ? disposition with { RetentionSettledAt = settledAt }
+                        : disposition)
+                    .ToList()
+            };
+        }
 
         public bool IsAncillarySettled
             => ExecutableAncillaries.Where(disposition => !disposition.IsEmdExchange)

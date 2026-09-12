@@ -202,6 +202,15 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
         public EmdCoupon? SuccessorOf(int emdCouponNumber)
             => _coupons.SingleOrDefault(coupon => coupon.PredecessorCouponNumber == emdCouponNumber);
 
+        public bool PermitsResidualRetention(int emdCouponNumber, long operationId)
+            => !IsTerminal
+               && _coupons.SingleOrDefault(coupon => coupon.CouponNumber == emdCouponNumber)
+                   is { IsOpenForUse: true } candidate
+               && candidate.CarriesNoAssociation
+               && candidate.ExchangeRecord is null
+               && candidate.RefundRecord is null
+               && candidate.IsDisassociatedByReissue(operationId);
+
         public bool PermitsDisassociation(int emdCouponNumber, long operationId, long predecessorTicketCouponId)
             => Associable(emdCouponNumber) is { } candidate
                && (candidate.IsAssociatedWith(predecessorTicketCouponId)

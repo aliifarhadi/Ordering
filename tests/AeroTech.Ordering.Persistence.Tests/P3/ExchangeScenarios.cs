@@ -454,6 +454,18 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 (int)status, emdCouponId);
         }
 
+        public static async Task AssociateAncillaryCouponAsync(
+            OrderingDatabaseFixture fixture,
+            long emdCouponId,
+            long ticketCouponId)
+        {
+            await using var command = fixture.NewCommandContext();
+
+            await command.Database.ExecuteSqlRawAsync(
+                "UPDATE [Order].[EmdCoupons] SET [AssociatedTicketCouponId] = {0} WHERE [Id] = {1}",
+                ticketCouponId, emdCouponId);
+        }
+
         public static async Task VoidAncillaryAsync(OrderingDatabaseFixture fixture, long documentId)
         {
             await using var command = fixture.NewCommandContext();

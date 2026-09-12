@@ -403,6 +403,19 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             return copy;
         }
 
+        internal bool MarkSupersededByRetainedResidual()
+        {
+            if (Status == OrderServiceStatus.Cancelled
+                && CommercialStatus == OrderServiceCommercialStatus.Cancelled)
+                return false;
+
+            Status = OrderServiceStatus.Cancelled;
+            CommercialStatus = OrderServiceCommercialStatus.Cancelled;
+            DeliveryStatus = OrderServiceDeliveryStatus.Unused;
+
+            return true;
+        }
+
         internal void MarkCancelled()
         {
             if (DocumentStatus == OrderServiceDocumentStatus.Issued)

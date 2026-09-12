@@ -11,5 +11,6 @@ namespace AeroTech.Ordering.Domain.Ports.AncillaryDisposition
         int? TargetPredecessorCouponNumber,
         AncillaryRefundTerms? Refund = null,
         AncillaryEmdExchangeTerms? Exchange = null,
+        AncillaryRetentionTerms? Retention = null,
         string? Detail = null);
 }

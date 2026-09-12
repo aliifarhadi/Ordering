@@ -1409,6 +1409,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 return await ReconcileAsync(
                     order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
 
+            if (pending.IsRetention)
+                return await RetainAncillaryResidualAsync(
+                    order, operation, predecessor, plan, successor, materialized, pending, isReplay,
+                    cancellationToken);
+
             if (pending.IsEmdExchange)
                 return await ExchangeAncillaryToNewEmdAsync(
                     order, operation, predecessor, plan, successor, materialized, pending, documentJustConfirmed,

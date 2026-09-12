@@ -151,6 +151,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             if (decided.Disposition == AncillaryExchangeDisposition.ExchangeToNewEmd)
                 EnsureEmdExchangeIsExecutable(association, decided);
 
+            if (decided.Disposition == AncillaryExchangeDisposition.RetainAsResidual)
+                EnsureRetentionIsExecutable(association, decided);
+
             long? targetSuccessorCouponId = null;
 
             if (decided.Disposition == AncillaryExchangeDisposition.ReassociateExisting)
@@ -197,7 +200,40 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 ExchangeGroupRef: decided.Exchange?.ExchangeGroupRef,
                 RefundedOrderServiceId: decided.Disposition == AncillaryExchangeDisposition.Refund
                     ? association.Coupon.OrderServiceId
-                    : null);
+                    : null,
+                RetentionReference: decided.Retention?.RetentionReference,
+                RetentionSourceReference: decided.Retention?.SourceReference,
+                RetentionMode: decided.Retention?.RetentionMode);
+        }
+
+        private static void EnsureRetentionIsExecutable(
+            AffectedAncillaryAssociation association,
+            AncillaryCouponDisposition decided)
+        {
+            var document = association.Document.DocumentNumber;
+            var coupon = association.Coupon.CouponNumber;
+
+            if (decided.Retention is not { } retention)
+                throw ExceptionFactory.AncillaryRetentionTermsMissing(document, coupon, "terms");
+
+            if (string.IsNullOrWhiteSpace(retention.RetentionReference))
+                throw ExceptionFactory.AncillaryRetentionTermsMissing(document, coupon, "retention reference");
+
+            if (string.IsNullOrWhiteSpace(retention.SourceReference))
+                throw ExceptionFactory.AncillaryRetentionTermsMissing(document, coupon, "source reference");
+
+            if (!Enum.IsDefined(retention.RetentionMode))
+                throw ExceptionFactory.AncillaryRetentionTermsMissing(document, coupon, "retention mode");
+
+            if (retention.RetentionMode != AncillaryRetentionMode.ExistingEmdCouponReusable)
+                throw ExceptionFactory.AncillaryRetentionModeNotExecutable(
+                    document, coupon, retention.RetentionMode);
+
+            if (decided.Refund is not null || decided.Exchange is not null)
+                throw ExceptionFactory.AncillaryRetentionTermsMissing(
+                    document,
+                    coupon,
+                    "retention shape, because it also carries an immediate monetary or exchange consequence");
         }
 
         public static IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup> AcceptExchangeGroups(
@@ -531,7 +567,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             ArgumentNullException.ThrowIfNull(dispositions);
 
             if (dispositions.FirstOrDefault(disposition =>
-                    !disposition.IsReassociation && !disposition.IsRefund && !disposition.IsEmdExchange)
+                    !disposition.IsReassociation
+                    && !disposition.IsRefund
+                    && !disposition.IsEmdExchange
+                    && !disposition.IsRetention)
                 is { } unsupported)
                 throw ExceptionFactory.AncillaryDispositionNotExecutable(
                     unsupported.EmdDocumentNumber, unsupported.EmdCouponNumber, unsupported.Disposition);

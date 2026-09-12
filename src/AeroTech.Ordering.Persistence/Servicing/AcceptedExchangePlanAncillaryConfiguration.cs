@@ -25,6 +25,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.Property(ancillary => ancillary.RefundValueReference).HasMaxLength(128);
             builder.Property(ancillary => ancillary.RefundValueDetail).HasMaxLength(512);
             builder.Property(ancillary => ancillary.ExchangeGroupRef).HasMaxLength(128);
+            builder.Property(ancillary => ancillary.RetentionReference).HasMaxLength(128);
+            builder.Property(ancillary => ancillary.RetentionSourceReference).HasMaxLength(128);
 
             builder.HasIndex(ancillary => new { ancillary.OperationId, ancillary.ExchangeGroupRef });
         }

@@ -17,7 +17,8 @@ Status vocabulary:
 Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
 `ICC-P3-EXCHANGE-REFUND-VALUE`, `ICC-P3-EXCHANGE-RESIDUAL`, `ICC-P3-EXCHANGE-INVENTORY`,
 `ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`, `ICC-P3-ANCILLARY-EXCHANGE-DISPOSITION`,
-`ICC-P3-EMD-ASSOCIATION`, `ICC-P3-EMD-REFUND`, `ICC-P3-EMD-EXCHANGE`.
+`ICC-P3-EMD-ASSOCIATION`, `ICC-P3-EMD-REFUND`, `ICC-P3-EMD-EXCHANGE`,
+`ICC-P3-ANCILLARY-RETENTION`.
 
 Capability scope of this revision: **even, add-collect, refund-due, residual and mixed reissue**, each over
 both supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. This closes
@@ -2218,3 +2219,117 @@ Ordering does not decide whether an ancillary is exchangeable, does not choose t
 RFIC, RFISC, purpose or value, does not derive any successor term from the predecessor EMD, does not generate
 a provider document number, does not compose exchange groups, does not un-exchange a coupon, and does not
 reconcile a refused or contradicted act on its own.
+
+---
+
+## ICC-P3-ANCILLARY-RETENTION
+
+### Capability
+
+Recording that an existing ancillary accountable value stays **reusable** after a ticket reissue, on the
+authority of the servicing source, without creating any new accountable document or value instrument.
+
+### Authoritative Owner
+
+The ancillary disposition source alone. It decides whether the ancillary is retained at all, under what
+retention reference, and in what retention mode. Ordering adjudicates none of it and derives nothing from it.
+
+There is **no second authority in this capability**, because there is no external act: no document authority is
+called, no funding authority, no return-of-value authority. This is the only executable ancillary disposition
+with no provider rail.
+
+### Ordering Semantic Requirement
+
+```text
+RetainAsResidual
+  -> no new EMD, no EMD-S, no voucher, no wallet, no travel bank, no credit shell
+  -> the existing source EMD coupon remains the accountable value carrier
+  -> that coupon stays OpenForUse and detached, with its G1 DisassociatedByReissue provenance intact
+  -> no money or value moves now
+  -> no PriceChangeSet and no OrderPricingChanged
+  -> the old dependent ancillary OrderService becomes non-deliverable
+  -> durable retention evidence is persisted on the accepted disposition
+```
+
+**This is not an accountable-document exchange.** If the source wants `old EMD -> new residual EMD-S`, that is
+`ExchangeToNewEmd` and it must go through `IEmdExchangePort` — see `ICC-P3-EMD-EXCHANGE`. The two state
+machines and their persistence are deliberately separate.
+
+**The exact future reusable amount is never calculated or guaranteed by Ordering.** No amount appears in the
+retention terms, the accepted disposition or persistence. Nothing is derived from the EMD issuance value, a
+pricing allocation, used value, penalty or fee. The value of the retained coupon is re-evaluated by an
+authoritative source when it is next used, which this capability does not perform.
+
+**Wallet, voucher, stored-value and credit-shell balances are outside Ordering entirely.** A source that asks
+for one through this disposition is refused, not translated.
+
+### Ordering Port / Dependency Boundary
+
+None. The retention terms ride on the existing
+`src/AeroTech.Ordering.Domain/Ports/AncillaryDisposition/IAncillaryExchangeDispositionPort.cs` result, so this
+capability adds no provider surface. No operation key exists for retention because there is no provider
+operation to key, and no `Pending`/`Unknown`/`Recover`/`WasDispatched` rail was invented for it.
+
+### Request / Response Evidence
+
+The accepted decision must carry `AncillaryRetentionTerms`: a retention reference, a source reference and a
+retention mode, alongside the existing binding decision reference, decision version and context fingerprint.
+
+Only `AncillaryRetentionMode.ExistingEmdCouponReusable` is executable. `NewMiscellaneousDocument`, `Voucher`,
+`StoredValue`, `ExternalInstrument` and `CreditShell` are expressible precisely so they can be **refused**
+rather than being inexpressible — `AncillaryRetentionModeNotExecutable` (20317, 422), before the reservation
+change and before the ticket document exchange. Incomplete terms, or retention arriving together with an
+immediate monetary or exchange consequence, are `AncillaryRetentionTermsMissing` (20316, 422).
+
+### Durable Evidence And Idempotency
+
+Four additive fields on the accepted ancillary disposition — `RetentionReference`,
+`RetentionSourceReference`, `RetentionMode`, `RetentionSettledAt` — and nothing else. No generic
+servicing-consequence table, no EMD document-history mutation, no in-memory flag. `RetentionSettledAt` is the
+proof that retention actually settled, written with `??=` so a replay never moves it, which is what makes a
+retained ancillary distinguishable from one merely left detached by accident.
+
+Retention settles only when the exact source coupon is `OpenForUse`, carries no association, has no refund or
+exchange record, and was disassociated **by this servicing operation**. Any other state reconciles: ticket
+truth stays authoritative, no document is mutated, no value moves, and the coupon is never pulled back from
+another association.
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. No real ancillary disposition source is wired, so no real carrier ever returns a retention decision.
+   `UnconfiguredAncillaryProvider` fails closed with 501.
+2. Whether a real source expresses retention as a distinct disposition at all, or instead as a residual EMD-S
+   exchange. Ordering supports both shapes and keeps them separate; which one a carrier uses is its choice.
+3. Whether the real source supplies a stable retention reference that can later be presented to redeem the
+   retained value. Ordering persists whatever reference it is given and interprets none of it.
+4. Whether a retained EMD coupon is honoured by the real accountable-document authority on a later reshop.
+   Ordering asserts only that the coupon remains open and detached; it makes no promise about redemption.
+
+### Known Semantic Gaps
+
+* Redemption of retained value is **not** implemented. Nothing in Ordering consumes a retained coupon, reshops
+  it, or converts it to money or a new document. The retained coupon is simply left open, detached and
+  evidenced.
+* No reusable amount is stored, so no report or read model can state "how much" is retained. That is
+  deliberate: any number Ordering wrote would be derived, and a derived residual balance is exactly what this
+  capability refuses to invent.
+* `Cancel` and `ManualReview` remain unexecuted and are refused explicitly with
+  `AncillaryDispositionNotExecutable` (20298).
+* A retained coupon that is moved onto an association this exchange did not detach it from is refused by the
+  **frozen G1 association guard** (`ElectronicMiscDocumentAssociationMoved`, 20302, 409) during
+  re-materialization, before retention is considered. That is fail-closed, though by refusal rather than by
+  `NeedsReconciliation`; changing it would weaken a frozen G1 invariant.
+* A retention with no delivering `OrderServiceId` produces no commercial service consequence and no
+  `CommercialVersion` move. That is correct — there is no service to withdraw — but it means such a retention
+  leaves no trace on the order aggregate beyond the accepted plan's evidence.
+
+### Explicit Non-Responsibilities
+
+Ordering does not decide whether an ancillary is retainable, does not compute or guarantee a reusable amount,
+does not create or hold any voucher, wallet, travel-bank or credit-shell balance, does not convert the
+existing EMD into another document, does not refund or move value at retention time, does not redeem retained
+value, and does not reconcile a conflicting coupon state on its own.

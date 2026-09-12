@@ -25,6 +25,10 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         IReadOnlyList<AcceptedRefundPricingLine>? RefundPricingLines = null,
         long? RefundPriceChangeSetId = null,
         string? ExchangeGroupRef = null,
+        string? RetentionReference = null,
+        string? RetentionSourceReference = null,
+        AncillaryRetentionMode? RetentionMode = null,
+        DateTimeOffset? RetentionSettledAt = null,
         long? RefundedOrderServiceId = null,
         ProviderOperationOutcome? AssociationOutcome = null,
         string? AssociationProviderReference = null,
@@ -49,6 +53,10 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool IsRefund => Disposition == AncillaryExchangeDisposition.Refund;
 
         public bool IsEmdExchange => Disposition == AncillaryExchangeDisposition.ExchangeToNewEmd;
+
+        public bool IsRetention => Disposition == AncillaryExchangeDisposition.RetainAsResidual;
+
+        public bool IsRetentionSettled => RetentionSettledAt is not null;
 
         public string RefundLegIdentity => $"{RefundLegPrefix}:{EmdDocumentNumber}:{EmdCouponNumber}";
 
@@ -81,18 +89,33 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
             }
         };
 
-        public bool IsSettled => IsRefund
-            ? IsRefundSettled
-            : AssociationOutcome == ProviderOperationOutcome.Confirmed;
+        public bool IsSettled => Disposition switch
+        {
+            AncillaryExchangeDisposition.Refund => IsRefundSettled,
+            AncillaryExchangeDisposition.RetainAsResidual => IsRetentionSettled,
+            _ => AssociationOutcome == ProviderOperationOutcome.Confirmed
+        };
 
-        public bool IsRejected => IsRefund
-            ? IsRefundDocumentRejected || IsRefundValueRejected
-            : AssociationOutcome == ProviderOperationOutcome.Rejected;
+        public bool IsRejected => Disposition switch
+        {
+            AncillaryExchangeDisposition.Refund => IsRefundDocumentRejected || IsRefundValueRejected,
+            AncillaryExchangeDisposition.RetainAsResidual => false,
+            _ => AssociationOutcome == ProviderOperationOutcome.Rejected
+        };
 
         public bool IsUnresolved
             => AssociationOutcome is ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown;
 
-        public ExchangeAncillaryState State => IsRefund ? RefundState : AssociationState;
+        public ExchangeAncillaryState State => Disposition switch
+        {
+            AncillaryExchangeDisposition.Refund => RefundState,
+            AncillaryExchangeDisposition.RetainAsResidual => RetentionState,
+            _ => AssociationState
+        };
+
+        private ExchangeAncillaryState RetentionState => IsRetentionSettled
+            ? ExchangeAncillaryState.Confirmed
+            : ExchangeAncillaryState.NotStarted;
 
         private ExchangeAncillaryState AssociationState => AssociationOutcome switch
         {

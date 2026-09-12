@@ -134,6 +134,10 @@ namespace AeroTech.Ordering.Persistence.Servicing
                                 ancillary.RefundPricingLines, PlanOptions),
                         ancillary.RefundPriceChangeSetId,
                         ancillary.ExchangeGroupRef,
+                        ancillary.RetentionReference,
+                        ancillary.RetentionSourceReference,
+                        ancillary.RetentionMode,
+                        ancillary.RetentionSettledAt,
                         ancillary.RefundedOrderServiceId,
                         ancillary.AssociationOutcome,
                         ancillary.AssociationProviderReference,
@@ -361,6 +365,10 @@ namespace AeroTech.Ordering.Persistence.Servicing
                             : JsonSerializer.Serialize(ancillary.RefundPricingLines, PlanOptions),
                         RefundPriceChangeSetId = ancillary.RefundPriceChangeSetId,
                         ExchangeGroupRef = ancillary.ExchangeGroupRef,
+                        RetentionReference = ancillary.RetentionReference,
+                        RetentionSourceReference = ancillary.RetentionSourceReference,
+                        RetentionMode = ancillary.RetentionMode,
+                        RetentionSettledAt = ancillary.RetentionSettledAt,
                         RefundedOrderServiceId = ancillary.RefundedOrderServiceId,
                         RefundDocumentOutcome = ancillary.RefundDocumentOutcome,
                         RefundDocumentReference = ancillary.RefundDocumentReference,
@@ -515,6 +523,24 @@ namespace AeroTech.Ordering.Persistence.Servicing
             var plan = await RequireAsync(operationId, cancellationToken);
 
             plan.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task RecordAncillaryRetentionSettledAsync(
+            long operationId,
+            long emdCouponId,
+            DateTimeOffset settledAt,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await _dbContext.Set<AcceptedExchangePlanAncillaryRow>()
+                          .FirstOrDefaultAsync(
+                              ancillary => ancillary.OperationId == operationId
+                                           && ancillary.EmdCouponId == emdCouponId,
+                              cancellationToken)
+                      ?? throw ExceptionFactory.AcceptedExchangePlanNotFound(operationId);
+
+            row.RetentionSettledAt ??= settledAt;
+
+            await TouchAsync(operationId, cancellationToken);
         }
 
         public async Task RecordAncillaryExchangeOutcomeAsync(

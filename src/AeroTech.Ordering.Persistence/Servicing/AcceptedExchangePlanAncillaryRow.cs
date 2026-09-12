@@ -48,6 +48,14 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public string? ExchangeGroupRef { get; set; }
 
+        public string? RetentionReference { get; set; }
+
+        public string? RetentionSourceReference { get; set; }
+
+        public AncillaryRetentionMode? RetentionMode { get; set; }
+
+        public DateTimeOffset? RetentionSettledAt { get; set; }
+
         public long? RefundedOrderServiceId { get; set; }
 
         public ProviderOperationOutcome? RefundDocumentOutcome { get; set; }

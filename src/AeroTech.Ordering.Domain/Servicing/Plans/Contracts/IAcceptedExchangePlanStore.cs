@@ -66,6 +66,12 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Contracts
             string? detail,
             CancellationToken cancellationToken = default);
 
+        Task RecordAncillaryRetentionSettledAsync(
+            long operationId,
+            long emdCouponId,
+            DateTimeOffset settledAt,
+            CancellationToken cancellationToken = default);
+
         Task RecordAncillaryExchangeOutcomeAsync(
             long operationId,
             string exchangeGroupRef,

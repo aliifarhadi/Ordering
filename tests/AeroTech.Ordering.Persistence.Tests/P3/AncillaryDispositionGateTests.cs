@@ -233,7 +233,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         // ---------------------------------------------------------------- P-R. a disposition this capability cannot run
 
         [Theory]
-        [InlineData(AncillaryExchangeDisposition.RetainAsResidual)]
         [InlineData(AncillaryExchangeDisposition.Cancel)]
         [InlineData(AncillaryExchangeDisposition.ManualReview)]
         public async Task P_an_unsupported_disposition_stops_before_the_first_irreversible_operation(

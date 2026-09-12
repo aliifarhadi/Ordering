@@ -109,6 +109,21 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public bool MergeExchangeGroupToOneSuccessor { get; set; }
 
+        public string RetentionReference { get; set; } = "ANC-RETENTION";
+
+        public string RetentionSourceReference { get; set; } = "ANC-RETENTION-SOURCE";
+
+        public AncillaryRetentionMode RetentionMode { get; set; }
+            = AncillaryRetentionMode.ExistingEmdCouponReusable;
+
+        public bool OmitRetentionTerms { get; set; }
+
+        public bool OmitRetentionReference { get; set; }
+
+        public bool OmitRetentionSourceReference { get; set; }
+
+        public bool ReportRetentionWithRefundTerms { get; set; }
+
         public long? ExchangeSuccessorOrderServiceId { get; set; }
 
         public string? ExchangeSuccessorExternalValueReference { get; set; }
@@ -348,12 +363,24 @@ namespace AeroTech.Ordering.Providers.Deterministic
                     : coupon.PredecessorCouponNumber,
                 disposition,
                 Target(coupon),
-                RefundTerms(disposition),
+                ReportRetentionWithRefundTerms
+                 && disposition == AncillaryExchangeDisposition.RetainAsResidual
+                    ? RefundTerms(AncillaryExchangeDisposition.Refund)
+                    : RefundTerms(disposition),
                 disposition == AncillaryExchangeDisposition.ExchangeToNewEmd
                  && exchangeTerms.TryGetValue(Key(coupon), out var terms)
                     ? terms
-                    : null);
+                    : null,
+                RetentionTerms(disposition));
         }
+
+        private AncillaryRetentionTerms? RetentionTerms(AncillaryExchangeDisposition disposition)
+            => disposition == AncillaryExchangeDisposition.RetainAsResidual && !OmitRetentionTerms
+                ? new AncillaryRetentionTerms(
+                    OmitRetentionReference ? string.Empty : RetentionReference,
+                    OmitRetentionSourceReference ? string.Empty : RetentionSourceReference,
+                    RetentionMode)
+                : null;
 
         private AncillaryRefundTerms? RefundTerms(AncillaryExchangeDisposition disposition)
             => disposition == AncillaryExchangeDisposition.Refund && !OmitRefundTerms
