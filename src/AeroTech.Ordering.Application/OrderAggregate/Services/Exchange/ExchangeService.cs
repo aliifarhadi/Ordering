@@ -881,7 +881,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             var residualContradiction = confirmed
                 ? ExchangeSettlementEvidencePolicy.ResidualEvidenceContradiction(plan, result.Residual)
-                    ?? await ResidualDocumentConflictAsync(order, plan, result.Residual, cancellationToken)
+                    ?? await ResidualDocumentConflictAsync(
+                        order, operation, predecessor, plan, result.Residual, cancellationToken)
                 : null;
 
             var settlesCoupledResidual = confirmed && plan.RequiresDocumentCoupledResidual;
@@ -1056,6 +1057,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
         private async Task<string?> ResidualDocumentConflictAsync(
             Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
             AcceptedExchangePlan plan,
             ResidualDocumentIdentity? residual,
             CancellationToken cancellationToken)
@@ -1066,10 +1069,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             var existing = await FindMiscDocumentAsync(order.Id, residual.DocumentNumber, cancellationToken);
 
             return existing is null
-                   || existing.IsResidualValueDocumentFor(residual.Amount, residual.CurrencyId)
                 ? null
-                : $"miscellaneous document {residual.DocumentNumber} already exists and is not "
-                  + "the residual document this exchange reported";
+                : ResidualDocumentIdentityPolicy.Conflict(
+                    existing, residual, operation.OperationId, predecessor.TravelerId);
         }
 
         private async Task<ElectronicMiscDocument?> FindMiscDocumentAsync(

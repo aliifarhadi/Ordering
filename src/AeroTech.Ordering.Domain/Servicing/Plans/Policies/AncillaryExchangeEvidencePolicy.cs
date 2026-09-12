@@ -53,11 +53,15 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Policies
                 != successor.Coupons.Count)
                 return "the returned successor repeats a coupon number";
 
-            if (beneficiaryTravellerId is { } beneficiary
-                && successor.BeneficiaryTravellerId is { } returnedBeneficiary
-                && returnedBeneficiary != beneficiary)
-                return $"the returned successor names beneficiary {returnedBeneficiary} "
-                       + $"against an accepted {beneficiary}";
+            if (beneficiaryTravellerId is { } beneficiary)
+            {
+                if (successor.BeneficiaryTravellerId is not { } returnedBeneficiary)
+                    return "the confirmed successor carries no beneficiary";
+
+                if (returnedBeneficiary != beneficiary)
+                    return $"the returned successor names beneficiary {returnedBeneficiary} "
+                           + $"against an accepted {beneficiary}";
+            }
 
             if (group.IsAssociatedSuccessor
                 && string.IsNullOrWhiteSpace(successor.AssociatedTicketDocumentNumber))

@@ -259,13 +259,6 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
             DocumentVersion++;
         }
 
-        public bool IsResidualValueDocumentFor(decimal amount, int currencyId)
-            => Type == ElectronicMiscDocumentType.Standalone
-               && _coupons.SingleOrDefault(coupon => coupon.Purpose == EmdCouponPurpose.ResidualValue)
-                   is { } residual
-               && residual.IssuanceValue == amount
-               && residual.CurrencyId == currencyId;
-
         public EmdCoupon RequireCoupon(int couponNumber)
             => _coupons.SingleOrDefault(coupon => coupon.CouponNumber == couponNumber)
                ?? throw ExceptionFactory.ElectronicMiscDocumentCouponNotFound(DocumentNumber, couponNumber);

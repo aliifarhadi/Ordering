@@ -50,6 +50,8 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public long? BeneficiaryOverride { get; set; }
 
+        public bool OmitSuccessorBeneficiary { get; set; }
+
         public IReadOnlyList<int>? SuccessorCouponNumbersOverride { get; set; }
 
         public bool OmitSuccessorTicketDocument { get; set; }
@@ -184,7 +186,7 @@ namespace AeroTech.Ordering.Providers.Deterministic
                             ? SuccessorAssociatedCouponOverride ?? coupon.TargetSuccessorTicketCouponNumber
                             : null))
                     .ToList(),
-                BeneficiaryOverride ?? request.BeneficiaryTravellerId,
+                OmitSuccessorBeneficiary ? null : BeneficiaryOverride ?? request.BeneficiaryTravellerId,
                 ForceSuccessorTicketDocument
                     ? request.SuccessorTicketDocumentNumber ?? "T-FORCED"
                     : type == ElectronicMiscDocumentType.Associated

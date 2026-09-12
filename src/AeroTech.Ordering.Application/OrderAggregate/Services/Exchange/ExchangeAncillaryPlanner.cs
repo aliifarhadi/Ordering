@@ -444,6 +444,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 if (string.IsNullOrWhiteSpace(refundDue.Disposition))
                     throw ExceptionFactory.AncillaryExchangeGroupMalformed(
                         group, "its refund carries no disposition");
+
+                if (!refundDue.IsOriginalRefundableSource)
+                    throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                        group,
+                        $"its refund disposition {refundDue.Disposition} is not an original refundable source");
             }
 
             if (exchange.Residual is not { } residual)

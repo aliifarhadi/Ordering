@@ -125,7 +125,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                       result)
                   ?? await SuccessorEmdConflictAsync(
                       order, operation, group, result.Successor!, predecessor.TravelerId, cancellationToken)
-                  ?? await ResidualEmdConflictAsync(order, result.Residual, cancellationToken)
+                  ?? await ResidualEmdConflictAsync(
+                      order, operation, predecessor, group, result.Residual, cancellationToken)
                 : null;
 
             await _plans.RecordAncillaryExchangeOutcomeAsync(
@@ -257,18 +258,21 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
         private async Task<string?> ResidualEmdConflictAsync(
             Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
+            AcceptedExchangeAncillaryExchangeGroup group,
             Domain.Ports.DocumentExchange.ResidualDocumentIdentity? residual,
             CancellationToken cancellationToken)
         {
-            if (residual is null)
+            if (residual is null || !group.RequiresDocumentCoupledResidual)
                 return null;
 
             var existing = await FindMiscDocumentAsync(order.Id, residual.DocumentNumber, cancellationToken);
 
-            return existing is null || existing.IsResidualValueDocumentFor(residual.Amount, residual.CurrencyId)
+            return existing is null
                 ? null
-                : $"miscellaneous document {residual.DocumentNumber} already exists and is not "
-                  + "the coupled residual document this exchange reported";
+                : ResidualDocumentIdentityPolicy.Conflict(
+                    existing, residual, operation.OperationId, predecessor.TravelerId);
         }
     }
 }

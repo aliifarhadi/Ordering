@@ -867,11 +867,10 @@ Source was re-read after the suites went green, not instead of it. Verified by i
 
 ---
 
-## 23. Freeze Verdict
+## 23. Freeze Verdict (superseded by §24 — see the freeze-guard hotfix below)
 
-```text
-P3-G3 READY TO FREEZE: YES
-```
+The §22 correction reported `YES`. That verdict is **withdrawn**: three freeze guards were still weak, listed
+and closed in §24. The binding verdict is §25.
 
 All ten production blockers are fixed and covered. No known Ordering-owned defect and no placeholder remains.
 A source-approved refund obligation is executed, not dropped. The supported monetary shapes are frozen and
@@ -883,3 +882,193 @@ domains and is never accepted as another operation's replay. Deterministic reque
 materially binding field. Every confirmed group owns exactly one `PriceChangeSet`, one `OrderPricingChanged`
 and one `CommercialVersion` advance, and replay appends none of them twice. Every frozen ticket, EMD and
 commercial truth survives downstream money failure.
+
+---
+
+## 24. Final Freeze-Guard Hotfix
+
+```text
+Hotfix baseline        014ba09e6f67a4d3086f558aae5d34b2af5e397c  P3-G3-Final
+Delta to the brief     none — HEAD matched exactly
+Working tree at start  clean
+Schema change          none required
+```
+
+Three freeze guards were still weak after §22. Each is now closed, and each new test was **proven
+discriminating**: with all three guards temporarily reverted, 12 of the 16 new cases fail. The four that still
+pass are the two positive controls and the two shapes the previous code already caught — so no test in this
+section is decorative.
+
+### 24.1 The refund disposition must be an original refundable source
+
+`AcceptedRefundDue` has carried `OriginalFormOfPayment` / `IsOriginalRefundableSource` since P3-F, and the
+frozen ticket-exchange rule `ExchangePricingPolicy.EnsureRefundDueIsWellFormed` already refuses a refund-due
+that is not an original refundable source. The G3 group check only refused a **blank** disposition, so an
+`ExchangeToNewEmd` group could carry `Wallet`, `Voucher`, `TravelBank` or `CreditShell` through acceptance and
+hand that disposition to `IRefundValuePort`.
+
+`EnsureMonetaryShapeIsSupported` now refuses it with `AncillaryExchangeGroupMalformed` (20312, 422) before the
+reservation change and before the ticket document exchange:
+
+```csharp
+if (!refundDue.IsOriginalRefundableSource)
+    throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+        group, $"its refund disposition {refundDue.Disposition} is not an original refundable source");
+```
+
+Because only an original-form-of-payment refund can now reach the stage, the disposition handed to
+`IRefundValuePort` can no longer be arbitrary — it is the source's own accepted term, which the contradiction
+policy then verifies against the echo. No wallet, voucher or travel-bank semantics were introduced; the
+non-OFP case is refused, not translated.
+
+Covered by `H1` (four non-OFP dispositions) and `H2` (the OFP path still settles and the request carries
+`OriginalFormOfPayment`).
+
+### 24.2 Confirmed beneficiary evidence is never silently absent
+
+`SuccessorEmdIdentity.BeneficiaryTravellerId` existed, but the check only fired when **both** the expected and
+the returned value were non-null, so a provider that simply omitted the beneficiary passed unnoticed and the
+successor EMD was materialized on unverified beneficiary evidence.
+
+```text
+expected != null  +  returned == null   =>  contradiction => NeedsReconciliation => no successor EMD
+expected != null  +  returned != null   =>  must match exactly
+expected == null  +  returned == null   =>  valid
+```
+
+`AncillaryExchangeEvidencePolicy.Contradiction` now returns "the confirmed successor carries no beneficiary"
+for the first case. A legitimately null expected beneficiary still accepts a null result, so no ticket without
+a traveller is broken.
+
+Covered by `H3` (omitted beneficiary reconciles and materializes nothing) and `H4` (a wrong beneficiary is
+still refused). The null-expected/null-returned case is asserted at unit level in
+`AncillaryExchangeBeneficiaryEvidenceTests`, because a ticket in the servicing flow always carries a traveller
+and the case is therefore not constructible end-to-end.
+
+### 24.3 A coupled residual collision is decided on exact identity
+
+`ElectronicMiscDocument.IsResidualValueDocumentFor(amount, currencyId)` accepted **any** existing standalone
+document with a residual-value coupon of the right amount and currency as "this exchange's residual", and
+`MaterializeResidualDocumentAsync` then returned early for any existing document number. A document from a
+different operation, a different issuer, a different office, a different authority or a different
+reason-for-issuance was silently adopted as the coupled residual.
+
+The same weakness existed on the **frozen P3-F ticket-exchange coupled-residual path**, which used the same
+helper. One narrow shared policy now serves both call sites — not a generic document-identity framework:
+
+`src/AeroTech.Ordering.Domain/Servicing/Plans/Policies/ResidualDocumentIdentityPolicy.cs` binds, in order:
+
+```text
+type == Standalone
+origin servicing OperationId
+beneficiary / traveller binding
+issuer carrier
+issuing office
+document authority
+currency
+reason for issuance (RFIC)
+exactly one coupon
+coupon purpose == ResidualValue
+coupon amount
+coupon currency
+coupon reason for issuance sub code (RFISC)
+no ticket association
+```
+
+`ExchangeService.ResidualDocumentConflictAsync` (ticket path) and
+`ExchangeService.AncillaryExchange.ResidualEmdConflictAsync` (G3 path) both call it, and
+`IsResidualValueDocumentFor` was **deleted** rather than left in place as a trap. Both call sites now also
+pass the servicing operation and the predecessor's traveller, which they previously did not have in scope.
+
+Provider reference is deliberately **not** compared: `MaterializeResidualDocumentAsync` does not persist a
+provider confirmation on the residual document, so there is no truthful persisted evidence to compare against.
+Comparing a field we never store would be a false guarantee. Recorded as a known limit rather than faked.
+
+A mismatch reconciles: no duplicate residual is materialized, the EMD exchange is not re-dispatched, and no
+downstream residual or value fulfilment runs. An exact match replays as a no-op.
+
+Covered by `H5` (eight mismatch shapes: issuer, issuing office, authority, RFIC, RFISC, origin operation,
+beneficiary, currency), `H6` (an exact coupled residual replays with three documents, one provider act, no
+external residual call and `DocumentVersion` still 1), the unit suite
+`ResidualDocumentIdentityPolicyTests`, and the rerun P3-F suites `ResidualDocumentCouplingTests` and
+`ResidualEvidenceFreezeGateTests`.
+
+### 24.4 Discrimination proof
+
+All three guards were temporarily reverted — the OFP throw removed, the missing-beneficiary branch returned
+`null`, and the residual policy reduced to the old amount-plus-currency rule — and the guard suite re-run:
+
+```text
+with the guards reverted:  16 total, 4 passed, 12 failed
+```
+
+The 12 failures were exactly `H1` (×4), `H3`, and `H5` (×7: issuer, issuing office, authority, RFIC, RFISC,
+operation, beneficiary). The 4 passes were `H2` and `H6` (positive controls) plus `H4` and `H5 wrong-currency`,
+which the previous code already caught. The real implementations were then restored and the suite re-run
+green.
+
+### 24.5 Hotfix files changed
+
+**New (3)**
+
+| File | Purpose |
+| --- | --- |
+| `src/AeroTech.Ordering.Domain/Servicing/Plans/Policies/ResidualDocumentIdentityPolicy.cs` | the shared exact residual identity rule |
+| `tests/.../P3/EmdExchangeFreezeGuardTests.cs` | the 16-case discriminating guard suite |
+| `tests/AeroTech.Ordering.Domain.Tests/P3/ResidualDocumentIdentityPolicyTests.cs` + `AncillaryExchangeBeneficiaryEvidenceTests.cs` | facet-level unit coverage |
+
+**Modified (6)**
+
+| File | Change |
+| --- | --- |
+| `Application/.../Exchange/ExchangeAncillaryPlanner.cs` | the original-refundable-source refusal |
+| `Domain/Servicing/Plans/Policies/AncillaryExchangeEvidencePolicy.cs` | a missing beneficiary is a contradiction |
+| `Application/.../Exchange/ExchangeService.cs` | ticket residual collision uses the shared policy, with operation and traveller in scope |
+| `Application/.../Exchange/ExchangeService.AncillaryExchange.cs` | G3 residual collision uses the shared policy |
+| `Domain/ElectronicMiscDocumentAggregate/ElectronicMiscDocument.cs` | `IsResidualValueDocumentFor` deleted |
+| `Providers.Deterministic/DeterministicEmdExchangeAdapter.cs`, `DeterministicAncillaryDispositionAdapter.cs`, `tests/.../P3/ExchangeScenarios.cs` | `OmitSuccessorBeneficiary`, `ExchangeRefundDispositionOverride`, `AttachResidualAncillaryAsync` |
+
+No migration was required: every fact the exact residual identity needs was already persisted. `dotnet ef
+migrations has-pending-model-changes` reports no pending changes. No exception code was added — the two
+refusals reuse 20312.
+
+### 24.6 Hotfix regression results
+
+Every figure is from an actual run on the final build of this working tree.
+
+| Suite | Result |
+| --- | --- |
+| **`EmdExchangeFreezeGuardTests` (new)** | **16 passed, 0 failed, 0 skipped** |
+| **`ResidualDocumentIdentityPolicyTests` (new, Domain)** | **13 passed, 0 failed, 0 skipped** |
+| **`AncillaryExchangeBeneficiaryEvidenceTests` (new, Domain)** | **4 passed, 0 failed, 0 skipped** |
+| `EmdExchangeFreezeGateCorrectionTests` | 43 passed, 0 failed, 0 skipped |
+| `EmdExchangeToNewEmdFlowTests` | 48 passed, 0 failed, 0 skipped |
+| `Contracts/EmdExchange/` | 18 passed, 0 failed, 0 skipped |
+| `AncillaryRefundFlowTests` (G2) | 35 passed, 0 failed, 0 skipped |
+| `EmdReassociationFlowTests` (G1) | 29 passed, 0 failed, 0 skipped |
+| `ResidualDocumentCouplingTests` (P3-F) | 15 passed, 0 failed, 0 skipped |
+| `ResidualEvidenceFreezeGateTests` (P3-F) | 12 passed, 0 failed, 0 skipped |
+| `MixedExchangeFlowTests` (P3-F) | 53 passed, 0 failed, 0 skipped |
+| `RefundDueExchangeFlowTests` (P3-D/F) | 25 passed, 0 failed, 0 skipped |
+| **`AeroTech.Ordering.Domain.Tests` (full)** | **544 passed, 0 failed, 0 skipped** |
+| **`AeroTech.Ordering.Persistence.Tests` (full)** | **1172 passed, 0 failed, 0 skipped** |
+| `dotnet build AeroTech.Ordering.sln` | Build succeeded, 0 errors |
+| `dotnet ef migrations has-pending-model-changes` | "No changes have been made to the model since the last migration." |
+
+---
+
+## 25. Freeze Verdict
+
+```text
+P3-G3 READY TO FREEZE: YES
+```
+
+The three remaining freeze guards are closed, and each is proven necessary by reverting it and watching the
+new tests fail. An `ExchangeToNewEmd` refund can only be an original refundable source. A confirmed successor
+can no longer be materialized on absent beneficiary evidence. A coupled residual document is adopted only on
+exact persisted identity, on the G3 path and on the frozen P3-F ticket path alike, with the weak helper
+deleted rather than left behind.
+
+No known Ordering-owned defect and no placeholder remains. No schema change was required. Every frozen ticket,
+EMD and commercial truth still survives downstream money failure, and every earlier G1, G2, P3-F and G3
+semantic is unchanged.

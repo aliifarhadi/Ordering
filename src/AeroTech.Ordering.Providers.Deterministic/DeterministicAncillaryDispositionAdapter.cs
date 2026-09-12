@@ -105,6 +105,8 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public bool OmitExchangeRefundDisposition { get; set; }
 
+        public string? ExchangeRefundDispositionOverride { get; set; }
+
         public bool MergeExchangeGroupToOneSuccessor { get; set; }
 
         public long? ExchangeSuccessorOrderServiceId { get; set; }
@@ -237,7 +239,8 @@ namespace AeroTech.Ordering.Providers.Deterministic
                             ExchangeRefundCurrencyOverride ?? ExchangeCurrencyId,
                             OmitExchangeRefundDisposition
                                 ? string.Empty
-                                : AcceptedRefundDue.OriginalFormOfPayment)
+                                : ExchangeRefundDispositionOverride
+                                  ?? AcceptedRefundDue.OriginalFormOfPayment)
                         : null,
                     ExchangeResidual is { } residual
                         ? new AcceptedResidual(

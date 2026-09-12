@@ -370,6 +370,53 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             return document;
         }
 
+        public static async Task<ElectronicMiscDocument> AttachResidualAncillaryAsync(
+            OrderingDatabaseFixture fixture,
+            OrderSliceHarness harness,
+            long orderId,
+            string documentNumber,
+            decimal amount,
+            long? travelerId = null,
+            long? operationId = null,
+            long issuerCarrierId = OrderSliceHarness.HomeAirlineId,
+            long? issuingOfficeId = null,
+            DocumentAuthority authority = DocumentAuthority.Local,
+            string reasonForIssuanceCode = "D",
+            string reasonForIssuanceSubCode = "98R",
+            int? currencyId = null)
+        {
+            var order = await ReloadAsync(fixture, orderId);
+            var ticket = (await TicketsAsync(fixture, orderId)).OrderBy(candidate => candidate.Id).First();
+
+            var document = ElectronicMiscDocument.Issue(
+                harness.Ids.NewId(),
+                orderId,
+                travelerId ?? ticket.TravelerId,
+                operationId ?? harness.Ids.NewId(),
+                documentNumber,
+                ElectronicMiscDocumentType.Standalone,
+                reasonForIssuanceCode,
+                issuerCarrierId,
+                issuingOfficeId,
+                authority,
+                currencyId ?? order.CurrencyId,
+                [
+                    new EmdCouponIssuance(
+                        EmdCouponPurpose.ResidualValue,
+                        reasonForIssuanceSubCode,
+                        amount,
+                        [],
+                        ExternalValueReference: documentNumber)
+                ],
+                harness.Ids,
+                harness.Clock);
+
+            await harness.MiscDocumentRepository.AddAsync(document);
+            await harness.UnitOfWork.SaveChangesAsync();
+
+            return document;
+        }
+
         public static async Task<IReadOnlyList<ElectronicMiscDocument>> AncillariesAsync(
             OrderingDatabaseFixture fixture,
             long orderId)
