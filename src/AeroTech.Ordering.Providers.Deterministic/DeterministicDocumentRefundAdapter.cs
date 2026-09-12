@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.DocumentRefund;
 
 namespace AeroTech.Ordering.Providers.Deterministic
@@ -14,6 +14,8 @@ namespace AeroTech.Ordering.Providers.Deterministic
         public bool ThrowAfterDispatch { get; set; }
 
         public bool ThrowOnRecover { get; set; }
+
+        public bool OmitProviderReference { get; set; }
 
         public string? ReportedDocumentNumber { get; set; }
 
@@ -59,7 +61,9 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
             return Task.FromResult(new DocumentRefundResult(
                 RefundOutcome,
-                RefundOutcome == ProviderOperationOutcome.Rejected ? null : $"RFND-{request.DocumentNumber}",
+                RefundOutcome == ProviderOperationOutcome.Rejected || OmitProviderReference
+                    ? null
+                    : $"RFND-{request.DocumentNumber}",
                 null,
                 ReportedDocumentNumber ?? request.DocumentNumber,
                 ReportedCouponNumbers ?? request.CouponNumbers));

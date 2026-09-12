@@ -70,7 +70,9 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 RefundAmountOverride ?? RefundAmount,
                 RefundCurrencyOverride ?? RefundCurrencyId,
                 PricingBasisType.OrderService,
-                RefundabilityRule.Refundable)
+                RefundabilityRule.Refundable,
+                Code: "ANCILLARY-REFUND",
+                Description: "Ancillary refund approved by the pricing source")
         ];
 
         public List<AncillaryExchangeDispositionRequest> ObservedRequests { get; } = new();

@@ -325,7 +325,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             long orderId,
             string documentNumber,
             IReadOnlyList<long?> associatedTicketCouponIds,
-            ElectronicMiscDocumentType type = ElectronicMiscDocumentType.Associated)
+            ElectronicMiscDocumentType type = ElectronicMiscDocumentType.Associated,
+            long? deliveringOrderServiceId = null)
         {
             var order = await ReloadAsync(fixture, orderId);
             var ticket = (await TicketsAsync(fixture, orderId)).OrderBy(candidate => candidate.Id).First();
@@ -344,13 +345,21 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 DocumentAuthority.Local,
                 order.CurrencyId,
                 associatedTicketCouponIds
-                    .Select(couponId => new EmdCouponIssuance(
-                        EmdCouponPurpose.Fee,
-                        "0DF",
-                        50_000m,
-                        [],
-                        PricingLineId: pricingLineId,
-                        AssociatedTicketCouponId: couponId))
+                    .Select(couponId => deliveringOrderServiceId is { } serviceId
+                        ? new EmdCouponIssuance(
+                            EmdCouponPurpose.Service,
+                            "0DF",
+                            50_000m,
+                            [],
+                            OrderServiceId: serviceId,
+                            AssociatedTicketCouponId: couponId)
+                        : new EmdCouponIssuance(
+                            EmdCouponPurpose.Fee,
+                            "0DF",
+                            50_000m,
+                            [],
+                            PricingLineId: pricingLineId,
+                            AssociatedTicketCouponId: couponId))
                     .ToList(),
                 harness.Ids,
                 harness.Clock);

@@ -61,7 +61,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             DeterministicEmdAssociationAdapter? emdAssociations = null,
             IAncillaryExchangeDispositionPort? unconfiguredAncillaryDispositions = null,
             IEmdAssociationPort? unconfiguredEmdAssociations = null,
-            DeterministicDocumentExchangeAdapter? documentExchanges = null)
+            DeterministicDocumentExchangeAdapter? documentExchanges = null,
+            DeterministicDocumentRefundAdapter? documentRefunds = null)
         {
             _fixture = fixture;
 
@@ -142,7 +143,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
 
             RefundQuotes = new DeterministicRefundQuoteAdapter();
-            DocumentRefunds = new DeterministicDocumentRefundAdapter();
+            DocumentRefunds = documentRefunds ?? new DeterministicDocumentRefundAdapter();
             RefundValues = refundValues ?? new DeterministicRefundValueAdapter();
             var refundValueCoordinator = new RefundValueMovementCoordinator(RefundValues, coordinator, frameworkClock);
             ManualRefundAuthorizations = new DeterministicManualRefundAuthorizationAdapter();
