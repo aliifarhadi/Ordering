@@ -13,10 +13,16 @@ Companion documents, all in this folder:
 ## 1. Starting State
 
 ```text
-Baseline HEAD inspected   08bb99ed43f1f8a6e4494c13a341615e07bf3104
-Commit                    P3-G1 — Consolidated Freeze-Gate Correction
-Working tree at start     clean
+P3-G1 correction baseline   08bb99ed43f1f8a6e4494c13a341615e07bf3104  P3-G1 — Consolidated Freeze-Gate Correction
+Residual correction baseline 7adad7e3e106e8cb8388c797e599e118842a5e50  P3-G1 — FINAL FREEZE CORRECTION + Report
+Working tree at each start  clean
 ```
+
+This report covers P3-G1 and the P3-F residual document-coupling correction that closing P3-G1 exposed. The
+residual correction itself is described in
+[P3-F-MIXED-EXCHANGE-AND-FREEZE-REPORT.md](P3-F-MIXED-EXCHANGE-AND-FREEZE-REPORT.md) §7.1; its effect on this
+slice is that a document-coupled residual is settled by the document act and is therefore never an unsettled
+downstream leg holding up the ancillary stage.
 
 Inherited frozen baseline: fully-unused, multi-coupon and partially-used exchange; repeated A→B→C lineage;
 Even, AddCollect, Refund-Due, Residual and Mixed settlement; the accepted-plan rail with per-stage durable
@@ -487,7 +493,60 @@ double reassociation, another operation's claim).
 
 ## 15. Regression Results
 
-REGRESSION_RESULTS_PLACEHOLDER
+Every run below was executed in isolation. Concurrent test processes share the `DotAirOrderNew` dev database
+and interfere with claim-conflict and document-number assertions, so overlapping runs are not reported here.
+
+### Complete projects
+
+```text
+dotnet test tests/AeroTech.Ordering.Domain.Tests/AeroTech.Ordering.Domain.Tests.csproj
+  passed 511   failed 0   skipped 0   total 511
+
+dotnet test tests/AeroTech.Ordering.Persistence.Tests/AeroTech.Ordering.Persistence.Tests.csproj
+  passed 985   failed 0   skipped 0   total 985
+```
+
+### Focused suites
+
+| Suite | Passed | Failed | Skipped | Total |
+| --- | --- | --- | --- | --- |
+| `PostDocumentTruthFreezeGateTests` — FG1–FG8, FG10, D4 | 11 | 0 | 0 | 11 |
+| `EmdReassociationFlowTests` — G1-C1…C12 plus the retained matrix | 29 | 0 | 0 | 29 |
+| `AncillaryDispositionGateTests` — A–T | 24 | 0 | 0 | 24 |
+| `ResidualDocumentCouplingTests` — RD1–RD11 | 15 | 0 | 0 | 15 |
+| `ResidualExchangeFlowTests` | 16 | 0 | 0 | 16 |
+| `MixedExchangeFlowTests` | 53 | 0 | 0 | 53 |
+| `DocumentExchangeIdentityTests` + `ExchangeCrashBoundaryTests` | 40 | 0 | 0 | 40 |
+| Both port contract kits — `Contracts.AncillaryDisposition` + `Contracts.EmdAssociation` | 35 | 0 | 0 | 35 |
+| P3-F exchange regression — `AddCollectExchangeFlowTests`, `AddCollectFundingRecoveryTests`, `RefundDueExchangeFlowTests`, `ExchangeFlowTests`, `PartiallyUsedExchangeFlowTests`, `MultiCouponExchangeFlowTests` | 216 | 0 | 0 | 216 |
+
+### Migration check
+
+```text
+dotnet ef migrations has-pending-model-changes
+  --project src/AeroTech.Ordering.Persistence
+  --startup-project src/AeroTech.Ordering.ServiceHost
+  --context OrderingDbContext
+
+No changes have been made to the model since the last migration.
+```
+
+### Exception-code invariant
+
+```text
+305 codes, 20001-20305, contiguous
+outside 20000-29999 : none
+duplicates          : none
+gaps                : none
+inline `new BusinessException` anywhere in src/ : none
+```
+
+### A note on one reported duration
+
+The complete persistence run reports a wall-clock duration of `8 h 34 m`. That is elapsed time across a
+machine suspend, not execution time; the same suite completed in about eight minutes immediately before and
+after. It is reported as observed rather than edited, and it is not a performance signal.
+
 
 ---
 
@@ -816,4 +875,27 @@ Verified mechanically: 304 codes, 20001–20304, no gaps, no duplicates, none ou
 
 ## 25. Freeze Verdict
 
-FREEZE_VERDICT_PLACEHOLDER
+```text
+P3-F RESIDUAL CORRECTION READY TO FREEZE: YES
+P3-G1 READY TO FREEZE: YES
+```
+
+Every freeze-gate test is green, in isolation, with exact counts recorded in §15. `BLOCKED_DEVELOPMENT` is
+empty. Both remaining `BLOCKED_INTEGRATION` families are real-provider absences, not unresolved Ordering
+semantics, and neither blocks the deterministic capability.
+
+The one `BLOCKED_DECISION` this work raised — whether a residual EMD-S may be a downstream stage — was
+resolved by the business and implemented: an exchange-coupled residual is executed and recovered inside the
+same `IDocumentExchangePort` operation, and external value instruments remain downstream. Nothing was
+implemented on an unresolved decision.
+
+Two scope boundaries are recorded rather than silently crossed:
+
+* **Penalty-fee EMD-S.** IATA §5.3.5 names it in the same sentence as the refundable balance. Only the
+  residual case is implemented; penalty EMD-S issuance is deferred and listed in `BLOCKED_INTEGRATION`.
+* **Revalidation.** IATA §4.2.5 describes a disassociate/re-associate cycle for revalidation too, re-attaching
+  to the original ticket. Ordering models the stable net association and writes no intermediate transitions.
+  The resulting authoritative state is identical; the divergence is in mechanism and is documented, not
+  quietly matched.
+
+P3-G2 has not been started.
