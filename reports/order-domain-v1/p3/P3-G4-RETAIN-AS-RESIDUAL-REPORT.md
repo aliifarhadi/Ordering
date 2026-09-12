@@ -146,13 +146,15 @@ So one narrow method was added, `OrderService.MarkSupersededByRetainedResidual()
 ```text
 Status            -> Cancelled
 CommercialStatus  -> Cancelled
-DeliveryStatus    -> Unused
+DeliveryStatus    -> untouched   (delivery/DCS observation is evidence, not ours to rewrite)
 DocumentStatus    -> untouched   (the EMD is still an issued, open accountable document)
 FinancialStatus   -> untouched   (nothing was refunded)
 returns           -> whether anything actually changed
 ```
 
-`Order.RetainAncillaryResidual(orderServiceIds, clock)` applies it, recomputes the commercial summary, and
+It is reached only through an ownership and conflict guard — see §19.2.
+
+`Order.RetainAncillaryResidual(orderServiceId, clock)` applies it, recomputes the commercial summary, and
 advances `CommercialVersion` **exactly once — and only when a service actually transitioned**. A retained
 coupon with no `OrderServiceId` invents no service and moves no version, which `G4H3` proves arithmetically:
 `after.CommercialVersion == exchangeSet.ExpectedCommercialVersion + 1`, i.e. only the ticket exchange itself
@@ -258,7 +260,7 @@ irreversible work. Retention itself dispatches nothing, so it can never leave an
 | # | Brief case | Test |
 | --- | --- | --- |
 | 1 | single EMD-A retained; open, detached, one disassociation, no provider act, durable evidence | `G4H1` |
-| 2 | coupon with `OrderServiceId` → old ancillary service non-deliverable | `G4H2` |
+| 2 | coupon with `OrderServiceId` → old ancillary service non-deliverable | `C1` (a real lounge ancillary) |
 | 3 | coupon with no `OrderServiceId` → no synthetic service, no version move | `G4H3` |
 | 4 | mixed G1 + G2 + G3 + G4 settle independently | `G4H4` |
 | 5 | two retained coupons each get evidence; unaffected coupon unchanged | `G4H5`, `G4H6` |
@@ -271,7 +273,7 @@ irreversible work. Retention itself dispatches nothing, so it can never leave an
 | 12 | an affected ancillary with no disposition | `G4S2` (20296) |
 | 13 | coupon refunded before G4 resumes | `G4C1` Refunded |
 | 14 | coupon exchanged | `G4C1` Exchanged |
-| 15 | coupon moved elsewhere | `G4C2` |
+| 15 | coupon moved elsewhere | `C6` (post-ticket → reconcile), `C7` (pre-document → 20302) |
 | 16 | coupon voided / non-open | `G4C1` Void |
 | 17 | completed replay: no second transition, version, evidence, disassociation, provider call or redispatch | `G4R1` |
 | 18 | crash around local persistence settles exactly once | `G4R3` |
@@ -279,14 +281,13 @@ irreversible work. Retention itself dispatches nothing, so it can never leave an
 | 20 | no reusable amount is ever derived | structural — no amount field exists anywhere (§4) |
 | 21–25 | G1, G2, G3, G3 residual rails and P3-F unchanged | full-suite figures in §13 |
 
-**Case 15 behaves differently from the brief's expectation, and the code is right.** A coupon moved onto a
-coupon this exchange did not detach it from hits the **frozen G1 association guard** during re-materialization
-and fails closed with `ElectronicMiscDocumentAssociationMoved` (20302, 409) *before* retention is ever
-considered. `G4C2` asserts that actual behaviour — refusal, ticket still `Exchanged`, retention unsettled, no
-document mutation, one successor ticket. Forcing this into `NeedsReconciliation` would have meant weakening a
-frozen G1 invariant, which the brief forbids. Note also that a coupon re-associated back to *this* exchange's
-own predecessor coupon is legitimately repaired by G1 re-disassociation and then retained normally — that is
-correct, not a leak.
+**Case 15 was wrong in the first delivery and is corrected in §19.** The original `G4C2` asserted that a
+post-ticket moved association ends as a `20302 / 409` refusal, and that claim is **withdrawn**: once the
+predecessor ETKT is `Exchanged` and the successor and lineage are durable, a later ancillary conflict must end
+as `NeedsReconciliation`, not as a fresh business refusal. The frozen G1 fail-closed guard is preserved for a
+genuine **pre-document** invalid association state. Both halves are now proven separately — see §19.1.
+A coupon re-associated back to *this* exchange's own predecessor coupon is still legitimately repaired by G1
+re-disassociation and then retained normally; that is correct, not a leak.
 
 ---
 
@@ -435,7 +436,162 @@ DCS/disruption integration.
 
 ---
 
-## 18. Freeze Verdict
+## 19. Final Consolidated Freeze Correction
+
+```text
+Correction baseline    b5a0d9407b0b0e6409e666a6afc9e980c8ee0d8f  P3-G4
+Delta to the brief     none — HEAD matched exactly
+Working tree at start  clean
+Schema change          none required
+```
+
+Two blockers in the first G4 delivery are closed. Both were mine, and one of them I actively defended in the
+first report; that defence is withdrawn above.
+
+### 19.1 A post-ticket moved association reconciles; a pre-document one still refuses
+
+`MaterializeAsync` re-runs disassociation on the **already-materialized** path, which exists so a crash between
+materialization and disassociation can be repaired. That path threw
+`ElectronicMiscDocumentAssociationMoved` (20302, 409) when a coupon had since moved — a fresh business refusal
+raised *after* the ticket was already exchanged, which is the wrong servicing outcome at that stage.
+
+The resume path now calls `ResumeDisassociationConflictAsync`, which verifies every executable ancillary
+before mutating anything and returns a conflict string instead of throwing. `MaterializeAsync` returns
+`MaterializationResult(Materialized, Conflict)` and `FinalizeAsync` reconciles on a conflict. Everything the
+brief requires is preserved and asserted in `C6`:
+
+```text
+predecessor ETKT              Exchanged
+successor ETKT                the same one, never recreated
+lineage                       intact
+ticket redispatch             none (the document exchange port is not called again)
+RetentionSettledAt            null
+moved association             left exactly as found
+DisassociatedByReissue        still exactly once
+G4 provider / value act       none
+```
+
+The **fresh** materialization path is untouched: a pre-document invalid association state still fails closed
+with 20302, asserted in `C7`, which holds the reissue at `AwaitingExternal`, moves the coupon onto a real
+ticket coupon the reissue never touched, and then resumes into the fresh path.
+
+### 19.2 G4 never overwrites OrderService truth
+
+The first delivery could rewrite `CommercialStatus.Exchanged -> Cancelled` and unconditionally set
+`DeliveryStatus = Unused`. Worse, the original `G4H2` fixture bound the EMD coupon to **the very air service
+being exchanged**, so that test was asserting the bug rather than the feature.
+
+`Order.RetainAncillaryResidual(long? orderServiceId, IClock)` now returns an `AncillaryRetentionOutcome` and
+guards before touching anything:
+
+| Condition | Result |
+| --- | --- |
+| no `OrderServiceId` | `NothingToTransition` — settle, no version move |
+| service not owned by this order | `Conflicted` → `NeedsReconciliation` |
+| service is `AirTransportation` | `Conflicted` → `NeedsReconciliation` |
+| service commercial status is `Exchanged`, `Suspended` or otherwise conflicting | `Conflicted` → `NeedsReconciliation` |
+| already cancelled by a prior settle | `AlreadyApplied` — no second version move |
+| otherwise | `Applied` — `Status`/`CommercialStatus` to `Cancelled`, one version move |
+
+A present-but-unresolvable `OrderServiceId` is never silently ignored. On any conflict the retention does not
+settle, `RetentionSettledAt` stays null, no service is mutated, and no `CommercialVersion` is advanced.
+
+`DeliveryStatus`, `DocumentStatus` and `FinancialStatus` are never written by retention. Source review
+confirms the only three remaining `DeliveryStatus = Unused` writes in `OrderService` belong to
+`MarkSupersededByVoluntaryChange`, `MarkVoided` and `MarkCancelled` — none reachable from G4.
+
+### 19.3 The happy-path fixture is a real ancillary
+
+`C1` builds a genuine non-air ancillary: an `EmdLounge` product added before reservation, giving a
+`LoungeAccess` `OrderService` in the same order that does not depend on the air service. It proves, in one
+test:
+
+```text
+air service          CommercialStatus stays Exchanged
+ancillary service    Status and CommercialStatus become Cancelled
+ancillary            DeliveryStatus, DocumentStatus, FinancialStatus all unchanged
+CommercialVersion    exchange's own advance + exactly one for G4
+RetentionSettledAt   durable
+source EMD coupon    still OpenForUse
+```
+
+### 19.4 Correction tests
+
+| Brief case | Test |
+| --- | --- |
+| 1 real non-air ancillary retention happy path | `C1` |
+| 2 EMD points at the exchanged air service | `C2` |
+| 3 `OrderServiceId` not resolvable to an order-owned ancillary (a service from another order) | `C3` |
+| 4 non-default `DeliveryStatus` survives exactly | `C4` (Delivered, Consumed, NoShow) |
+| 5 completed replay does not transition or advance the version again | `C5` |
+| 6 post-ticket moved association → `NeedsReconciliation` | `C6` |
+| 7 fresh/pre-document association mismatch keeps the original guard | `C7` |
+
+Two first-delivery tests were **removed as superseded**, not merely edited: `G4H2` (it bound the EMD to the
+exchanged air service and asserted the overwrite) and `G4C2` (it asserted 20302 as the final servicing
+outcome). `C1`/`C2` and `C6`/`C7` replace them.
+
+### 19.5 Discrimination proof
+
+Both fixes were temporarily reverted — the ownership and conflict guards removed, an unresolvable service id
+silently ignored again, `DeliveryStatus = Unused` restored, and the resume path returned to throwing — and the
+suite re-run:
+
+```text
+with both fixes reverted:  30 total, 23 passed, 7 failed
+```
+
+The 7 failures were exactly `C1`, `C2`, `C3`, `C4` (×3) and `C6` — every correction test, and no other. The
+real implementations were then restored and the suite re-run green.
+
+### 19.6 Correction files changed
+
+**New (3)**: `Domain/OrderAggregate/Dto/AncillaryRetentionOutcome.cs`,
+`Application/.../Exchange/MaterializationResult.cs`, `tests/.../P3/RetainAsResidualFreezeCorrectionTests.cs`.
+
+**Modified (6)**: `Domain/OrderAggregate/Order.RetainedResidual.cs` (ownership and conflict guards),
+`Domain/OrderAggregate/Entities/OrderService.cs` (`RetainedResidualConflict`, no `DeliveryStatus` write),
+`Application/.../Exchange/ExchangeService.cs` (`ResumeDisassociationConflictAsync`, `MaterializationResult`),
+`Application/.../Exchange/ExchangeService.AncillaryRetention.cs` (conflict reconciles before settling),
+`tests/.../P3/RetainAsResidualFlowTests.cs` (two superseded tests removed),
+`tests/.../P3/ExchangeScenarios.cs` (`SetOrderServiceDeliveryStatusAsync`).
+
+No migration was required, no exception code was added, and no already-correct G4 behaviour changed: only
+`ExistingEmdCouponReusable` executes, no reusable amount is calculated, retention still commits no
+`PriceChangeSet` and no `OrderPricingChanged`, makes no provider or value call, leaves the source EMD
+`OpenForUse` and detached, creates no new EMD, converts no document type or purpose, moves `DocumentVersion`
+only through G1 disassociation, keeps its four durable evidence fields, sequences correctly with G1/G2/G3, and
+leaves `Cancel` and `ManualReview` non-executable.
+
+---
+
+### 19.7 Correction regression results
+
+Every figure is from an actual run on the final build of this working tree.
+
+| Suite | Result |
+| --- | --- |
+| `RetainAsResidualFreezeCorrectionTests` | 9 passed, 0 failed, 0 skipped |
+| `RetainAsResidualFlowTests` | 21 passed, 0 failed, 0 skipped |
+| `AncillaryDispositionGateTests` | 21 passed, 0 failed, 0 skipped |
+| `EmdReassociationFlowTests` | 29 passed, 0 failed, 0 skipped |
+| `AncillaryRefundFlowTests` | 35 passed, 0 failed, 0 skipped |
+| `EmdExchangeToNewEmdFlowTests` | 48 passed, 0 failed, 0 skipped |
+| `EmdExchangeFreezeGateCorrectionTests` | 43 passed, 0 failed, 0 skipped |
+| `EmdExchangeFreezeGuardTests` | 16 passed, 0 failed, 0 skipped |
+| `PostDocumentTruthFreezeGateTests` | 11 passed, 0 failed, 0 skipped |
+| `ResidualDocumentCouplingTests` | 15 passed, 0 failed, 0 skipped |
+| `ResidualEvidenceFreezeGateTests` | 12 passed, 0 failed, 0 skipped |
+| `MixedExchangeFlowTests` | 53 passed, 0 failed, 0 skipped |
+| `Contracts/AncillaryDisposition` | 20 passed, 0 failed, 0 skipped |
+| **`AeroTech.Ordering.Domain.Tests` (full)** | **544 passed, 0 failed, 0 skipped** |
+| **`AeroTech.Ordering.Persistence.Tests` (full)** | **1201 passed, 0 failed, 0 skipped** |
+| `dotnet build AeroTech.Ordering.sln` | Build succeeded, 0 errors |
+| `dotnet ef migrations has-pending-model-changes` | "No changes have been made to the model since the last migration." |
+
+---
+
+## 20. Freeze Verdict
 
 ```text
 P3-G4 READY TO FREEZE: YES
@@ -448,4 +604,9 @@ amount field exists anywhere in the slice. An old ancillary service the retained
 remain implicitly deliverable, and that transition advances `CommercialVersion` exactly once and never on
 replay. G1, G2, G3, the G3 residual rails and P3-F all remain frozen.
 
-Each guard is proven load-bearing: reverting the three of them makes 13 of the 23 new cases fail (§11).
+Each guard is proven load-bearing: reverting the three original ones makes 13 of the 23 first-delivery cases
+fail (§11), and reverting the two correction fixes makes all 7 correction cases fail (§19.5).
+
+The two §19 blockers are closed: a post-ticket moved association now reconciles while a pre-document mismatch
+still fails closed, and G4 can no longer overwrite `Exchanged` air-service truth, silently ignore a present
+`OrderServiceId`, or rewrite `DeliveryStatus`.

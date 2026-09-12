@@ -1,26 +1,36 @@
 using AeroTech.Framework.Core.ServiceContracts;
+using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.OrderAggregate.Dto;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate
 {
     public sealed partial class Order
     {
-        public bool RetainAncillaryResidual(IReadOnlyCollection<long> orderServiceIds, IClock clock)
+        public AncillaryRetentionOutcome RetainAncillaryResidual(long? orderServiceId, IClock clock)
         {
-            ArgumentNullException.ThrowIfNull(orderServiceIds);
             ArgumentNullException.ThrowIfNull(clock);
 
-            var transitioned = false;
+            if (orderServiceId is not { } serviceId)
+                return AncillaryRetentionOutcome.NothingToTransition;
 
-            foreach (var service in _orderServices.Where(service => orderServiceIds.Contains(service.Id)))
-                transitioned |= service.MarkSupersededByRetainedResidual();
+            if (_orderServices.FirstOrDefault(service => service.Id == serviceId) is not { } service)
+                return AncillaryRetentionOutcome.Conflicted(
+                    $"order service {serviceId} does not belong to order {Id}");
 
-            if (!transitioned)
-                return false;
+            if (service.ServiceType == OrderServiceType.AirTransportation)
+                return AncillaryRetentionOutcome.Conflicted(
+                    $"order service {serviceId} carries air transportation and is not a retainable ancillary");
+
+            if (service.RetainedResidualConflict() is { } conflict)
+                return AncillaryRetentionOutcome.Conflicted(conflict);
+
+            if (!service.MarkSupersededByRetainedResidual())
+                return AncillaryRetentionOutcome.AlreadyApplied;
 
             RecomputeCommercialSummary();
             IncrementCommercialVersion();
 
-            return true;
+            return AncillaryRetentionOutcome.Applied;
         }
     }
 }

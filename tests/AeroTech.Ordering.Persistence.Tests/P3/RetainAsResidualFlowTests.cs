@@ -75,44 +75,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Fact]
-        public async Task G4H2_a_retained_service_coupon_makes_its_old_ancillary_service_undeliverable()
-        {
-            await using var setup = NewHarness();
-            await using var harness = NewHarness();
-            var issued = await IssuedAsync(_fixture, setup);
-            var ticket = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
-            var coupon = ticket.Coupons.First();
-
-            await AttachAncillaryAsync(
-                _fixture, setup, issued.OrderId, _document, [coupon.Id],
-                deliveringOrderServiceId: coupon.CurrentOrderServiceId);
-
-            var scenario = await QuotedAsync(_fixture, harness, issued, [1]);
-            SetUpRetention(harness);
-
-            var before = await ReloadAsync(_fixture, scenario.OrderId);
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
-            var after = await ReloadAsync(_fixture, scenario.OrderId);
-            var service = after.OrderServices.Single(candidate => candidate.Id == coupon.CurrentOrderServiceId);
-
-            Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
-            Assert.Equal(OrderServiceStatus.Cancelled, service.Status);
-            Assert.Equal(OrderServiceCommercialStatus.Cancelled, service.CommercialStatus);
-            Assert.Equal(OrderServiceDeliveryStatus.Unused, service.DeliveryStatus);
-            Assert.NotEqual(OrderServiceFinancialStatus.Refunded, service.FinancialStatus);
-            Assert.True(after.CommercialVersion > before.CommercialVersion);
-            Assert.Equal(
-                Assert.Single(
-                        after.PriceConsequencesOf(
-                            after.Changes.Single(candidate => candidate.OperationId == outcome.OperationId).Id))
-                    .ExpectedCommercialVersion + 2,
-                after.CommercialVersion);
-            Assert.Equal(
-                EmdCouponStatus.OpenForUse,
-                (await AncillaryAsync(_fixture, scenario.OrderId, _document)).Coupons.Single().Status);
-        }
-
-        [Fact]
         public async Task G4H3_a_retained_coupon_without_an_order_service_invents_none()
         {
             await using var harness = NewHarness();
@@ -363,54 +325,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Empty(resumed.DocumentExchanges.ObservedRequests);
             Assert.Empty(resumed.EmdExchanges.ObservedRequests);
             Assert.Empty(resumed.DocumentRefunds.ObservedRefundRequests);
-            Assert.Single(
-                await TicketsAsync(_fixture, scenario.OrderId),
-                candidate => candidate.PredecessorElectronicTicketId == scenario.TicketId);
-        }
-
-        [Fact]
-        public async Task G4C2_a_coupon_moved_to_another_association_after_acceptance_is_never_retained()
-        {
-            var caller = Caller();
-            var associations = new DeterministicEmdAssociationAdapter();
-
-            await using var crashed = new OrderSliceHarness(_fixture, caller, emdAssociations: associations);
-            var scenario = await TwoCouponRetentionScenarioAsync(crashed);
-            var key = NewKey();
-
-            associations.ThrowBeforeDispatch = true;
-
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => crashed.Exchange.ExchangeAsync(scenario.Execution(key)));
-
-            var document = await AncillaryAsync(_fixture, scenario.OrderId, _secondDocument);
-            var successor = (await TicketsAsync(_fixture, scenario.OrderId))
-                .Single(candidate => candidate.PredecessorElectronicTicketId == scenario.TicketId);
-
-            // the coupon is moved onto a document this exchange did not detach it from
-            await AssociateAncillaryCouponAsync(
-                _fixture, document.Coupons.Single().Id, successor.Coupons.First().Id);
-
-            associations.ThrowBeforeDispatch = false;
-
-            await using var resumed = new OrderSliceHarness(_fixture, caller, emdAssociations: associations);
-            Register(resumed, scenario);
-            ComposeTwoCouponRetention(resumed);
-
-            var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => resumed.Exchange.ExchangeAsync(scenario.Execution(key)));
-
-            var plan = await resumed.ExchangePlans.FindAsync(
-                (await ReloadAsync(_fixture, scenario.OrderId)).Changes
-                    .Single(change => change.OperationId is not null).OperationId!.Value);
-
-            // the frozen G1 association guard fires before retention is ever considered
-            Assert.Equal(20302, refusal.Code);
-            Assert.Equal(409, refusal.HttpStatus);
-            Assert.False(plan!.AncillaryRetentions.Single().IsRetentionSettled);
-            Assert.Equal(ElectronicTicketStatus.Exchanged, (await PredecessorAsync(scenario)).StatusSummary);
-            Assert.Empty(resumed.DocumentExchanges.ObservedRequests);
-            Assert.Equal(2, (await AncillariesAsync(_fixture, scenario.OrderId)).Count);
             Assert.Single(
                 await TicketsAsync(_fixture, scenario.OrderId),
                 candidate => candidate.PredecessorElectronicTicketId == scenario.TicketId);

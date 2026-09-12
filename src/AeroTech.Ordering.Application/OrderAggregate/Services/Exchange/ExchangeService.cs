@@ -964,8 +964,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 || !await IsUsableSuccessorIdentityAsync(order, operation, predecessor, plan, successor, cancellationToken))
                 return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
 
-            var materialized = await MaterializeAsync(
+            var materialization = await MaterializeAsync(
                 order, operation, predecessor, plan, successor, cancellationToken);
+            var materialized = materialization.Materialized;
+
+            if (materialization.Conflict is not null)
+                return await ReconcileAsync(
+                    order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
 
             if (plan.IsResidualRejected)
                 return await ReconcileAsync(
@@ -984,7 +989,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             return await CompleteAsync(order, operation, predecessor, plan, materialized, isReplay, cancellationToken);
         }
 
-        private async Task<MaterializedExchange> MaterializeAsync(
+        private async Task<MaterializationResult> MaterializeAsync(
             Order order,
             OrderOperation operation,
             ElectronicTicket predecessor,
@@ -994,10 +999,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         {
             if (await AlreadyMaterializedAsync(order, operation, plan, cancellationToken) is { } already)
             {
-                await DisassociateAncillariesAsync(operation, plan, cancellationToken);
+                if (await ResumeDisassociationConflictAsync(operation, plan, cancellationToken) is { } conflict)
+                    return new MaterializationResult(already, conflict);
+
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-                return already;
+                return new MaterializationResult(already, null);
             }
 
             var staged = order.PrepareExchange(ToArgs(plan, predecessor), _idGenerator, _clock);
@@ -1038,7 +1045,36 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
-            return new MaterializedExchange(successorTicket, exchanged.OrderChangeId, exchanged.PriceChangeSetId);
+            return new MaterializationResult(
+                new MaterializedExchange(successorTicket, exchanged.OrderChangeId, exchanged.PriceChangeSetId),
+                null);
+        }
+
+        private async Task<string?> ResumeDisassociationConflictAsync(
+            OrderOperation operation,
+            AcceptedExchangePlan plan,
+            CancellationToken cancellationToken)
+        {
+            foreach (var disposition in plan.ExecutableAncillaries)
+            {
+                var document = await _miscDocuments.GetAsync(disposition.ElectronicMiscDocumentId, cancellationToken)
+                               ?? throw ExceptionFactory.ElectronicMiscDocumentNotFound(
+                                   disposition.ElectronicMiscDocumentId);
+
+                if (document.IsDisassociationSettledBy(disposition.EmdCouponNumber, operation.OperationId))
+                    continue;
+
+                if (!document.PermitsDisassociation(
+                        disposition.EmdCouponNumber,
+                        operation.OperationId,
+                        disposition.PredecessorTicketCouponId))
+                    return $"coupon {disposition.EmdCouponNumber} of miscellaneous document "
+                           + $"{disposition.EmdDocumentNumber} is no longer detached by this reissue";
+            }
+
+            await DisassociateAncillariesAsync(operation, plan, cancellationToken);
+
+            return null;
         }
 
         private async Task<MaterializedExchange?> AlreadyMaterializedAsync(

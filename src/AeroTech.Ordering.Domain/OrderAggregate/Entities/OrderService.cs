@@ -403,6 +403,13 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             return copy;
         }
 
+        internal string? RetainedResidualConflict()
+            => CommercialStatus is OrderServiceCommercialStatus.Pending
+                or OrderServiceCommercialStatus.Active
+                or OrderServiceCommercialStatus.Cancelled
+                ? null
+                : $"order service {Id} already carries commercial status {CommercialStatus}";
+
         internal bool MarkSupersededByRetainedResidual()
         {
             if (Status == OrderServiceStatus.Cancelled
@@ -411,7 +418,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
 
             Status = OrderServiceStatus.Cancelled;
             CommercialStatus = OrderServiceCommercialStatus.Cancelled;
-            DeliveryStatus = OrderServiceDeliveryStatus.Unused;
 
             return true;
         }

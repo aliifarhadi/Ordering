@@ -1,4 +1,4 @@
-using AeroTech.Ordering.Application.OrderAggregate.Operations;
+﻿using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
@@ -28,12 +28,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 return await ReconcileAsync(
                     order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
 
-            var settledAt = _clock.GetDateTime();
             var retained = document.RequireCoupon(pending.EmdCouponNumber);
+            var outcome = order.RetainAncillaryResidual(retained.OrderServiceId, _clock);
 
-            order.RetainAncillaryResidual(
-                retained.OrderServiceId is { } orderServiceId ? [orderServiceId] : [],
-                _clock);
+            if (outcome.IsConflict)
+                return await ReconcileAsync(
+                    order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
+
+            var settledAt = _clock.GetDateTime();
 
             await _plans.RecordAncillaryRetentionSettledAsync(
                 operation.OperationId, pending.EmdCouponId, settledAt, cancellationToken);

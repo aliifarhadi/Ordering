@@ -466,6 +466,18 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 ticketCouponId, emdCouponId);
         }
 
+        public static async Task SetOrderServiceDeliveryStatusAsync(
+            OrderingDatabaseFixture fixture,
+            long orderServiceId,
+            OrderServiceDeliveryStatus delivery)
+        {
+            await using var command = fixture.NewCommandContext();
+
+            await command.Database.ExecuteSqlRawAsync(
+                "UPDATE [Order].[OrderServices] SET [DeliveryStatus] = {0} WHERE [Id] = {1}",
+                (int)delivery, orderServiceId);
+        }
+
         public static async Task VoidAncillaryAsync(OrderingDatabaseFixture fixture, long documentId)
         {
             await using var command = fixture.NewCommandContext();
