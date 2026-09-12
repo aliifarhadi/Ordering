@@ -1,5 +1,6 @@
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
+using AeroTech.Ordering.Domain.Ports.DocumentRefund;
 using AeroTech.Ordering.Domain.Ports.EmdAssociation;
 using AeroTech.Ordering.Domain.Ports.ExchangeResidual;
 using AeroTech.Ordering.Domain.Ports.RefundValue;
@@ -37,6 +38,51 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Policies
                 : null;
         }
 
+        public static string? AncillaryRefundDocumentContradiction(
+            AcceptedExchangeAncillaryDisposition disposition,
+            DocumentRefundResult result)
+        {
+            ArgumentNullException.ThrowIfNull(disposition);
+            ArgumentNullException.ThrowIfNull(result);
+
+            if (string.IsNullOrWhiteSpace(result.ProviderReference))
+                return "the confirmed ancillary refund carries no provider reference";
+
+            if (result.DocumentNumber is { } document
+                && !string.Equals(document, disposition.EmdDocumentNumber, StringComparison.Ordinal))
+                return $"the confirmed ancillary refund names miscellaneous document {document} "
+                       + $"against a requested {disposition.EmdDocumentNumber}";
+
+            return result.CouponNumbers is { } coupons && !coupons.Contains(disposition.EmdCouponNumber)
+                ? $"the confirmed ancillary refund does not cover coupon {disposition.EmdCouponNumber}"
+                : null;
+        }
+
+        public static string? AncillaryRefundValueContradiction(
+            AcceptedExchangeAncillaryDisposition disposition,
+            RefundValueResult result)
+        {
+            ArgumentNullException.ThrowIfNull(disposition);
+            ArgumentNullException.ThrowIfNull(result);
+
+            if (string.IsNullOrWhiteSpace(result.ValueMovementReference))
+                return "the confirmed ancillary refund value carries no value movement reference";
+
+            if (result.Amount is { } amount && amount != disposition.RefundAmount)
+                return $"the confirmed ancillary refund returned {amount} "
+                       + $"against an approved {disposition.RefundAmount}";
+
+            if (result.CurrencyId is { } currencyId && currencyId != disposition.RefundCurrencyId)
+                return $"the confirmed ancillary refund used currency {currencyId} "
+                       + $"against an approved {disposition.RefundCurrencyId}";
+
+            return result.Disposition is { } used
+                   && !string.Equals(used, disposition.RefundDisposition, StringComparison.Ordinal)
+                ? $"the confirmed ancillary refund used disposition {used} "
+                  + $"against an approved {disposition.RefundDisposition}"
+                : null;
+        }
+
         public static string? ReassociationContradiction(
             AcceptedExchangeAncillaryDisposition disposition,
             string successorDocumentNumber,
@@ -70,7 +116,7 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Policies
                 : null;
         }
 
-        public static string? CoupledResidualContradiction(
+        public static string? ResidualEvidenceContradiction(
             AcceptedExchangePlan plan,
             ResidualDocumentIdentity? residual)
         {

@@ -67,6 +67,12 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
 
         public bool IsOpenForUse => Status == EmdCouponStatus.OpenForUse;
 
+        public bool IsRefunded => Status == EmdCouponStatus.Refunded;
+
+        public EmdCouponRefundRecord? RefundRecord { get; private set; }
+
+        public bool IsRefundedBy(long operationId) => RefundRecord is { } record && record.OperationId == operationId;
+
         public bool IsAssociatedWith(long ticketCouponId) => AssociatedTicketCouponId == ticketCouponId;
 
         public bool CarriesNoAssociation => AssociatedTicketCouponId is null;
@@ -102,6 +108,23 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
                 null,
                 idGenerator,
                 now);
+        }
+
+        internal void Refund(EmdCouponRefund refund, DateTimeOffset now)
+        {
+            ArgumentNullException.ThrowIfNull(refund);
+
+            RefundRecord = new EmdCouponRefundRecord(
+                refund.OperationId,
+                refund.ApprovedAmount,
+                refund.CurrencyId,
+                refund.ApprovedDisposition,
+                refund.DecisionReference,
+                refund.ProviderReference,
+                now);
+
+            AssociatedTicketCouponId = null;
+            Status = EmdCouponStatus.Refunded;
         }
 
         internal void DisassociateByReissue(

@@ -6,5 +6,6 @@ namespace AeroTech.Messages.Ordering.Enums
     {
         [Display(Name = "Issued")] Issued = 1,
         [Display(Name = "Voided")] Voided = 2,
+        [Display(Name = "Refunded")] Refunded = 3,
     }
 }

@@ -93,7 +93,8 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
         {
             ArgumentNullException.ThrowIfNull(ticketCouponIds);
 
-            return IsAssociated && StatusSummary != ElectronicMiscDocumentStatus.Voided
+            return IsAssociated
+                   && StatusSummary is not (ElectronicMiscDocumentStatus.Voided or ElectronicMiscDocumentStatus.Refunded)
                 ? _coupons
                     .Where(coupon => coupon.IsOpenForUse
                                      && coupon.AssociatedTicketCouponId is { } associated
@@ -101,6 +102,38 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                     .OrderBy(coupon => coupon.CouponNumber)
                     .ToList()
                 : [];
+        }
+
+        public bool IsFullyRefunded => _coupons.Count > 0 && _coupons.All(coupon => coupon.IsRefunded);
+
+        public bool PermitsRefund(int emdCouponNumber, long operationId)
+            => StatusSummary != ElectronicMiscDocumentStatus.Voided
+               && _coupons.SingleOrDefault(coupon => coupon.CouponNumber == emdCouponNumber) is { } candidate
+               && (candidate.IsOpenForUse || candidate.IsRefundedBy(operationId));
+
+        public void RefundCoupon(EmdCouponRefund refund, IClock clock)
+        {
+            ArgumentNullException.ThrowIfNull(refund);
+
+            if (StatusSummary == ElectronicMiscDocumentStatus.Voided)
+                throw ExceptionFactory.ElectronicMiscDocumentCouponIsNotRefundable(
+                    DocumentNumber, refund.EmdCouponNumber, StatusSummary);
+
+            var coupon = RequireCoupon(refund.EmdCouponNumber);
+
+            if (coupon.IsRefundedBy(refund.OperationId))
+                return;
+
+            if (!coupon.IsOpenForUse)
+                throw ExceptionFactory.ElectronicMiscDocumentCouponIsNotRefundable(
+                    DocumentNumber, coupon.CouponNumber, coupon.Status);
+
+            coupon.Refund(refund, clock.GetDateTime());
+
+            if (IsFullyRefunded)
+                StatusSummary = ElectronicMiscDocumentStatus.Refunded;
+
+            DocumentVersion++;
         }
 
         public bool PermitsDisassociation(int emdCouponNumber, long operationId, long predecessorTicketCouponId)
@@ -116,7 +149,7 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
 
         private EmdCoupon? Associable(int emdCouponNumber)
             => IsAssociated
-               && StatusSummary != ElectronicMiscDocumentStatus.Voided
+               && StatusSummary is not (ElectronicMiscDocumentStatus.Voided or ElectronicMiscDocumentStatus.Refunded)
                && _coupons.SingleOrDefault(coupon => coupon.CouponNumber == emdCouponNumber) is { IsOpenForUse: true } candidate
                 ? candidate
                 : null;
@@ -149,6 +182,13 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
 
             DocumentVersion++;
         }
+
+        public bool IsResidualValueDocumentFor(decimal amount, int currencyId)
+            => Type == ElectronicMiscDocumentType.Standalone
+               && _coupons.SingleOrDefault(coupon => coupon.Purpose == EmdCouponPurpose.ResidualValue)
+                   is { } residual
+               && residual.IssuanceValue == amount
+               && residual.CurrencyId == currencyId;
 
         public EmdCoupon RequireCoupon(int couponNumber)
             => _coupons.SingleOrDefault(coupon => coupon.CouponNumber == couponNumber)

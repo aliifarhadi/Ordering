@@ -16,6 +16,14 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.Property(ancillary => ancillary.DecisionContextFingerprint).HasMaxLength(64).IsRequired();
             builder.Property(ancillary => ancillary.AssociationProviderReference).HasMaxLength(128);
             builder.Property(ancillary => ancillary.AssociationDetail).HasMaxLength(512);
+            builder.Property(ancillary => ancillary.RefundAmount).HasPrecision(18, 2);
+            builder.Property(ancillary => ancillary.RefundDisposition).HasMaxLength(64);
+            builder.Property(ancillary => ancillary.RefundSourceReference).HasMaxLength(128);
+            builder.Property(ancillary => ancillary.RefundPricingLines).HasColumnType("nvarchar(max)");
+            builder.Property(ancillary => ancillary.RefundDocumentReference).HasMaxLength(128);
+            builder.Property(ancillary => ancillary.RefundDocumentDetail).HasMaxLength(512);
+            builder.Property(ancillary => ancillary.RefundValueReference).HasMaxLength(128);
+            builder.Property(ancillary => ancillary.RefundValueDetail).HasMaxLength(512);
         }
     }
 }

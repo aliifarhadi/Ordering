@@ -367,6 +367,8 @@
         public const string ElectronicMiscDocumentCouponIsNotAssociable = "Coupon {1} of miscellaneous document {0} is {2} and cannot be reassociated.";
         public const string ExchangeResidualFulfillmentMalformed = "The accepted residual for exchange {0} is document-coupled but names {1}; only an electronic miscellaneous document can be issued inside the exchange today.";
         public const string AncillaryDispositionContextMismatch = "The ancillary disposition decision for exchange {0} was generated for a different servicing context ({1}).";
+        public const string ElectronicMiscDocumentCouponIsNotRefundable = "Coupon {1} of miscellaneous document {0} is {2} and cannot be refunded.";
+        public const string AncillaryRefundEconomicsMissing = "The refund disposition for coupon {1} of miscellaneous document {0} carries no source-approved {2}.";
         public const string ElectronicMiscDocumentNotFound = "Miscellaneous document {0} was not found.";
         public const string ElectronicMiscDocumentAssociationMoved = "Coupon {1} of miscellaneous document {0} is no longer associated with document {2}.";
         public const string IdempotencyKeyRequired = "The '{0}' header is required for this operation.";

@@ -8,12 +8,4 @@ namespace AeroTech.Ordering.Domain.Ports.OrderChange
             AcceptedQuotedOfferSelection selection,
             CancellationToken cancellationToken = default);
     }
-
-    public sealed record AcceptedQuotedOfferSelection(
-        string OperationKey,
-        long OrderId,
-        long OperationId,
-        string QuotedOfferId,
-        string SelectedOfferItemId,
-        int SaleCurrencyId);
 }

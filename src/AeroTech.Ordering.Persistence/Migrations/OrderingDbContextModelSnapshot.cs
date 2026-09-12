@@ -3826,6 +3826,50 @@ namespace AeroTech.Ordering.Persistence.Migrations
                     b.Property<long>("PredecessorTicketCouponId")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal?>("RefundAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("RefundCurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RefundDisposition")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("RefundDocumentDetail")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<int?>("RefundDocumentOutcome")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RefundDocumentReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("RefundPricingLines")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RefundSourceReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("RefundValueDetail")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<int?>("RefundValueOutcome")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RefundValueReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<long?>("RefundedOrderServiceId")
+                        .HasColumnType("bigint");
+
                     b.Property<int?>("TargetPredecessorCouponNumber")
                         .HasColumnType("int");
 
@@ -4432,7 +4476,56 @@ namespace AeroTech.Ordering.Persistence.Migrations
                                 .HasForeignKey("EmdCouponId");
                         });
 
+                    b.OwnsOne("AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities.EmdCouponRefundRecord", "RefundRecord", b1 =>
+                        {
+                            b1.Property<long>("EmdCouponId")
+                                .HasColumnType("bigint");
+
+                            b1.Property<decimal>("ApprovedAmount")
+                                .HasPrecision(18, 2)
+                                .HasColumnType("decimal(18,2)")
+                                .HasColumnName("RefundApprovedAmount");
+
+                            b1.Property<string>("ApprovedDisposition")
+                                .IsRequired()
+                                .HasMaxLength(64)
+                                .HasColumnType("nvarchar(64)")
+                                .HasColumnName("RefundApprovedDisposition");
+
+                            b1.Property<int>("CurrencyId")
+                                .HasColumnType("int")
+                                .HasColumnName("RefundCurrencyId");
+
+                            b1.Property<string>("DecisionReference")
+                                .IsRequired()
+                                .HasMaxLength(128)
+                                .HasColumnType("nvarchar(128)")
+                                .HasColumnName("RefundDecisionReference");
+
+                            b1.Property<long>("OperationId")
+                                .HasColumnType("bigint")
+                                .HasColumnName("RefundOperationId");
+
+                            b1.Property<string>("ProviderReference")
+                                .HasMaxLength(128)
+                                .HasColumnType("nvarchar(128)")
+                                .HasColumnName("RefundProviderReference");
+
+                            b1.Property<DateTimeOffset>("RefundedAt")
+                                .HasColumnType("datetimeoffset")
+                                .HasColumnName("RefundedAt");
+
+                            b1.HasKey("EmdCouponId");
+
+                            b1.ToTable("EmdCoupons", "Order");
+
+                            b1.WithOwner()
+                                .HasForeignKey("EmdCouponId");
+                        });
+
                     b.Navigation("AssociationChanges");
+
+                    b.Navigation("RefundRecord");
                 });
 
             modelBuilder.Entity("AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities.EmdPriceLink", b =>

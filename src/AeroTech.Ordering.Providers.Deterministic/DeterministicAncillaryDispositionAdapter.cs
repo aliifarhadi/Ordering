@@ -1,4 +1,5 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
 
 namespace AeroTech.Ordering.Providers.Deterministic
@@ -36,6 +37,41 @@ namespace AeroTech.Ordering.Providers.Deterministic
         public string? ContextFingerprintOverride { get; set; }
 
         public bool Throw { get; set; }
+
+        public decimal RefundAmount { get; set; } = 50_000m;
+
+        public int RefundCurrencyId { get; set; } = 1;
+
+        public string RefundDisposition { get; set; } = "OriginalFormOfPayment";
+
+        public string RefundSourceReference { get; set; } = "ANC-REFUND-SOURCE";
+
+        public bool OmitRefundTerms { get; set; }
+
+        public decimal? RefundAmountOverride { get; set; }
+
+        public int? RefundCurrencyOverride { get; set; }
+
+        public bool OmitRefundDisposition { get; set; }
+
+        public bool OmitRefundSourceReference { get; set; }
+
+        public bool OmitRefundPricingLines { get; set; }
+
+        private IReadOnlyList<AcceptedRefundPricingLine> RefundLines() =>
+        [
+            new(
+                PricingComponentType.Adjustment,
+                PricingEffect.CustomerBalance,
+                OrderPricingLineDirection.Credit,
+                PricingLineRole.Adjustment,
+                RefundAmountOverride ?? RefundAmount,
+                RefundCurrencyOverride ?? RefundCurrencyId,
+                RefundAmountOverride ?? RefundAmount,
+                RefundCurrencyOverride ?? RefundCurrencyId,
+                PricingBasisType.OrderService,
+                RefundabilityRule.Refundable)
+        ];
 
         public List<AncillaryExchangeDispositionRequest> ObservedRequests { get; } = new();
 
@@ -91,8 +127,19 @@ namespace AeroTech.Ordering.Providers.Deterministic
                     ? coupon.PredecessorCouponNumber + 90
                     : coupon.PredecessorCouponNumber,
                 disposition,
-                Target(coupon));
+                Target(coupon),
+                RefundTerms(disposition));
         }
+
+        private AncillaryRefundTerms? RefundTerms(AncillaryExchangeDisposition disposition)
+            => disposition == AncillaryExchangeDisposition.Refund && !OmitRefundTerms
+                ? new AncillaryRefundTerms(
+                    RefundAmountOverride ?? RefundAmount,
+                    RefundCurrencyOverride ?? RefundCurrencyId,
+                    OmitRefundDisposition ? string.Empty : RefundDisposition,
+                    OmitRefundSourceReference ? string.Empty : RefundSourceReference,
+                    OmitRefundPricingLines ? [] : RefundLines())
+                : null;
 
         private int? Target(AffectedAncillaryCoupon coupon)
         {

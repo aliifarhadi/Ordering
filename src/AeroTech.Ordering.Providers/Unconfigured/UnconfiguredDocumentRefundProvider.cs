@@ -15,7 +15,7 @@ namespace AeroTech.Ordering.Providers.Unconfigured
             CancellationToken cancellationToken = default)
             => throw ExceptionFactory.DocumentRefundSourceNotConfigured();
 
-        public Task<DocumentRefundResult> RecoverAsync(
+        public Task<DocumentRefundRecovery> RecoverAsync(
             DocumentRefundRecoveryRequest request,
             CancellationToken cancellationToken = default)
             => throw ExceptionFactory.DocumentRefundSourceNotConfigured();

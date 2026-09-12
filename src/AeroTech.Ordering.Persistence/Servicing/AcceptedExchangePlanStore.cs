@@ -2,6 +2,7 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
@@ -122,9 +123,24 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         ancillary.DecisionReference,
                         ancillary.DecisionVersion,
                         ancillary.DecisionContextFingerprint,
+                        ancillary.RefundAmount,
+                        ancillary.RefundCurrencyId,
+                        ancillary.RefundDisposition,
+                        ancillary.RefundSourceReference,
+                        ancillary.RefundPricingLines is null
+                            ? null
+                            : JsonSerializer.Deserialize<IReadOnlyList<AcceptedRefundPricingLine>>(
+                                ancillary.RefundPricingLines, PlanOptions),
+                        ancillary.RefundedOrderServiceId,
                         ancillary.AssociationOutcome,
                         ancillary.AssociationProviderReference,
-                        ancillary.AssociationDetail))
+                        ancillary.AssociationDetail,
+                        ancillary.RefundDocumentOutcome,
+                        ancillary.RefundDocumentReference,
+                        ancillary.RefundDocumentDetail,
+                        ancillary.RefundValueOutcome,
+                        ancillary.RefundValueReference,
+                        ancillary.RefundValueDetail))
                     .ToList());
         }
 
@@ -224,6 +240,20 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         DecisionReference = ancillary.DecisionReference,
                         DecisionVersion = ancillary.DecisionVersion,
                         DecisionContextFingerprint = ancillary.DecisionContextFingerprint,
+                        RefundAmount = ancillary.RefundAmount,
+                        RefundCurrencyId = ancillary.RefundCurrencyId,
+                        RefundDisposition = ancillary.RefundDisposition,
+                        RefundSourceReference = ancillary.RefundSourceReference,
+                        RefundPricingLines = ancillary.RefundPricingLines is null
+                            ? null
+                            : JsonSerializer.Serialize(ancillary.RefundPricingLines, PlanOptions),
+                        RefundedOrderServiceId = ancillary.RefundedOrderServiceId,
+                        RefundDocumentOutcome = ancillary.RefundDocumentOutcome,
+                        RefundDocumentReference = ancillary.RefundDocumentReference,
+                        RefundDocumentDetail = ancillary.RefundDocumentDetail,
+                        RefundValueOutcome = ancillary.RefundValueOutcome,
+                        RefundValueReference = ancillary.RefundValueReference,
+                        RefundValueDetail = ancillary.RefundValueDetail,
                         AssociationOutcome = ancillary.AssociationOutcome,
                         AssociationProviderReference = ancillary.AssociationProviderReference,
                         AssociationDetail = ancillary.AssociationDetail
@@ -337,6 +367,40 @@ namespace AeroTech.Ordering.Persistence.Servicing
             row.ResidualInstrument = instrument ?? row.ResidualInstrument;
             row.ResidualDetail = detail ?? row.ResidualDetail;
             row.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task RecordAncillaryRefundOutcomeAsync(
+            long operationId,
+            long emdCouponId,
+            bool valueMovement,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await _dbContext.Set<AcceptedExchangePlanAncillaryRow>()
+                          .FirstOrDefaultAsync(
+                              ancillary => ancillary.OperationId == operationId
+                                           && ancillary.EmdCouponId == emdCouponId,
+                              cancellationToken)
+                      ?? throw ExceptionFactory.AcceptedExchangePlanNotFound(operationId);
+
+            if (valueMovement)
+            {
+                row.RefundValueOutcome = outcome;
+                row.RefundValueReference = providerReference ?? row.RefundValueReference;
+                row.RefundValueDetail = detail ?? row.RefundValueDetail;
+            }
+            else
+            {
+                row.RefundDocumentOutcome = outcome;
+                row.RefundDocumentReference = providerReference ?? row.RefundDocumentReference;
+                row.RefundDocumentDetail = detail ?? row.RefundDocumentDetail;
+            }
+
+            var plan = await RequireAsync(operationId, cancellationToken);
+
+            plan.UpdatedAt = _clock.GetDateTime();
         }
 
         public async Task RecordAncillaryAssociationOutcomeAsync(

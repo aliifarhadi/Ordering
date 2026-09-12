@@ -57,6 +57,15 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Contracts
             string? detail,
             CancellationToken cancellationToken = default);
 
+        Task RecordAncillaryRefundOutcomeAsync(
+            long operationId,
+            long emdCouponId,
+            bool valueMovement,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
         Task RecordAncillaryAssociationOutcomeAsync(
             long operationId,
             long emdCouponId,

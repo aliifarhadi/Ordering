@@ -5,7 +5,21 @@ namespace AeroTech.Ordering.Providers.Deterministic
 {
     public sealed class DeterministicDocumentRefundAdapter : IDocumentRefundPort
     {
+        private readonly Dictionary<string, IReadOnlyList<int>> _dispatched = new(StringComparer.Ordinal);
+
         public EligibilityOutcome Eligibility { get; set; } = EligibilityOutcome.Allowed;
+
+        public bool ThrowBeforeDispatch { get; set; }
+
+        public bool ThrowAfterDispatch { get; set; }
+
+        public bool ThrowOnRecover { get; set; }
+
+        public string? ReportedDocumentNumber { get; set; }
+
+        public IReadOnlyList<int>? ReportedCouponNumbers { get; set; }
+
+        public IReadOnlyCollection<string> DispatchedKeys => _dispatched.Keys;
 
         public ProviderOperationOutcome RefundOutcome { get; set; } = ProviderOperationOutcome.Confirmed;
 
@@ -35,18 +49,41 @@ namespace AeroTech.Ordering.Providers.Deterministic
             ObservedRefundKeys.Add(request.OperationKey);
             ObservedRefundRequests.Add(request);
 
-            return Task.FromResult(new DocumentRefundResult(RefundOutcome, $"RFND-{request.DocumentNumber}"));
+            if (ThrowBeforeDispatch)
+                throw new InvalidOperationException("The document refund request never left Ordering.");
+
+            _dispatched[request.OperationKey] = request.CouponNumbers;
+
+            if (ThrowAfterDispatch)
+                throw new InvalidOperationException("The document refund response never reached Ordering.");
+
+            return Task.FromResult(new DocumentRefundResult(
+                RefundOutcome,
+                RefundOutcome == ProviderOperationOutcome.Rejected ? null : $"RFND-{request.DocumentNumber}",
+                null,
+                ReportedDocumentNumber ?? request.DocumentNumber,
+                ReportedCouponNumbers ?? request.CouponNumbers));
         }
 
-        public Task<DocumentRefundResult> RecoverAsync(
+        public Task<DocumentRefundRecovery> RecoverAsync(
             DocumentRefundRecoveryRequest request,
             CancellationToken cancellationToken = default)
         {
             ObservedRecoveryKeys.Add(request.OperationKey);
 
-            return Task.FromResult(new DocumentRefundResult(
+            if (ThrowOnRecover)
+                throw new InvalidOperationException("The document refund provider is unreachable.");
+
+            if (!_dispatched.TryGetValue(request.OperationKey, out var dispatched))
+                return Task.FromResult(new DocumentRefundRecovery(
+                    false, ProviderOperationOutcome.Unknown, Detail: "no such document refund operation"));
+
+            return Task.FromResult(new DocumentRefundRecovery(
+                true,
                 RecoveryOutcome,
-                RecoveryOutcome == ProviderOperationOutcome.Confirmed ? $"RFND-{request.DocumentNumber}" : null));
+                RecoveryOutcome == ProviderOperationOutcome.Rejected ? null : $"RFND-{request.DocumentNumber}",
+                DocumentNumber: request.DocumentNumber,
+                CouponNumbers: dispatched));
         }
     }
 }

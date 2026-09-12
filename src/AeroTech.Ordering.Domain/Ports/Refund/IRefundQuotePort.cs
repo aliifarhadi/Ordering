@@ -10,23 +10,4 @@ namespace AeroTech.Ordering.Domain.Ports.Refund
             AcceptedQuotedRefundSelection selection,
             CancellationToken cancellationToken = default);
     }
-
-    public sealed record RefundQuoteRequest(
-        long OrderId,
-        int CommercialVersion,
-        long ElectronicTicketId,
-        string DocumentNumber,
-        IReadOnlyList<long> TicketCouponIds,
-        int SaleCurrencyId);
-
-    public sealed record AcceptedQuotedRefundSelection(
-        string OperationKey,
-        long OrderId,
-        long OperationId,
-        string QuotedRefundId,
-        int ExpectedCommercialVersion,
-        long ElectronicTicketId,
-        string DocumentNumber,
-        IReadOnlyList<long> TicketCouponIds,
-        int SaleCurrencyId);
 }

@@ -1,7 +1,8 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
+using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
@@ -143,6 +144,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     quotedExchangeId,
                     $"decision for {decided.EmdDocumentNumber} coupon {decided.EmdCouponNumber} names an unrelated predecessor coupon");
 
+            if (decided.Disposition == AncillaryExchangeDisposition.Refund)
+                EnsureRefundIsExecutable(association, decided);
+
             long? targetSuccessorCouponId = null;
 
             if (decided.Disposition == AncillaryExchangeDisposition.ReassociateExisting)
@@ -178,14 +182,55 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 targetSuccessorCouponId,
                 decision.DecisionReference,
                 decision.DecisionVersion,
-                request.ContextFingerprint);
+                request.ContextFingerprint,
+                decided.Refund?.ApprovedAmount,
+                decided.Refund?.CurrencyId,
+                decided.Refund?.ApprovedDisposition,
+                decided.Refund?.SourceReference,
+                decided.Refund?.PricingLines,
+                decided.Disposition == AncillaryExchangeDisposition.Refund
+                    ? association.Coupon.OrderServiceId
+                    : null);
+        }
+
+        private static void EnsureRefundIsExecutable(
+            AffectedAncillaryAssociation association,
+            AncillaryCouponDisposition decided)
+        {
+            var document = association.Document.DocumentNumber;
+            var coupon = association.Coupon.CouponNumber;
+
+            if (decided.Refund is not { } refund)
+                throw ExceptionFactory.AncillaryRefundEconomicsMissing(document, coupon, "economics");
+
+            if (refund.ApprovedAmount <= 0m)
+                throw ExceptionFactory.AncillaryRefundEconomicsMissing(document, coupon, "amount");
+
+            if (refund.CurrencyId <= 0)
+                throw ExceptionFactory.AncillaryRefundEconomicsMissing(document, coupon, "currency");
+
+            if (string.IsNullOrWhiteSpace(refund.ApprovedDisposition))
+                throw ExceptionFactory.AncillaryRefundEconomicsMissing(document, coupon, "disposition");
+
+            if (string.IsNullOrWhiteSpace(refund.SourceReference))
+                throw ExceptionFactory.AncillaryRefundEconomicsMissing(document, coupon, "source reference");
+
+            if (refund.CurrencyId != association.Coupon.CurrencyId)
+                throw ExceptionFactory.AncillaryRefundEconomicsMissing(
+                    document, coupon, $"currency matching the document ({association.Coupon.CurrencyId})");
+
+            if (refund.PricingLines.Count == 0)
+                throw ExceptionFactory.AncillaryRefundEconomicsMissing(document, coupon, "pricing evidence");
+
+            RefundConservationPolicy.EnsureReconciles(refund.PricingLines, refund.ApprovedAmount);
         }
 
         public static void EnsureExecutable(IReadOnlyList<AcceptedExchangeAncillaryDisposition> dispositions)
         {
             ArgumentNullException.ThrowIfNull(dispositions);
 
-            if (dispositions.FirstOrDefault(disposition => !disposition.IsReassociation) is { } unsupported)
+            if (dispositions.FirstOrDefault(disposition =>
+                    !disposition.IsReassociation && !disposition.IsRefund) is { } unsupported)
                 throw ExceptionFactory.AncillaryDispositionNotExecutable(
                     unsupported.EmdDocumentNumber, unsupported.EmdCouponNumber, unsupported.Disposition);
         }

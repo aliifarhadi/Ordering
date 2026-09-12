@@ -104,6 +104,10 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool RequiresMonetarySettlement => RequiresFunding || RequiresRefundDue || RequiresResidual;
 
+        public bool HasUnsettledDownstreamStage
+            => (RequiresMonetarySettlement && !IsMonetarySettled)
+               || (RequiresAncillaryReassociation && !IsAncillarySettled);
+
         public bool IsMonetarySettled
             => (!RequiresFunding || IsFundingCaptured)
                && (!RequiresRefundDue || IsRefundDueSettled)
@@ -121,17 +125,28 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public IReadOnlyList<AcceptedExchangeAncillaryDisposition> Reassociations
             => Ancillaries.Where(disposition => disposition.IsReassociation).ToList();
 
-        public bool RequiresAncillaryReassociation => Reassociations.Count > 0;
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> AncillaryRefunds
+            => Ancillaries.Where(disposition => disposition.IsRefund).ToList();
 
-        public bool IsAncillarySettled => Reassociations.All(disposition => disposition.IsSettled);
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> ExecutableAncillaries
+            => Ancillaries.Where(disposition => disposition.IsReassociation || disposition.IsRefund).ToList();
 
-        public bool HasRejectedAncillary => Reassociations.Any(disposition => disposition.IsRejected);
+        public bool RequiresAncillaryReassociation => ExecutableAncillaries.Count > 0;
+
+        public bool RequiresAncillaryRefund => AncillaryRefunds.Count > 0;
+
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> SettledAncillaryRefunds
+            => AncillaryRefunds.Where(disposition => disposition.IsRefundSettled).ToList();
+
+        public bool IsAncillarySettled => ExecutableAncillaries.All(disposition => disposition.IsSettled);
+
+        public bool HasRejectedAncillary => ExecutableAncillaries.Any(disposition => disposition.IsRejected);
 
         public ExchangeAncillaryState AncillaryState
         {
             get
             {
-                var states = Reassociations.Select(disposition => disposition.State).ToList();
+                var states = ExecutableAncillaries.Select(disposition => disposition.State).ToList();
 
                 if (states.Count == 0)
                     return ExchangeAncillaryState.NotRequired;

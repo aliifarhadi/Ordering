@@ -191,6 +191,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 ExchangeFunding,
                 RefundValues,
                 ExchangeResiduals,
+                DocumentRefunds,
                 unconfiguredAncillaryDispositions ?? AncillaryDispositions,
                 unconfiguredEmdAssociations ?? EmdAssociations,
                 miscDocuments,

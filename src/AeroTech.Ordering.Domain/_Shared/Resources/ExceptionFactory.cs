@@ -856,6 +856,12 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ExchangeResidualFulfillmentMalformed(params object?[] args) =>
             new(20305, ExceptionMessages.ExchangeResidualFulfillmentMalformed, args) { HttpStatus = 422 };
 
+        public static BusinessException ElectronicMiscDocumentCouponIsNotRefundable(params object?[] args) =>
+            new(20306, ExceptionMessages.ElectronicMiscDocumentCouponIsNotRefundable, args) { HttpStatus = 409 };
+
+        public static BusinessException AncillaryRefundEconomicsMissing(params object?[] args) =>
+            new(20307, ExceptionMessages.AncillaryRefundEconomicsMissing, args) { HttpStatus = 422 };
+
         public static BusinessException IdempotencyKeyRequired(params object?[] args) =>
             new(20264, ExceptionMessages.IdempotencyKeyRequired, args) { HttpStatus = 400 };
 

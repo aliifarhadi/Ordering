@@ -233,7 +233,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         // ---------------------------------------------------------------- P-R. a disposition this capability cannot run
 
         [Theory]
-        [InlineData(AncillaryExchangeDisposition.Refund)]
         [InlineData(AncillaryExchangeDisposition.ExchangeToNewEmd)]
         [InlineData(AncillaryExchangeDisposition.RetainAsResidual)]
         [InlineData(AncillaryExchangeDisposition.Cancel)]
@@ -276,7 +275,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             await AttachAncillaryAsync(_fixture, harness, scenario.OrderId, _document, [scenario.CouponId]);
             harness.AncillaryDispositions.DispositionByCoupon[AncillaryKey(_document, 1)] =
-                AncillaryExchangeDisposition.Refund;
+                AncillaryExchangeDisposition.ManualReview;
 
             var first = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(key)));

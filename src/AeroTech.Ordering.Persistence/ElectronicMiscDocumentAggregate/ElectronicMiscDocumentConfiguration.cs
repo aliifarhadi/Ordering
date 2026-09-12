@@ -56,6 +56,17 @@ namespace AeroTech.Ordering.Persistence.ElectronicMiscDocumentAggregate
         {
             builder.ToTable("EmdCoupons");
 
+            builder.OwnsOne(coupon => coupon.RefundRecord, record =>
+            {
+                record.Property(value => value.OperationId).HasColumnName("RefundOperationId");
+                record.Property(value => value.ApprovedAmount).HasColumnName("RefundApprovedAmount").HasPrecision(18, 2);
+                record.Property(value => value.CurrencyId).HasColumnName("RefundCurrencyId");
+                record.Property(value => value.ApprovedDisposition).HasColumnName("RefundApprovedDisposition").HasMaxLength(64);
+                record.Property(value => value.DecisionReference).HasColumnName("RefundDecisionReference").HasMaxLength(128);
+                record.Property(value => value.ProviderReference).HasColumnName("RefundProviderReference").HasMaxLength(128);
+                record.Property(value => value.RefundedAt).HasColumnName("RefundedAt");
+            });
+
             builder.OwnsMany(coupon => coupon.AssociationChanges, history =>
             {
                 history.ToTable("EmdCouponAssociationChanges");

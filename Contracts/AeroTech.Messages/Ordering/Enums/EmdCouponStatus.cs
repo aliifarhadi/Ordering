@@ -6,5 +6,6 @@ namespace AeroTech.Messages.Ordering.Enums
     {
         [Display(Name = "Open For Use")] OpenForUse = 1,
         [Display(Name = "Void")] Void = 2,
+        [Display(Name = "Refunded")] Refunded = 3,
     }
 }
