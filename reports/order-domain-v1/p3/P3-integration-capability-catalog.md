@@ -17,7 +17,7 @@ Status vocabulary:
 Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
 `ICC-P3-EXCHANGE-REFUND-VALUE`, `ICC-P3-EXCHANGE-RESIDUAL`, `ICC-P3-EXCHANGE-INVENTORY`,
 `ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`, `ICC-P3-ANCILLARY-EXCHANGE-DISPOSITION`,
-`ICC-P3-EMD-ASSOCIATION`, `ICC-P3-EMD-REFUND`.
+`ICC-P3-EMD-ASSOCIATION`, `ICC-P3-EMD-REFUND`, `ICC-P3-EMD-EXCHANGE`.
 
 Capability scope of this revision: **even, add-collect, refund-due, residual and mixed reissue**, each over
 both supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. This closes
@@ -1930,3 +1930,185 @@ unsettled value and crash recovery), G2F1–F2 (frozen invariants).
 Ordering does not decide whether an ancillary is refundable, does not compute the refund amount, does not
 derive it from the EMD issue value, the order service price or any pricing allocation, does not choose the
 disposition, does not un-refund a coupon and does not reconcile a refused or contradicted act on its own.
+
+---
+
+## ICC-P3-EMD-EXCHANGE
+
+### Capability
+
+Exchanging one or more coupons of an electronic miscellaneous document for a **new** miscellaneous document in
+the authoritative accountable-document record, as a dependent consequence of a ticket reissue, including any
+accountable residual document that exchange result itself produces.
+
+### Authoritative Owner
+
+Three distinct authorities, never conflated:
+
+| Authority | Owns |
+| --- | --- |
+| the ancillary disposition source | whether the coupon is exchanged at all, the successor document type, RFIC, coupon RFISC/purpose/value, beneficiary binding, the exchange-group composition and the approved economics |
+| the accountable-document authority | the `E` / Exchanged predecessor coupon status, the **successor document number**, and the successor coupon identities in the authoritative record |
+| the funding / return-of-value authority | any collection or external return of value the exchange result carries |
+
+Ordering adjudicates none of the three. It carries identity, grouping, evidence, sequencing and recovery.
+
+### Ordering Semantic Requirement
+
+```text
+one Exchange servicing operation
+  -> one Exchange OrderChange
+  -> originating ticket-exchange PriceChangeSet
+  -> G2 ancillary-refund PriceChangeSet(s), if any
+  -> G3 ancillary-EMD-exchange PriceChangeSet(s), if any
+```
+
+The ticket Exchange operation stays the envelope. No child servicing operation and no second `OrderChange`
+exist for the same reissue. Each independently confirmed EMD exchange **group** appends exactly one dependent
+`PriceChangeSet` under the existing Exchange `OrderChange`, through the frozen G2 `CommitDependentPriceChange`
+capability.
+
+**An exchange group, not a coupon, is the unit of work.** The source decides that one or more of its coupons
+are exchanged in one accountable-document transaction; that decision is durable, and Ordering issues exactly
+one provider act per group:
+
+```text
+one accepted exchange group = one IEmdExchangePort operation = one successor document = one consequence
+```
+
+**Disassociation precedes exchange.** Every executable affected ancillary is `DisassociatedByReissue` inside
+the materializing transaction (G1, frozen), so an exchange always acts on a coupon already detached from the
+exchanged predecessor ticket coupon — the benchmarked precondition.
+
+**Association at issuance, not by a second act.** When the source approves an `Associated` successor, the
+successor EMD is created already bound to the approved successor ticket coupon and records that association as
+its issuance history. `IEmdAssociationPort` is **not** called: creating a document and then "reassociating" it
+would misrepresent one accountable act as two.
+
+**Ordering never invents a document number.** The request carries no successor document number; the confirmed
+result supplies it, and it is authoritative.
+
+### Ordering Port / Dependency Boundary
+
+`src/AeroTech.Ordering.Domain/Ports/EmdExchange/IEmdExchangePort.cs` — `ExchangeAsync` plus `RecoverAsync`, the
+same two-method durable-operation shape as every other P3 provider rail. `IEmdIssuancePort` is deliberately
+**not** reused: issuance plus a local status flip cannot prove the atomic accountable-document exchange the
+predecessor's `E` status depends on.
+
+`ExchangeCoupledResidualRequest` and `ResidualDocumentIdentity` are **reused** from
+`Ports/DocumentExchange/` rather than duplicated — the semantics of "an exchange-coupled residual obligation"
+and "the accountable residual document that answered it" are identical for a ticket and for an EMD.
+
+### Request Evidence
+
+Operation key, order id, servicing operation id, accepted exchange-group reference, source document number,
+source coupon scope, beneficiary/traveller, successor document type, successor RFIC, currency, the accepted
+successor coupons (purpose, RFISC, value, and for `Associated` the **successor** ticket coupon number), the
+successor ticket document number for an `Associated` successor, the source decision reference, the source
+pricing reference, and any coupled residual obligation.
+
+Operation keys are server-derived and stable per group:
+
+```text
+emd-exchange:{ExchangeGroupRef}
+emd-exchange-guarantee:{ExchangeGroupRef}
+emd-exchange-capture:{ExchangeGroupRef}
+emd-exchange-residual:{ExchangeGroupRef}
+```
+
+so ticket monetary acts, different EMD groups, and the G2 refund rails can never collide.
+
+### Response Evidence
+
+A `Confirmed` result must carry a provider reference and a successor identity: document number, type, issuer
+carrier, issuing office, authority, RFIC, currency, and one coupon identity per accepted successor coupon
+(number, purpose, RFISC, value, currency, and the associated ticket coupon number for `Associated`). A coupled
+residual obligation must be answered in the same result with its own document identity.
+
+Every echoed field is verified against the accepted group. A `Confirmed` result that contradicts it is treated
+as contradictory evidence, not as a rejection: it is persisted, the operation becomes `NeedsReconciliation`,
+nothing local is materialized, and the act is **not** re-dispatched.
+
+### Recovery
+
+Recover-first. A group is dispatched fresh only when its prerequisite was confirmed in the same attempt;
+otherwise the key is recovered and dispatched only when the authority reports `WasDispatched = false`. An
+unresolved outcome resolves on read-back; a resolved one is never rewritten.
+
+### Idempotency Proof From Persisted State
+
+`AcceptedExchangePlanAncillaryExchangeGroups` is keyed `(OperationId, ExchangeGroupRef)` and carries the
+accepted terms plus `ExchangeOutcome`, `ExchangeProviderReference`, `SuccessorElectronicMiscDocumentId`,
+`SuccessorDocumentNumber`, `PriceChangeSetId` and the per-stage monetary evidence. Bidirectional lineage is
+persisted on the documents themselves: the predecessor coupon's `Exchange*` record names the successor
+document and coupon, and each successor coupon carries `Predecessor*`. Nothing depends on an in-memory flag.
+
+### Coupled Residual Semantics
+
+If the source-approved exchange result fulfils a residual as an accountable EMD-S coupled to this exchange, it
+is requested and recovered in the **same** `IEmdExchangePort` operation and materialized in the same local
+checkpoint. No second document or value issuance is ever dispatched for that obligation. A confirmed exchange
+whose required coupled residual evidence is missing, or which returns a residual document for an obligation
+that owes none, reconciles without re-dispatching the exchange. Only an explicitly external/non-document
+residual reaches `IExchangeResidualValuePort`, and only after document truth is durable.
+
+### Deterministic Verification
+
+`DeterministicEmdExchangeAdapter` in `AeroTech.Ordering.Providers.Deterministic`, in the durable-key shape:
+a repeated key returns the remembered result, a conflicting immutable intent on a known key fails closed, an
+unresolved outcome resolves on read-back, and a resolved refusal is never rewritten.
+
+Contract coverage: `tests/AeroTech.Ordering.Persistence.Tests/Contracts/EmdExchange/` — 18 cases across the
+reusable kit, the deterministic binding and the unconfigured 501 refusal.
+
+Flow coverage: `EmdExchangeToNewEmdFlowTests` — 48 cases: G3H1–H6 (associated and standalone successors,
+grouping, two independent groups, mixed G1/G2/G3 dispositions, multi-coupon partial exchange), G3S1–S3
+(acceptance refusals), G3P1–P6 (provider lifecycle and crash recovery), G3R1–R4 (replay and identity),
+G3M1–M6 (monetary and coupled residual), G3F1–F3 (frozen invariants).
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. No real EMD exchange authority is wired. `UnconfiguredEmdExchangeProvider` fails closed with
+   `EmdExchangeSourceNotConfigured` (20313, 501). The reissue stays authoritative and the source ancillary
+   stays detached and open.
+2. Which exchange shapes the real authority permits. Ordering supports EMD-A → EMD-A, EMD-A → EMD-S,
+   EMD-S → EMD-A and EMD-S → EMD-S because the industry permits all four; a provider that restricts them
+   (for example to even exchanges only) must express that in its own result or ACL, not in a Domain rule.
+3. Whether the real authority accepts a **multi-coupon group** as one accountable transaction, or requires one
+   act per coupon. Ordering models the group because the source decides it; a per-coupon provider is an
+   ACL-level adaptation.
+4. Whether the real authority echoes the successor coupon identities and the association target. Ordering
+   verifies every echoed field that is present and treats absence of the successor identity itself as
+   contradictory.
+5. Whether an EMD exchange is idempotent under Ordering's operation key on the real authority.
+6. Whether the real authority returns a coupled residual EMD-S inside the exchange result, or expects a
+   separate issuance. Ordering requires the former and reconciles rather than guessing.
+7. Whether collection for an EMD exchange group is accepted on the same funding rail as a ticket exchange.
+   Ordering reuses `IExchangeFundingPort` with group-scoped keys; its request field names (`QuotedExchangeId`,
+   `PredecessorDocumentNumber`, `SuccessorDocumentNumber`) carry the exchange-group reference and the EMD
+   document numbers, which is a naming imprecision in a frozen P3-F contract, not a semantic one.
+
+### Known Semantic Gaps
+
+* `RetainAsResidual`, `Cancel` and `ManualReview` remain unexecuted and are refused explicitly with
+  `AncillaryDispositionNotExecutable` (20298).
+* An exchange is never reversed. There is no EMD "exchange cancel", mirroring the G2 decision on Refund Cancel.
+* A `NeedsReconciliation` EMD exchange has no automated operator remediation command. Every piece of evidence
+  one would need is persisted on the group row and on both documents.
+* A successor coupon of `Fee` purpose binds to the first pricing line of its own G3 consequence, because the
+  aggregate requires a fee coupon to name a pricing line and that line does not exist until the consequence is
+  committed. The consequence is therefore committed first **within the same local checkpoint**. A source that
+  approves a fee-purpose successor with no commercial consequence at all is refused at acceptance.
+* Ordering does not revalue, reprice or re-derive any successor term. A source that supplies incomplete terms
+  is refused before the ticket document exchange is dispatched, never approximated.
+
+### Explicit Non-Responsibilities
+
+Ordering does not decide whether an ancillary is exchangeable, does not choose the successor document type,
+RFIC, RFISC, purpose or value, does not derive any successor term from the predecessor EMD, does not generate
+a provider document number, does not compose exchange groups, does not un-exchange a coupon, and does not
+reconcile a refused or contradicted act on its own.
