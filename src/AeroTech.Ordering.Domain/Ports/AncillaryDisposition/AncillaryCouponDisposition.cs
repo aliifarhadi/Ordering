@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.Ports.AncillaryDisposition
 {
@@ -10,5 +10,6 @@ namespace AeroTech.Ordering.Domain.Ports.AncillaryDisposition
         AncillaryExchangeDisposition Disposition,
         int? TargetPredecessorCouponNumber,
         AncillaryRefundTerms? Refund = null,
+        AncillaryEmdExchangeTerms? Exchange = null,
         string? Detail = null);
 }

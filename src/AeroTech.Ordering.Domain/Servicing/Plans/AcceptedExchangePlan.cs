@@ -51,7 +51,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         string? ResidualInstrumentReference = null,
         ResidualInstrumentKind? ResidualInstrument = null,
         string? ResidualDetail = null,
-        IReadOnlyList<AcceptedExchangeAncillaryDisposition>? AncillaryDispositions = null)
+        IReadOnlyList<AcceptedExchangeAncillaryDisposition>? AncillaryDispositions = null,
+        IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup>? AncillaryExchangeGroups = null)
     {
         public bool IsEligibilityEstablished
             => EligibilityOutcome == DocumentExchangeEligibilityOutcome.Eligible;
@@ -108,6 +109,21 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
             => (RequiresMonetarySettlement && !IsMonetarySettled)
                || (RequiresAncillaryReassociation && !IsAncillarySettled);
 
+        public AcceptedExchangePlan WithExchangeGroup(AcceptedExchangeAncillaryExchangeGroup group)
+        {
+            ArgumentNullException.ThrowIfNull(group);
+
+            return this with
+            {
+                AncillaryExchangeGroups = ExchangeGroups
+                    .Select(candidate => string.Equals(
+                        candidate.ExchangeGroupRef, group.ExchangeGroupRef, StringComparison.Ordinal)
+                        ? group
+                        : candidate)
+                    .ToList()
+            };
+        }
+
         public bool IsMonetarySettled
             => (!RequiresFunding || IsFundingCaptured)
                && (!RequiresRefundDue || IsRefundDueSettled)
@@ -128,22 +144,55 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public IReadOnlyList<AcceptedExchangeAncillaryDisposition> AncillaryRefunds
             => Ancillaries.Where(disposition => disposition.IsRefund).ToList();
 
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> AncillaryEmdExchanges
+            => Ancillaries.Where(disposition => disposition.IsEmdExchange).ToList();
+
+        public IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup> ExchangeGroups
+            => AncillaryExchangeGroups ?? [];
+
         public IReadOnlyList<AcceptedExchangeAncillaryDisposition> ExecutableAncillaries
-            => Ancillaries.Where(disposition => disposition.IsReassociation || disposition.IsRefund).ToList();
+            => Ancillaries
+                .Where(disposition =>
+                    disposition.IsReassociation || disposition.IsRefund || disposition.IsEmdExchange)
+                .ToList();
+
+        public AcceptedExchangeAncillaryDisposition? NextUnsettledAncillary
+            => ExecutableAncillaries.FirstOrDefault(disposition => !IsAncillaryUnitSettled(disposition));
+
+        private bool IsAncillaryUnitSettled(AcceptedExchangeAncillaryDisposition disposition)
+            => disposition.IsEmdExchange
+                ? ExchangeGroup(disposition.ExchangeGroupRef ?? string.Empty) is { IsSettled: true }
+                : disposition.IsSettled;
+
+        public AcceptedExchangeAncillaryExchangeGroup? ExchangeGroup(string exchangeGroupRef)
+            => ExchangeGroups.SingleOrDefault(group =>
+                string.Equals(group.ExchangeGroupRef, exchangeGroupRef, StringComparison.Ordinal));
 
         public bool RequiresAncillaryReassociation => ExecutableAncillaries.Count > 0;
 
         public bool RequiresAncillaryRefund => AncillaryRefunds.Count > 0;
 
-        public bool IsAncillarySettled => ExecutableAncillaries.All(disposition => disposition.IsSettled);
+        public bool RequiresAncillaryEmdExchange => ExchangeGroups.Count > 0;
 
-        public bool HasRejectedAncillary => ExecutableAncillaries.Any(disposition => disposition.IsRejected);
+        public bool IsAncillarySettled
+            => ExecutableAncillaries.Where(disposition => !disposition.IsEmdExchange)
+                   .All(disposition => disposition.IsSettled)
+               && ExchangeGroups.All(group => group.IsSettled);
+
+        public bool HasRejectedAncillary
+            => ExecutableAncillaries.Where(disposition => !disposition.IsEmdExchange)
+                   .Any(disposition => disposition.IsRejected)
+               || ExchangeGroups.Any(group => group.IsRejected);
 
         public ExchangeAncillaryState AncillaryState
         {
             get
             {
-                var states = ExecutableAncillaries.Select(disposition => disposition.State).ToList();
+                var states = ExecutableAncillaries
+                    .Where(disposition => !disposition.IsEmdExchange)
+                    .Select(disposition => disposition.State)
+                    .Concat(ExchangeGroups.Select(group => group.State))
+                    .ToList();
 
                 if (states.Count == 0)
                     return ExchangeAncillaryState.NotRequired;

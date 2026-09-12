@@ -233,7 +233,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         // ---------------------------------------------------------------- P-R. a disposition this capability cannot run
 
         [Theory]
-        [InlineData(AncillaryExchangeDisposition.ExchangeToNewEmd)]
         [InlineData(AncillaryExchangeDisposition.RetainAsResidual)]
         [InlineData(AncillaryExchangeDisposition.Cancel)]
         [InlineData(AncillaryExchangeDisposition.ManualReview)]

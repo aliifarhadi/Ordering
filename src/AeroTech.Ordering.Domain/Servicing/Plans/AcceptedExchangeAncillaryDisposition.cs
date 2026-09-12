@@ -24,6 +24,7 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         PricingSource? RefundPricingSource = null,
         IReadOnlyList<AcceptedRefundPricingLine>? RefundPricingLines = null,
         long? RefundPriceChangeSetId = null,
+        string? ExchangeGroupRef = null,
         long? RefundedOrderServiceId = null,
         ProviderOperationOutcome? AssociationOutcome = null,
         string? AssociationProviderReference = null,
@@ -46,6 +47,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool IsReassociation => Disposition == AncillaryExchangeDisposition.ReassociateExisting;
 
         public bool IsRefund => Disposition == AncillaryExchangeDisposition.Refund;
+
+        public bool IsEmdExchange => Disposition == AncillaryExchangeDisposition.ExchangeToNewEmd;
 
         public string RefundLegIdentity => $"{RefundLegPrefix}:{EmdDocumentNumber}:{EmdCouponNumber}";
 

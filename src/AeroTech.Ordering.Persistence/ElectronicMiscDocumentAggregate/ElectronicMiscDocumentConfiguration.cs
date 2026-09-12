@@ -67,6 +67,21 @@ namespace AeroTech.Ordering.Persistence.ElectronicMiscDocumentAggregate
                 record.Property(value => value.RefundedAt).HasColumnName("RefundedAt");
             });
 
+            builder.OwnsOne(coupon => coupon.ExchangeRecord, record =>
+            {
+                record.Property(value => value.OperationId).HasColumnName("ExchangeOperationId");
+                record.Property(value => value.SuccessorElectronicMiscDocumentId)
+                    .HasColumnName("ExchangeSuccessorElectronicMiscDocumentId");
+                record.Property(value => value.SuccessorDocumentNumber)
+                    .HasColumnName("ExchangeSuccessorDocumentNumber").HasMaxLength(32);
+                record.Property(value => value.SuccessorCouponNumber).HasColumnName("ExchangeSuccessorCouponNumber");
+                record.Property(value => value.DecisionReference)
+                    .HasColumnName("ExchangeDecisionReference").HasMaxLength(128);
+                record.Property(value => value.ProviderReference)
+                    .HasColumnName("ExchangeProviderReference").HasMaxLength(128);
+                record.Property(value => value.ExchangedAt).HasColumnName("ExchangedAt");
+            });
+
             builder.OwnsMany(coupon => coupon.AssociationChanges, history =>
             {
                 history.ToTable("EmdCouponAssociationChanges");
@@ -83,11 +98,14 @@ namespace AeroTech.Ordering.Persistence.ElectronicMiscDocumentAggregate
             builder.Property(coupon => coupon.Id).ValueGeneratedNever();
             builder.Property(coupon => coupon.ReasonForIssuanceSubCode).HasMaxLength(8).IsRequired();
             builder.Property(coupon => coupon.ExternalValueReference).HasMaxLength(128);
+            builder.Property(coupon => coupon.PredecessorDocumentNumber).HasMaxLength(32);
 
             builder.HasIndex(coupon => new { coupon.ElectronicMiscDocumentId, coupon.CouponNumber }).IsUnique();
             builder.HasIndex(coupon => coupon.OrderServiceId);
             builder.HasIndex(coupon => coupon.PricingLineId);
             builder.HasIndex(coupon => coupon.AssociatedTicketCouponId);
+            builder.HasIndex(coupon => coupon.PredecessorElectronicMiscDocumentId);
+            builder.Ignore(coupon => coupon.ReplacesAnotherCoupon);
 
             builder.HasOne<OrderService>()
                 .WithMany()

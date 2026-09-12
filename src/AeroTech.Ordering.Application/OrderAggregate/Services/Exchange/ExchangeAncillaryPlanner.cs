@@ -148,6 +148,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             if (decided.Disposition == AncillaryExchangeDisposition.Refund)
                 EnsureRefundIsExecutable(association, decided);
 
+            if (decided.Disposition == AncillaryExchangeDisposition.ExchangeToNewEmd)
+                EnsureEmdExchangeIsExecutable(association, decided);
+
             long? targetSuccessorCouponId = null;
 
             if (decided.Disposition == AncillaryExchangeDisposition.ReassociateExisting)
@@ -191,9 +194,219 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 decided.Refund?.PricingSource,
                 decided.Refund?.PricingLines,
                 RefundPriceChangeSetId: null,
-                decided.Disposition == AncillaryExchangeDisposition.Refund
+                ExchangeGroupRef: decided.Exchange?.ExchangeGroupRef,
+                RefundedOrderServiceId: decided.Disposition == AncillaryExchangeDisposition.Refund
                     ? association.Coupon.OrderServiceId
                     : null);
+        }
+
+        public static IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup> AcceptExchangeGroups(
+            ExchangeScope scope,
+            IReadOnlyList<AcceptedExchangePlanCoupon> planCoupons,
+            AncillaryExchangeDispositionResult decision,
+            IReadOnlyList<AcceptedExchangeAncillaryDisposition> accepted)
+        {
+            ArgumentNullException.ThrowIfNull(scope);
+            ArgumentNullException.ThrowIfNull(planCoupons);
+            ArgumentNullException.ThrowIfNull(decision);
+            ArgumentNullException.ThrowIfNull(accepted);
+
+            var exchanges = accepted.Where(disposition => disposition.IsEmdExchange).ToList();
+
+            if (exchanges.Count == 0)
+                return [];
+
+            return exchanges
+                .GroupBy(disposition => disposition.ExchangeGroupRef!, StringComparer.Ordinal)
+                .OrderBy(group => group.Key, StringComparer.Ordinal)
+                .Select(group => AcceptedGroup(scope, planCoupons, decision, group.Key, group.ToList()))
+                .ToList();
+        }
+
+        private static AcceptedExchangeAncillaryExchangeGroup AcceptedGroup(
+            ExchangeScope scope,
+            IReadOnlyList<AcceptedExchangePlanCoupon> planCoupons,
+            AncillaryExchangeDispositionResult decision,
+            string exchangeGroupRef,
+            IReadOnlyList<AcceptedExchangeAncillaryDisposition> members)
+        {
+            var terms = TermsOf(decision, members[0], exchangeGroupRef);
+
+            foreach (var member in members.Skip(1))
+            {
+                if (!SameGroupTerms(TermsOf(decision, member, exchangeGroupRef), terms))
+                    throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                        exchangeGroupRef, "its members carry conflicting successor terms");
+            }
+
+            if (members.Select(member => member.ElectronicMiscDocumentId).Distinct().Count() != 1)
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    exchangeGroupRef, "it spans more than one source miscellaneous document");
+
+            var couponNumbers = members.Select(member => member.EmdCouponNumber).Order().ToList();
+
+            return new AcceptedExchangeAncillaryExchangeGroup(
+                exchangeGroupRef,
+                members[0].ElectronicMiscDocumentId,
+                members[0].EmdDocumentNumber,
+                couponNumbers,
+                terms.SuccessorType,
+                terms.SuccessorReasonForIssuanceCode,
+                terms.CurrencyId,
+                terms.SuccessorCoupons
+                    .Select(coupon => AcceptedSuccessorCoupon(
+                        scope, planCoupons, exchangeGroupRef, terms.SuccessorType, coupon))
+                    .ToList(),
+                decision.DecisionReference,
+                terms.SourceReference,
+                terms.PricingSource,
+                terms.PricingLines,
+                terms.AddCollect,
+                terms.RefundDue,
+                terms.Residual,
+                terms.FundingMethodRef);
+        }
+
+        private static bool SameGroupTerms(AncillaryEmdExchangeTerms left, AncillaryEmdExchangeTerms right)
+            => left.SuccessorType == right.SuccessorType
+               && string.Equals(
+                   left.SuccessorReasonForIssuanceCode,
+                   right.SuccessorReasonForIssuanceCode,
+                   StringComparison.Ordinal)
+               && left.CurrencyId == right.CurrencyId
+               && string.Equals(left.SourceReference, right.SourceReference, StringComparison.Ordinal)
+               && left.PricingSource == right.PricingSource
+               && left.AddCollect == right.AddCollect
+               && left.RefundDue == right.RefundDue
+               && left.Residual == right.Residual
+               && string.Equals(left.FundingMethodRef, right.FundingMethodRef, StringComparison.Ordinal)
+               && left.SuccessorCoupons.SequenceEqual(right.SuccessorCoupons)
+               && left.PricingLines.SequenceEqual(right.PricingLines);
+
+        private static AncillaryEmdExchangeTerms TermsOf(
+            AncillaryExchangeDispositionResult decision,
+            AcceptedExchangeAncillaryDisposition member,
+            string exchangeGroupRef)
+            => decision.Dispositions
+                   .SingleOrDefault(candidate =>
+                       string.Equals(candidate.EmdDocumentNumber, member.EmdDocumentNumber, StringComparison.Ordinal)
+                       && candidate.EmdCouponNumber == member.EmdCouponNumber)?.Exchange
+               ?? throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                   exchangeGroupRef, "a member carries no exchange terms");
+
+        private static AcceptedExchangeAncillarySuccessorCoupon AcceptedSuccessorCoupon(
+            ExchangeScope scope,
+            IReadOnlyList<AcceptedExchangePlanCoupon> planCoupons,
+            string exchangeGroupRef,
+            ElectronicMiscDocumentType successorType,
+            AncillaryEmdExchangeSuccessorCoupon coupon)
+        {
+            if (successorType == ElectronicMiscDocumentType.Standalone)
+                return new AcceptedExchangeAncillarySuccessorCoupon(
+                    coupon.Purpose,
+                    coupon.ReasonForIssuanceSubCode,
+                    coupon.Value,
+                    coupon.CurrencyId,
+                    OrderServiceId: coupon.OrderServiceId,
+                    ExternalValueReference: coupon.ExternalValueReference);
+
+            if (coupon.TargetPredecessorCouponNumber is not { } target)
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    exchangeGroupRef, "an associated successor coupon names no target ticket coupon");
+
+            if (scope.HistoricalUsedCoupons.Any(used => used.CouponNumber == target))
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    exchangeGroupRef, $"successor target coupon {target} is historical used context");
+
+            var planCoupon = planCoupons.SingleOrDefault(candidate => candidate.PredecessorCouponNumber == target)
+                             ?? throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                                 exchangeGroupRef,
+                                 $"successor target coupon {target} is outside the accepted successor scope");
+
+            return new AcceptedExchangeAncillarySuccessorCoupon(
+                coupon.Purpose,
+                coupon.ReasonForIssuanceSubCode,
+                coupon.Value,
+                coupon.CurrencyId,
+                target,
+                planCoupon.SuccessorTicketCouponId,
+                coupon.OrderServiceId,
+                coupon.ExternalValueReference);
+        }
+
+        private static void EnsureEmdExchangeIsExecutable(
+            AffectedAncillaryAssociation association,
+            AncillaryCouponDisposition decided)
+        {
+            var document = association.Document.DocumentNumber;
+            var coupon = association.Coupon.CouponNumber;
+
+            if (decided.Exchange is not { } exchange)
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "terms");
+
+            if (string.IsNullOrWhiteSpace(exchange.ExchangeGroupRef))
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "exchange group reference");
+
+            if (string.IsNullOrWhiteSpace(exchange.SuccessorReasonForIssuanceCode))
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(
+                    document, coupon, "successor reason for issuance");
+
+            if (!Enum.IsDefined(exchange.SuccessorType))
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "successor document type");
+
+            if (exchange.CurrencyId <= 0)
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "currency");
+
+            if (string.IsNullOrWhiteSpace(exchange.SourceReference))
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "source reference");
+
+            if (exchange.PricingSource is PricingSource.OrderingDerived or 0)
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(
+                    document, coupon, "an external pricing source");
+
+            if (exchange.SuccessorCoupons.Count == 0)
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "successor coupons");
+
+            foreach (var successor in exchange.SuccessorCoupons)
+            {
+                if (string.IsNullOrWhiteSpace(successor.ReasonForIssuanceSubCode))
+                    throw ExceptionFactory.AncillaryExchangeTermsMissing(
+                        document, coupon, "a successor coupon reason for issuance sub code");
+
+                if (successor.Value < 0m)
+                    throw ExceptionFactory.AncillaryExchangeTermsMissing(
+                        document, coupon, "a non-negative successor coupon value");
+
+                if (successor.CurrencyId != exchange.CurrencyId)
+                    throw ExceptionFactory.AncillaryExchangeTermsMissing(
+                        document,
+                        coupon,
+                        $"a successor coupon currency matching the group ({exchange.CurrencyId})");
+
+                if (successor.Purpose == EmdCouponPurpose.Service && successor.OrderServiceId is null)
+                    throw ExceptionFactory.AncillaryExchangeTermsMissing(
+                        document, coupon, "a successor service coupon order service");
+
+                if (successor.Purpose is EmdCouponPurpose.Deposit or EmdCouponPurpose.ResidualValue
+                    && string.IsNullOrWhiteSpace(successor.ExternalValueReference))
+                    throw ExceptionFactory.AncillaryExchangeTermsMissing(
+                        document, coupon, $"a successor {successor.Purpose} coupon external value reference");
+            }
+
+            if (exchange.AddCollect is not null && string.IsNullOrWhiteSpace(exchange.FundingMethodRef))
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "a funding method");
+
+            if (exchange.AddCollect is not null && exchange.RefundDue is not null)
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    exchange.ExchangeGroupRef, "it carries both a collection and a refund obligation");
+
+            if (exchange.PricingLines.Count > 0)
+                AncillaryExchangeConservationPolicy.EnsureReconciles(
+                    exchange.PricingLines, exchange.AddCollect, exchange.RefundDue, exchange.Residual);
+            else if (AncillaryExchangeConservationPolicy.ExpectedNetCustomerCredit(
+                         exchange.AddCollect, exchange.RefundDue, exchange.Residual) != 0m)
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(
+                    document, coupon, "pricing evidence for its monetary obligation");
         }
 
         private static void EnsureRefundIsExecutable(
@@ -254,7 +467,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             ArgumentNullException.ThrowIfNull(dispositions);
 
             if (dispositions.FirstOrDefault(disposition =>
-                    !disposition.IsReassociation && !disposition.IsRefund) is { } unsupported)
+                    !disposition.IsReassociation && !disposition.IsRefund && !disposition.IsEmdExchange)
+                is { } unsupported)
                 throw ExceptionFactory.AncillaryDispositionNotExecutable(
                     unsupported.EmdDocumentNumber, unsupported.EmdCouponNumber, unsupported.Disposition);
         }

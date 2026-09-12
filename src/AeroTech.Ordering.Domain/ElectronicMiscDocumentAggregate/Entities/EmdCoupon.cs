@@ -24,7 +24,10 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
             string? externalValueReference,
             long? associatedTicketCouponId,
             decimal issuanceValue,
-            int currencyId)
+            int currencyId,
+            long? predecessorElectronicMiscDocumentId = null,
+            string? predecessorDocumentNumber = null,
+            int? predecessorCouponNumber = null)
         {
             Id = id;
             ElectronicMiscDocumentId = electronicMiscDocumentId;
@@ -37,6 +40,9 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
             AssociatedTicketCouponId = associatedTicketCouponId;
             IssuanceValue = issuanceValue;
             CurrencyId = currencyId;
+            PredecessorElectronicMiscDocumentId = predecessorElectronicMiscDocumentId;
+            PredecessorDocumentNumber = predecessorDocumentNumber;
+            PredecessorCouponNumber = predecessorCouponNumber;
             Status = EmdCouponStatus.OpenForUse;
         }
 
@@ -62,12 +68,27 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
 
         public EmdCouponStatus Status { get; private set; }
 
+        public long? PredecessorElectronicMiscDocumentId { get; private set; }
+
+        public string? PredecessorDocumentNumber { get; private set; }
+
+        public int? PredecessorCouponNumber { get; private set; }
+
         public IReadOnlyList<EmdCouponAssociationChange> AssociationChanges
             => _associationChanges.OrderBy(change => change.Sequence).ToList();
 
         public bool IsOpenForUse => Status == EmdCouponStatus.OpenForUse;
 
         public bool IsRefunded => Status == EmdCouponStatus.Refunded;
+
+        public bool IsExchanged => Status == EmdCouponStatus.Exchanged;
+
+        public EmdCouponExchangeRecord? ExchangeRecord { get; private set; }
+
+        public bool IsExchangedBy(long operationId)
+            => ExchangeRecord is { } record && record.OperationId == operationId;
+
+        public bool ReplacesAnotherCoupon => PredecessorElectronicMiscDocumentId is not null;
 
         public EmdCouponRefundRecord? RefundRecord { get; private set; }
 
@@ -125,6 +146,23 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities
 
             AssociatedTicketCouponId = null;
             Status = EmdCouponStatus.Refunded;
+        }
+
+        internal void Exchange(EmdCouponExchange exchange, DateTimeOffset now)
+        {
+            ArgumentNullException.ThrowIfNull(exchange);
+
+            ExchangeRecord = new EmdCouponExchangeRecord(
+                exchange.OperationId,
+                exchange.SuccessorElectronicMiscDocumentId,
+                exchange.SuccessorDocumentNumber,
+                exchange.SuccessorCouponNumber,
+                exchange.DecisionReference,
+                exchange.ProviderReference,
+                now);
+
+            AssociatedTicketCouponId = null;
+            Status = EmdCouponStatus.Exchanged;
         }
 
         internal void DisassociateByReissue(

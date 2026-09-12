@@ -46,6 +46,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public long? RefundPriceChangeSetId { get; set; }
 
+        public string? ExchangeGroupRef { get; set; }
+
         public long? RefundedOrderServiceId { get; set; }
 
         public ProviderOperationOutcome? RefundDocumentOutcome { get; set; }

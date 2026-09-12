@@ -20,6 +20,7 @@ using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Ports.DocumentRefund;
+using AeroTech.Ordering.Domain.Ports.EmdExchange;
 using AeroTech.Ordering.Domain.Ports.EmdAssociation;
 using AeroTech.Ordering.Domain.Ports.ExchangeFunding;
 using AeroTech.Ordering.Domain.Ports.ExchangeResidual;
@@ -38,7 +39,7 @@ using Entities = AeroTech.Ordering.Domain.OrderAggregate.Entities;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 {
-    public sealed class ExchangeService : IExchangeService
+    public sealed partial class ExchangeService : IExchangeService
     {
         private readonly IOrderRepository _orders;
         private readonly IElectronicTicketRepository _tickets;
@@ -51,6 +52,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         private readonly IExchangeResidualValuePort _residuals;
         private readonly IDocumentRefundPort _documentRefunds;
         private readonly IAncillaryExchangeDispositionPort _ancillaryDispositions;
+        private readonly IEmdExchangePort _emdExchanges;
         private readonly IEmdAssociationPort _emdAssociations;
         private readonly IElectronicMiscDocumentRepository _miscDocuments;
         private readonly IAcceptedExchangePlanStore _plans;
@@ -76,6 +78,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             IExchangeResidualValuePort residuals,
             IDocumentRefundPort documentRefunds,
             IAncillaryExchangeDispositionPort ancillaryDispositions,
+            IEmdExchangePort emdExchanges,
             IEmdAssociationPort emdAssociations,
             IElectronicMiscDocumentRepository miscDocuments,
             IAcceptedExchangePlanStore plans,
@@ -98,6 +101,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             _refundValues = refundValues;
             _residuals = residuals;
             _documentRefunds = documentRefunds;
+            _emdExchanges = emdExchanges;
             _ancillaryDispositions = ancillaryDispositions;
             _emdAssociations = emdAssociations;
             _miscDocuments = miscDocuments;
@@ -304,10 +308,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
                 if (ancillaryRequest is not null && ancillaryDecision is not null)
                 {
+                    var acceptedAncillaries = ExchangeAncillaryPlanner.Accept(
+                        ancillaryRequest, scope, plan.Coupons, ancillaryDecision);
+
                     plan = plan with
                     {
-                        AncillaryDispositions = ExchangeAncillaryPlanner.Accept(
-                            ancillaryRequest, scope, plan.Coupons, ancillaryDecision)
+                        AncillaryDispositions = acceptedAncillaries,
+                        AncillaryExchangeGroups = ExchangeAncillaryPlanner.AcceptExchangeGroups(
+                            scope, plan.Coupons, ancillaryDecision, acceptedAncillaries)
                     };
 
                     ExchangeAncillaryPlanner.EnsureExecutable(plan.Ancillaries);
@@ -1393,11 +1401,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             bool isReplay,
             CancellationToken cancellationToken)
         {
-            var pending = plan.ExecutableAncillaries.FirstOrDefault(disposition => !disposition.IsSettled);
+            var pending = plan.NextUnsettledAncillary;
 
             if (pending is null)
                 return await ReconcileAsync(
                     order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
+
+            if (pending.IsEmdExchange)
+                return await ExchangeAncillaryToNewEmdAsync(
+                    order, operation, predecessor, plan, successor, materialized, pending, documentJustConfirmed,
+                    isReplay, cancellationToken);
 
             if (pending.IsRefund)
                 return await RefundAncillaryAsync(

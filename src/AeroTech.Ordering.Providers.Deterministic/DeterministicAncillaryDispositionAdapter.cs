@@ -1,4 +1,5 @@
 ﻿using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
 
@@ -64,6 +65,66 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public long? RefundReversesPricingLineId { get; set; }
 
+        public string ExchangeGroupRef { get; set; } = "EMDX-GROUP-1";
+
+        public Dictionary<string, string> ExchangeGroupByCoupon { get; } = new(StringComparer.Ordinal);
+
+        public ElectronicMiscDocumentType ExchangeSuccessorType { get; set; }
+            = ElectronicMiscDocumentType.Associated;
+
+        public string ExchangeSuccessorReasonForIssuanceCode { get; set; } = "A";
+
+        public string ExchangeSuccessorSubCode { get; set; } = "0DF";
+
+        public EmdCouponPurpose ExchangeSuccessorPurpose { get; set; } = EmdCouponPurpose.Fee;
+
+        public int ExchangeCurrencyId { get; set; } = 1;
+
+        public decimal ExchangeSourceValue { get; set; } = 50_000m;
+
+        public decimal ExchangeSuccessorValue { get; set; } = 50_000m;
+
+        public string ExchangeSourceReference { get; set; } = "ANC-EXCHANGE-SOURCE";
+
+        public PricingSource ExchangePricingSource { get; set; } = PricingSource.Supplier;
+
+        public decimal? ExchangeAddCollect { get; set; }
+
+        public string? ExchangeFundingMethodRef { get; set; } = "CARD-ON-FILE";
+
+        public decimal? ExchangeRefundDue { get; set; }
+
+        public decimal? ExchangeResidual { get; set; }
+
+        public ResidualFulfillment ExchangeResidualFulfillment { get; set; }
+            = ResidualFulfillment.DocumentCoupled;
+
+        public long? ExchangeSuccessorOrderServiceId { get; set; }
+
+        public string? ExchangeSuccessorExternalValueReference { get; set; }
+
+        public bool OmitExchangeTerms { get; set; }
+
+        public bool OmitExchangeGroupRef { get; set; }
+
+        public bool OmitExchangeSuccessorCoupons { get; set; }
+
+        public bool OmitExchangeSourceReference { get; set; }
+
+        public bool OmitExchangeFundingMethod { get; set; }
+
+        public bool OmitExchangePricingLines { get; set; }
+
+        public bool ReportSelfDerivedExchangePricing { get; set; }
+
+        public bool OmitExchangeTargetCoupon { get; set; }
+
+        public int? ExchangeTargetCouponOverride { get; set; }
+
+        public bool DuplicateExchangeGroupCoupon { get; set; }
+
+        public bool ConflictExchangeGroupTerms { get; set; }
+
         private IReadOnlyList<AcceptedRefundPricingLine> RefundLines() =>
         [
             new(
@@ -95,9 +156,14 @@ namespace AeroTech.Ordering.Providers.Deterministic
             if (Throw)
                 throw new InvalidOperationException("The ancillary disposition source is unreachable.");
 
-            var dispositions = request.AffectedCoupons
+            var candidates = request.AffectedCoupons
                 .Where(coupon => !OmittedCoupons.Contains(Key(coupon)))
-                .Select(Decision)
+                .ToList();
+
+            var exchangeTerms = ExchangeTermsByCoupon(candidates);
+
+            var dispositions = candidates
+                .Select(coupon => Decision(coupon, exchangeTerms))
                 .ToList();
 
             if (DuplicateFirstDecision && dispositions.Count > 0)
@@ -120,11 +186,138 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 dispositions));
         }
 
-        private AncillaryCouponDisposition Decision(AffectedAncillaryCoupon coupon)
+        private Dictionary<string, AncillaryEmdExchangeTerms> ExchangeTermsByCoupon(
+            IReadOnlyList<AffectedAncillaryCoupon> candidates)
         {
-            var disposition = DispositionByCoupon.TryGetValue(Key(coupon), out var overridden)
+            var terms = new Dictionary<string, AncillaryEmdExchangeTerms>(StringComparer.Ordinal);
+
+            if (OmitExchangeTerms)
+                return terms;
+
+            var members = candidates
+                .Where(coupon => DispositionOf(coupon) == AncillaryExchangeDisposition.ExchangeToNewEmd)
+                .GroupBy(GroupRefOf, StringComparer.Ordinal);
+
+            foreach (var group in members)
+            {
+                var ordered = group.OrderBy(coupon => coupon.EmdCouponNumber).ToList();
+                var successors = ordered.Select(SuccessorCoupon).ToList();
+
+                if (DuplicateExchangeGroupCoupon && successors.Count > 0)
+                    successors.Add(successors[0]);
+
+                var shared = new AncillaryEmdExchangeTerms(
+                    OmitExchangeGroupRef ? string.Empty : group.Key,
+                    ExchangeSuccessorType,
+                    ExchangeSuccessorReasonForIssuanceCode,
+                    ExchangeCurrencyId,
+                    OmitExchangeSuccessorCoupons ? [] : successors,
+                    OmitExchangeSourceReference ? string.Empty : ExchangeSourceReference,
+                    ReportSelfDerivedExchangePricing
+                        ? PricingSource.OrderingDerived
+                        : ExchangePricingSource,
+                    OmitExchangePricingLines ? [] : ExchangeLines(successors.Count),
+                    ExchangeAddCollect is { } addCollect
+                        ? new AcceptedAddCollect(addCollect, ExchangeCurrencyId)
+                        : null,
+                    ExchangeRefundDue is { } refundDue
+                        ? new AcceptedRefundDue(
+                            refundDue, ExchangeCurrencyId, AcceptedRefundDue.OriginalFormOfPayment)
+                        : null,
+                    ExchangeResidual is { } residual
+                        ? new AcceptedResidual(
+                            residual,
+                            ExchangeCurrencyId,
+                            AcceptedRefundDue.OriginalFormOfPayment,
+                            ResidualInstrumentKind.Emd,
+                            ExchangeResidualFulfillment)
+                        : null,
+                    OmitExchangeFundingMethod ? null : ExchangeFundingMethodRef);
+
+                var index = 0;
+
+                foreach (var coupon in ordered)
+                {
+                    terms[Key(coupon)] = ConflictExchangeGroupTerms && index++ > 0
+                        ? shared with { SuccessorReasonForIssuanceCode = "Z" }
+                        : shared;
+                }
+            }
+
+            return terms;
+        }
+
+        private AncillaryEmdExchangeSuccessorCoupon SuccessorCoupon(AffectedAncillaryCoupon coupon)
+            => new(
+                ExchangeSuccessorPurpose,
+                ExchangeSuccessorSubCode,
+                ExchangeSuccessorValue,
+                ExchangeCurrencyId,
+                OmitExchangeTargetCoupon
+                    ? null
+                    : ExchangeTargetCouponOverride ?? coupon.PredecessorCouponNumber,
+                ExchangeSuccessorPurpose == EmdCouponPurpose.Service
+                    ? ExchangeSuccessorOrderServiceId
+                    : null,
+                ExchangeSuccessorPurpose is EmdCouponPurpose.Deposit or EmdCouponPurpose.ResidualValue
+                    ? ExchangeSuccessorExternalValueReference
+                    : null);
+
+        private IReadOnlyList<AcceptedRefundPricingLine> ExchangeLines(int successorCount)
+        {
+            var sourceTotal = ExchangeSourceValue * Math.Max(successorCount, 1);
+
+            var lines = new List<AcceptedRefundPricingLine>
+            {
+                new(
+                    PricingComponentType.Adjustment,
+                    PricingEffect.CustomerBalance,
+                    OrderPricingLineDirection.Credit,
+                    PricingLineRole.Adjustment,
+                    sourceTotal,
+                    ExchangeCurrencyId,
+                    sourceTotal,
+                    ExchangeCurrencyId,
+                    PricingBasisType.OrderService,
+                    RefundabilityRule.Refundable,
+                    Code: "ANCILLARY-EXCHANGE-OUT",
+                    Description: "Ancillary value withdrawn by the approved exchange")
+            };
+
+            var successorTotal = ExchangeSuccessorValue * Math.Max(successorCount, 1);
+
+            lines.Add(new AcceptedRefundPricingLine(
+                PricingComponentType.ProductCharge,
+                PricingEffect.CustomerBalance,
+                OrderPricingLineDirection.Debit,
+                PricingLineRole.Original,
+                successorTotal,
+                ExchangeCurrencyId,
+                successorTotal,
+                ExchangeCurrencyId,
+                PricingBasisType.OrderService,
+                RefundabilityRule.Refundable,
+                Code: "ANCILLARY-EXCHANGE-IN",
+                Description: "Ancillary value granted by the approved exchange"));
+
+            return lines;
+        }
+
+        private AncillaryExchangeDisposition DispositionOf(AffectedAncillaryCoupon coupon)
+            => DispositionByCoupon.TryGetValue(Key(coupon), out var overridden)
                 ? overridden
                 : DefaultDisposition;
+
+        private string GroupRefOf(AffectedAncillaryCoupon coupon)
+            => ExchangeGroupByCoupon.TryGetValue(Key(coupon), out var overridden)
+                ? overridden
+                : ExchangeGroupRef;
+
+        private AncillaryCouponDisposition Decision(
+            AffectedAncillaryCoupon coupon,
+            Dictionary<string, AncillaryEmdExchangeTerms> exchangeTerms)
+        {
+            var disposition = DispositionOf(coupon);
 
             return new AncillaryCouponDisposition(
                 coupon.EmdDocumentNumber,
@@ -137,7 +330,11 @@ namespace AeroTech.Ordering.Providers.Deterministic
                     : coupon.PredecessorCouponNumber,
                 disposition,
                 Target(coupon),
-                RefundTerms(disposition));
+                RefundTerms(disposition),
+                disposition == AncillaryExchangeDisposition.ExchangeToNewEmd
+                 && exchangeTerms.TryGetValue(Key(coupon), out var terms)
+                    ? terms
+                    : null);
         }
 
         private AncillaryRefundTerms? RefundTerms(AncillaryExchangeDisposition disposition)

@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Persistence.Servicing
 {
@@ -109,5 +109,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
         public List<AcceptedExchangePlanCouponRow> Coupons { get; set; } = new();
 
         public List<AcceptedExchangePlanAncillaryRow> Ancillaries { get; set; } = new();
+
+        public List<AcceptedExchangePlanAncillaryExchangeGroupRow> AncillaryExchangeGroups { get; set; } = new();
     }
 }

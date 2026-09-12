@@ -862,6 +862,24 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException AncillaryRefundEconomicsMissing(params object?[] args) =>
             new(20307, ExceptionMessages.AncillaryRefundEconomicsMissing, args) { HttpStatus = 422 };
 
+        public static BusinessException ElectronicMiscDocumentCouponIsNotExchangeable(params object?[] args) =>
+            new(20309, ExceptionMessages.ElectronicMiscDocumentCouponIsNotExchangeable, args) { HttpStatus = 409 };
+
+        public static BusinessException ElectronicMiscDocumentExchangeConflict(params object?[] args) =>
+            new(20310, ExceptionMessages.ElectronicMiscDocumentExchangeConflict, args) { HttpStatus = 409 };
+
+        public static BusinessException AncillaryExchangeTermsMissing(params object?[] args) =>
+            new(20311, ExceptionMessages.AncillaryExchangeTermsMissing, args) { HttpStatus = 422 };
+
+        public static BusinessException AncillaryExchangeGroupMalformed(params object?[] args) =>
+            new(20312, ExceptionMessages.AncillaryExchangeGroupMalformed, args) { HttpStatus = 422 };
+
+        public static BusinessException AncillaryExchangeAmountDoesNotReconcile(params object?[] args) =>
+            new(20314, ExceptionMessages.AncillaryExchangeAmountDoesNotReconcile, args) { HttpStatus = 422 };
+
+        public static BusinessException EmdExchangeSourceNotConfigured() =>
+            new(20313, ExceptionMessages.EmdExchangeSourceNotConfigured) { HttpStatus = 501 };
+
         public static BusinessException DependentPriceChangeHostNotResolvable(params object?[] args) =>
             new(20308, ExceptionMessages.DependentPriceChangeHostNotResolvable, args) { HttpStatus = 409 };
 

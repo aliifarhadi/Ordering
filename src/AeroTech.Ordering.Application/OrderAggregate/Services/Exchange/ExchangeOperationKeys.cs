@@ -15,6 +15,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         public const string RefundDueStep = "exchange-refund-value";
         public const string ResidualStep = "exchange-residual";
         public const string ReassociationStep = "emd-reassociate";
+        public const string AncillaryExchangeStep = "emd-exchange";
 
         private readonly IOrderOperationCoordinator _operations;
 
@@ -54,6 +55,24 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
         public string AncillaryRefundValue(OrderOperation operation, AcceptedExchangeAncillaryDisposition disposition)
             => Step(operation, disposition.RefundValueLegIdentity);
+
+        public string AncillaryExchange(OrderOperation operation, AcceptedExchangeAncillaryExchangeGroup group)
+            => Step(operation, group.LegIdentity);
+
+        public string AncillaryExchangeFundingGuarantee(
+            OrderOperation operation,
+            AcceptedExchangeAncillaryExchangeGroup group)
+            => Step(operation, group.FundingGuaranteeLegIdentity);
+
+        public string AncillaryExchangeFundingCapture(
+            OrderOperation operation,
+            AcceptedExchangeAncillaryExchangeGroup group)
+            => Step(operation, group.FundingCaptureLegIdentity);
+
+        public string AncillaryExchangeResidual(
+            OrderOperation operation,
+            AcceptedExchangeAncillaryExchangeGroup group)
+            => Step(operation, group.ResidualLegIdentity);
 
         private string Document(OrderOperation operation, AcceptedExchangePlan plan, string step)
             => Step(operation, $"{step}:{plan.PredecessorElectronicTicketId}");

@@ -94,7 +94,7 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
             ArgumentNullException.ThrowIfNull(ticketCouponIds);
 
             return IsAssociated
-                   && StatusSummary is not (ElectronicMiscDocumentStatus.Voided or ElectronicMiscDocumentStatus.Refunded)
+                   && !IsTerminal
                 ? _coupons
                     .Where(coupon => coupon.IsOpenForUse
                                      && coupon.AssociatedTicketCouponId is { } associated
@@ -136,6 +136,72 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
             DocumentVersion++;
         }
 
+        public bool IsFullyExchanged => _coupons.Count > 0 && _coupons.All(coupon => coupon.IsExchanged);
+
+        public bool PermitsExchange(int emdCouponNumber, long operationId)
+            => StatusSummary != ElectronicMiscDocumentStatus.Voided
+               && _coupons.SingleOrDefault(coupon => coupon.CouponNumber == emdCouponNumber) is { } candidate
+               && (candidate.IsOpenForUse || candidate.IsExchangedBy(operationId));
+
+        public bool IsExchangeSettledBy(int emdCouponNumber, long operationId)
+            => _coupons.SingleOrDefault(coupon => coupon.CouponNumber == emdCouponNumber) is { } candidate
+               && candidate.IsExchangedBy(operationId);
+
+        public void ExchangeCoupons(IReadOnlyList<EmdCouponExchange> exchanges, IClock clock)
+        {
+            ArgumentNullException.ThrowIfNull(exchanges);
+
+            if (exchanges.Count == 0)
+                throw ExceptionFactory.MiscellaneousDocumentRequiresCoupon();
+
+            var now = clock.GetDateTime();
+            var mutated = false;
+
+            foreach (var exchange in exchanges)
+                mutated |= ExchangeOne(exchange, now);
+
+            if (!mutated)
+                return;
+
+            if (IsFullyExchanged)
+                StatusSummary = ElectronicMiscDocumentStatus.Exchanged;
+
+            DocumentVersion++;
+        }
+
+        private bool ExchangeOne(EmdCouponExchange exchange, DateTimeOffset now)
+        {
+            if (StatusSummary == ElectronicMiscDocumentStatus.Voided)
+                throw ExceptionFactory.ElectronicMiscDocumentCouponIsNotExchangeable(
+                    DocumentNumber, exchange.EmdCouponNumber, StatusSummary);
+
+            var coupon = RequireCoupon(exchange.EmdCouponNumber);
+
+            if (coupon.IsExchangedBy(exchange.OperationId))
+            {
+                if (!coupon.ExchangeRecord!.Names(
+                        exchange.SuccessorElectronicMiscDocumentId,
+                        exchange.SuccessorCouponNumber))
+                    throw ExceptionFactory.ElectronicMiscDocumentExchangeConflict(
+                        DocumentNumber,
+                        coupon.CouponNumber,
+                        coupon.ExchangeRecord.SuccessorDocumentNumber);
+
+                return false;
+            }
+
+            if (!coupon.IsOpenForUse)
+                throw ExceptionFactory.ElectronicMiscDocumentCouponIsNotExchangeable(
+                    DocumentNumber, coupon.CouponNumber, coupon.Status);
+
+            coupon.Exchange(exchange, now);
+
+            return true;
+        }
+
+        public EmdCoupon? SuccessorOf(int emdCouponNumber)
+            => _coupons.SingleOrDefault(coupon => coupon.PredecessorCouponNumber == emdCouponNumber);
+
         public bool PermitsDisassociation(int emdCouponNumber, long operationId, long predecessorTicketCouponId)
             => Associable(emdCouponNumber) is { } candidate
                && (candidate.IsAssociatedWith(predecessorTicketCouponId)
@@ -146,7 +212,8 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
             => _coupons.SingleOrDefault(coupon => coupon.CouponNumber == emdCouponNumber) is { } candidate
                && (candidate.IsDisassociatedByReissue(operationId)
                    || candidate.IsReassociatedBy(operationId)
-                   || candidate.IsRefundedBy(operationId));
+                   || candidate.IsRefundedBy(operationId)
+                   || candidate.IsExchangedBy(operationId));
 
         public bool PermitsReassociation(int emdCouponNumber, long operationId, long successorTicketCouponId)
             => Associable(emdCouponNumber) is { } candidate
@@ -155,10 +222,14 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
 
         private EmdCoupon? Associable(int emdCouponNumber)
             => IsAssociated
-               && StatusSummary is not (ElectronicMiscDocumentStatus.Voided or ElectronicMiscDocumentStatus.Refunded)
+               && !IsTerminal
                && _coupons.SingleOrDefault(coupon => coupon.CouponNumber == emdCouponNumber) is { IsOpenForUse: true } candidate
                 ? candidate
                 : null;
+
+        private bool IsTerminal => StatusSummary is ElectronicMiscDocumentStatus.Voided
+            or ElectronicMiscDocumentStatus.Refunded
+            or ElectronicMiscDocumentStatus.Exchanged;
 
         public void DisassociateCouponByReissue(
             EmdCouponDisassociation disassociation,
@@ -280,7 +351,10 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                     issuance.ExternalValueReference,
                     issuance.AssociatedTicketCouponId,
                     issuance.IssuanceValue,
-                    currencyId);
+                    currencyId,
+                    issuance.PredecessorElectronicMiscDocumentId,
+                    issuance.PredecessorDocumentNumber,
+                    issuance.PredecessorCouponNumber);
 
                 coupon.RecordIssuedAssociation(operationId, idGenerator, document.IssuedAt);
 
@@ -437,7 +511,10 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
         long? OrderServiceId = null,
         long? PricingLineId = null,
         string? ExternalValueReference = null,
-        long? AssociatedTicketCouponId = null);
+        long? AssociatedTicketCouponId = null,
+        long? PredecessorElectronicMiscDocumentId = null,
+        string? PredecessorDocumentNumber = null,
+        int? PredecessorCouponNumber = null);
 
     public sealed record EmdCouponPriceLink(long PricingLineId, long? AllocationId, decimal AttributedValue);
 }

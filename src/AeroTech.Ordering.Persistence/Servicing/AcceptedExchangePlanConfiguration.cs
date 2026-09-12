@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace AeroTech.Ordering.Persistence.Servicing
@@ -42,6 +42,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.HasMany(plan => plan.Coupons)
                 .WithOne()
                 .HasForeignKey(coupon => coupon.OperationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasMany(plan => plan.AncillaryExchangeGroups)
+                .WithOne()
+                .HasForeignKey(group => group.OperationId)
                 .OnDelete(DeleteBehavior.Cascade);
         }
     }

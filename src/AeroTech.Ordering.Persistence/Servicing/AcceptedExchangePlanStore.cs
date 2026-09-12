@@ -133,6 +133,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
                             : JsonSerializer.Deserialize<IReadOnlyList<AcceptedRefundPricingLine>>(
                                 ancillary.RefundPricingLines, PlanOptions),
                         ancillary.RefundPriceChangeSetId,
+                        ancillary.ExchangeGroupRef,
                         ancillary.RefundedOrderServiceId,
                         ancillary.AssociationOutcome,
                         ancillary.AssociationProviderReference,
@@ -143,8 +144,64 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         ancillary.RefundValueOutcome,
                         ancillary.RefundValueReference,
                         ancillary.RefundValueDetail))
+                    .ToList(),
+                row.AncillaryExchangeGroups
+                    .OrderBy(group => group.ExchangeGroupRef, StringComparer.Ordinal)
+                    .Select(ExchangeGroup)
                     .ToList());
         }
+
+        private static AcceptedExchangeAncillaryExchangeGroup ExchangeGroup(
+            AcceptedExchangePlanAncillaryExchangeGroupRow group)
+            => new(
+                group.ExchangeGroupRef,
+                group.SourceElectronicMiscDocumentId,
+                group.SourceDocumentNumber,
+                JsonSerializer.Deserialize<IReadOnlyList<int>>(group.SourceCouponNumbers, PlanOptions) ?? [],
+                group.SuccessorType,
+                group.SuccessorReasonForIssuanceCode,
+                group.CurrencyId,
+                JsonSerializer.Deserialize<IReadOnlyList<AcceptedExchangeAncillarySuccessorCoupon>>(
+                    group.SuccessorCoupons, PlanOptions) ?? [],
+                group.DecisionReference,
+                group.SourceReference,
+                group.PricingSource,
+                group.PricingLines is null
+                    ? []
+                    : JsonSerializer.Deserialize<IReadOnlyList<AcceptedRefundPricingLine>>(
+                        group.PricingLines, PlanOptions) ?? [],
+                group.AddCollectAmount is { } addCollect && group.AddCollectCurrencyId is { } addCollectCurrency
+                    ? new AcceptedAddCollect(addCollect, addCollectCurrency)
+                    : null,
+                group.RefundDueAmount is { } refundDue && group.RefundDueCurrencyId is { } refundDueCurrency
+                    ? new AcceptedRefundDue(refundDue, refundDueCurrency, group.RefundDueDisposition ?? string.Empty)
+                    : null,
+                group.ResidualAmount is { } residual && group.ResidualCurrencyId is { } residualCurrency
+                    ? new AcceptedResidual(
+                        residual,
+                        residualCurrency,
+                        group.ResidualDisposition ?? string.Empty,
+                        group.ResidualExpectedInstrument ?? ResidualInstrumentKind.Unknown,
+                        group.ResidualFulfillment ?? AeroTech.Messages.Ordering.Enums.ResidualFulfillment.ExternalValue)
+                    : null,
+                group.FundingMethodRef,
+                group.ExchangeOutcome,
+                group.ExchangeProviderReference,
+                group.ExchangeDetail,
+                group.SuccessorElectronicMiscDocumentId,
+                group.SuccessorDocumentNumber,
+                group.PriceChangeSetId,
+                group.FundingGuaranteeOutcome,
+                group.FundingGuaranteeReference,
+                group.FundingGuaranteeDetail,
+                group.FundingCaptureOutcome,
+                group.FundingCaptureReference,
+                group.FundingCaptureDetail,
+                group.ResidualOutcome,
+                group.ResidualProviderReference,
+                group.ResidualInstrumentReference,
+                group.ResidualInstrument,
+                group.ResidualDetail);
 
         public async Task SaveAsync(AcceptedExchangePlan plan, CancellationToken cancellationToken = default)
         {
@@ -225,6 +282,52 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         SegmentBookingClass = coupon.TicketedSegment.BookingClass
                     })
                     .ToList(),
+                AncillaryExchangeGroups = plan.ExchangeGroups
+                    .Select(group => new AcceptedExchangePlanAncillaryExchangeGroupRow
+                    {
+                        OperationId = plan.OperationId,
+                        ExchangeGroupRef = group.ExchangeGroupRef,
+                        SourceElectronicMiscDocumentId = group.SourceElectronicMiscDocumentId,
+                        SourceDocumentNumber = group.SourceDocumentNumber,
+                        SourceCouponNumbers = JsonSerializer.Serialize(group.SourceCouponNumbers, PlanOptions),
+                        SuccessorType = group.SuccessorType,
+                        SuccessorReasonForIssuanceCode = group.SuccessorReasonForIssuanceCode,
+                        CurrencyId = group.CurrencyId,
+                        SuccessorCoupons = JsonSerializer.Serialize(group.SuccessorCoupons, PlanOptions),
+                        DecisionReference = group.DecisionReference,
+                        SourceReference = group.SourceReference,
+                        PricingSource = group.PricingSource,
+                        PricingLines = JsonSerializer.Serialize(group.PricingLines, PlanOptions),
+                        AddCollectAmount = group.AddCollect?.Amount,
+                        AddCollectCurrencyId = group.AddCollect?.CurrencyId,
+                        RefundDueAmount = group.RefundDue?.Amount,
+                        RefundDueCurrencyId = group.RefundDue?.CurrencyId,
+                        RefundDueDisposition = group.RefundDue?.Disposition,
+                        ResidualAmount = group.Residual?.Amount,
+                        ResidualCurrencyId = group.Residual?.CurrencyId,
+                        ResidualDisposition = group.Residual?.Disposition,
+                        ResidualExpectedInstrument = group.Residual?.ExpectedInstrument,
+                        ResidualFulfillment = group.Residual?.Fulfillment,
+                        FundingMethodRef = group.FundingMethodRef,
+                        ExchangeOutcome = group.ExchangeOutcome,
+                        ExchangeProviderReference = group.ExchangeProviderReference,
+                        ExchangeDetail = group.ExchangeDetail,
+                        SuccessorElectronicMiscDocumentId = group.SuccessorElectronicMiscDocumentId,
+                        SuccessorDocumentNumber = group.SuccessorDocumentNumber,
+                        PriceChangeSetId = group.PriceChangeSetId,
+                        FundingGuaranteeOutcome = group.FundingGuaranteeOutcome,
+                        FundingGuaranteeReference = group.FundingGuaranteeReference,
+                        FundingGuaranteeDetail = group.FundingGuaranteeDetail,
+                        FundingCaptureOutcome = group.FundingCaptureOutcome,
+                        FundingCaptureReference = group.FundingCaptureReference,
+                        FundingCaptureDetail = group.FundingCaptureDetail,
+                        ResidualOutcome = group.ResidualOutcome,
+                        ResidualProviderReference = group.ResidualProviderReference,
+                        ResidualInstrumentReference = group.ResidualInstrumentReference,
+                        ResidualInstrument = group.ResidualInstrument,
+                        ResidualDetail = group.ResidualDetail
+                    })
+                    .ToList(),
                 Ancillaries = plan.Ancillaries
                     .Select(ancillary => new AcceptedExchangePlanAncillaryRow
                     {
@@ -251,6 +354,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
                             ? null
                             : JsonSerializer.Serialize(ancillary.RefundPricingLines, PlanOptions),
                         RefundPriceChangeSetId = ancillary.RefundPriceChangeSetId,
+                        ExchangeGroupRef = ancillary.ExchangeGroupRef,
                         RefundedOrderServiceId = ancillary.RefundedOrderServiceId,
                         RefundDocumentOutcome = ancillary.RefundDocumentOutcome,
                         RefundDocumentReference = ancillary.RefundDocumentReference,
@@ -407,6 +511,117 @@ namespace AeroTech.Ordering.Persistence.Servicing
             plan.UpdatedAt = _clock.GetDateTime();
         }
 
+        public async Task RecordAncillaryExchangeOutcomeAsync(
+            long operationId,
+            string exchangeGroupRef,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireGroupAsync(operationId, exchangeGroupRef, cancellationToken);
+
+            row.ExchangeOutcome = outcome;
+            row.ExchangeProviderReference = providerReference ?? row.ExchangeProviderReference;
+            row.ExchangeDetail = detail ?? row.ExchangeDetail;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordAncillaryExchangeSuccessorAsync(
+            long operationId,
+            string exchangeGroupRef,
+            long successorElectronicMiscDocumentId,
+            string successorDocumentNumber,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireGroupAsync(operationId, exchangeGroupRef, cancellationToken);
+
+            row.SuccessorElectronicMiscDocumentId ??= successorElectronicMiscDocumentId;
+            row.SuccessorDocumentNumber ??= successorDocumentNumber;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordAncillaryExchangeConsequenceAsync(
+            long operationId,
+            string exchangeGroupRef,
+            long priceChangeSetId,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireGroupAsync(operationId, exchangeGroupRef, cancellationToken);
+
+            row.PriceChangeSetId ??= priceChangeSetId;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordAncillaryExchangeFundingOutcomeAsync(
+            long operationId,
+            string exchangeGroupRef,
+            bool capture,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireGroupAsync(operationId, exchangeGroupRef, cancellationToken);
+
+            if (capture)
+            {
+                row.FundingCaptureOutcome = outcome;
+                row.FundingCaptureReference = providerReference ?? row.FundingCaptureReference;
+                row.FundingCaptureDetail = detail ?? row.FundingCaptureDetail;
+            }
+            else
+            {
+                row.FundingGuaranteeOutcome = outcome;
+                row.FundingGuaranteeReference = providerReference ?? row.FundingGuaranteeReference;
+                row.FundingGuaranteeDetail = detail ?? row.FundingGuaranteeDetail;
+            }
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordAncillaryExchangeResidualOutcomeAsync(
+            long operationId,
+            string exchangeGroupRef,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? instrumentReference,
+            ResidualInstrumentKind? instrument,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireGroupAsync(operationId, exchangeGroupRef, cancellationToken);
+
+            row.ResidualOutcome = outcome;
+            row.ResidualProviderReference = providerReference ?? row.ResidualProviderReference;
+            row.ResidualInstrumentReference = instrumentReference ?? row.ResidualInstrumentReference;
+            row.ResidualInstrument = instrument ?? row.ResidualInstrument;
+            row.ResidualDetail = detail ?? row.ResidualDetail;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        private async Task<AcceptedExchangePlanAncillaryExchangeGroupRow> RequireGroupAsync(
+            long operationId,
+            string exchangeGroupRef,
+            CancellationToken cancellationToken)
+            => await _dbContext.Set<AcceptedExchangePlanAncillaryExchangeGroupRow>()
+                   .FirstOrDefaultAsync(
+                       group => group.OperationId == operationId
+                                && group.ExchangeGroupRef == exchangeGroupRef,
+                       cancellationToken)
+               ?? throw ExceptionFactory.AcceptedExchangePlanNotFound(operationId);
+
+        private async Task TouchAsync(long operationId, CancellationToken cancellationToken)
+        {
+            var plan = await RequireAsync(operationId, cancellationToken);
+
+            plan.UpdatedAt = _clock.GetDateTime();
+        }
+
         public async Task RecordAncillaryRefundConsequenceAsync(
             long operationId,
             long emdCouponId,
@@ -517,7 +732,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
         private IQueryable<AcceptedExchangePlanRow> Query()
             => _dbContext.Set<AcceptedExchangePlanRow>()
                 .Include(plan => plan.Coupons)
-                .Include(plan => plan.Ancillaries);
+                .Include(plan => plan.Ancillaries)
+                .Include(plan => plan.AncillaryExchangeGroups);
 
         private async Task<AcceptedExchangePlanRow> RequireAsync(
             long operationId,

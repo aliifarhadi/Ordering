@@ -68,6 +68,7 @@ namespace AeroTech.Ordering.Providers
             services.AddScoped<Domain.Ports.ExchangeResidual.IExchangeResidualValuePort, UnconfiguredExchangeResidualProvider>();
             services.AddScoped<Domain.Ports.AncillaryDisposition.IAncillaryExchangeDispositionPort, UnconfiguredAncillaryDispositionProvider>();
             services.AddScoped<Domain.Ports.EmdAssociation.IEmdAssociationPort, UnconfiguredEmdAssociationProvider>();
+            services.AddScoped<Domain.Ports.EmdExchange.IEmdExchangePort, UnconfiguredEmdExchangeProvider>();
 
             return services;
         }

@@ -17,6 +17,7 @@ using AeroTech.Ordering.Domain.DocumentStockAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
 using AeroTech.Ordering.Domain.Ports.EmdAssociation;
+using AeroTech.Ordering.Domain.Ports.EmdExchange;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence;
 using AeroTech.Ordering.Persistence.DocumentStockAggregate;
@@ -62,7 +63,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             IAncillaryExchangeDispositionPort? unconfiguredAncillaryDispositions = null,
             IEmdAssociationPort? unconfiguredEmdAssociations = null,
             DeterministicDocumentExchangeAdapter? documentExchanges = null,
-            DeterministicDocumentRefundAdapter? documentRefunds = null)
+            DeterministicDocumentRefundAdapter? documentRefunds = null,
+            DeterministicEmdExchangeAdapter? emdExchanges = null,
+            IEmdExchangePort? unconfiguredEmdExchanges = null)
         {
             _fixture = fixture;
 
@@ -181,6 +184,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             ExchangeResiduals = exchangeResiduals ?? new DeterministicExchangeResidualAdapter();
             AncillaryDispositions = ancillaryDispositions ?? new DeterministicAncillaryDispositionAdapter();
             EmdAssociations = emdAssociations ?? new DeterministicEmdAssociationAdapter();
+            EmdExchanges = emdExchanges ?? new DeterministicEmdExchangeAdapter();
             ExchangePlans = new AcceptedExchangePlanStore(_command, frameworkClock);
             Exchange = new ExchangeService(
                 Orders,
@@ -194,6 +198,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 ExchangeResiduals,
                 DocumentRefunds,
                 unconfiguredAncillaryDispositions ?? AncillaryDispositions,
+                unconfiguredEmdExchanges ?? EmdExchanges,
                 unconfiguredEmdAssociations ?? EmdAssociations,
                 miscDocuments,
                 ExchangePlans,
@@ -298,6 +303,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DeterministicAncillaryDispositionAdapter AncillaryDispositions { get; }
 
         public DeterministicEmdAssociationAdapter EmdAssociations { get; }
+
+        public DeterministicEmdExchangeAdapter EmdExchanges { get; }
 
         public AcceptedExchangePlanStore ExchangePlans { get; }
 
