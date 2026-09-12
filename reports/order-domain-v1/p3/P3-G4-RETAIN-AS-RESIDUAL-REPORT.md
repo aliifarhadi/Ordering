@@ -490,7 +490,7 @@ guards before touching anything:
 | service not owned by this order | `Conflicted` → `NeedsReconciliation` |
 | service is `AirTransportation` | `Conflicted` → `NeedsReconciliation` |
 | service commercial status is `Exchanged`, `Suspended` or otherwise conflicting | `Conflicted` → `NeedsReconciliation` |
-| already cancelled by a prior settle | `AlreadyApplied` — no second version move |
+| service commercial status is already `Cancelled` | `Conflicted` → `NeedsReconciliation` (see §19.8) |
 | otherwise | `Applied` — `Status`/`CommercialStatus` to `Cancelled`, one version move |
 
 A present-but-unresolvable `OrderServiceId` is never silently ignored. On any conflict the retention does not
@@ -591,6 +591,69 @@ Every figure is from an actual run on the final build of this working tree.
 
 ---
 
+### 19.8 A pre-existing cancellation is not proof that retention happened
+
+```text
+A pre-existing Cancelled/Cancelled service with RetentionSettledAt == null
+is NOT proof that G4 already applied; it reconciles.
+Only durable RetentionSettledAt proves completed retention replay.
+```
+
+The correction pass still let `RetainedResidualConflict()` treat a service that was already
+`Cancelled`/`Cancelled` as acceptable, and `MarkSupersededByRetainedResidual()` then reported `AlreadyApplied`,
+after which the stage persisted `RetentionSettledAt`. That cancellation may have come from an entirely
+unrelated prior operation, so it was never proof of anything.
+
+The argument that closes it is structural. The retention stage runs **only** when the disposition is unsettled,
+and `IsSettled` reads exactly `RetentionSettledAt is not null`. The service transition and the timestamp are
+committed in the **same** UnitOfWork. Therefore, whenever the stage runs, G4 has provably never transitioned
+that service — so a pre-existing `Cancelled` cannot be G4's own work, and `AlreadyApplied` was not merely
+wrong but **unreachable**.
+
+So the fix removes the false belief rather than patching around it:
+
+* `RetainedResidualConflict()` now accepts only `Pending` or `Active`; anything else, `Cancelled` included, is
+  a conflict;
+* `MarkSupersededByRetainedResidual()` becomes a plain transition with no boolean, because after the guard it
+  always transitions;
+* `AncillaryRetentionOutcome.AlreadyApplied` is deleted — it exists nowhere in the source.
+
+On conflict: `NeedsReconciliation`, `RetentionSettledAt` stays null, no `CommercialVersion` move, no service
+mutation, no provider, value or document mutation, and ticket exchange truth stays authoritative.
+
+Completed replay is unaffected and still runs entirely off durable `RetentionSettledAt`: a settled operation
+short-circuits at `ReplayCompletedAsync` and never re-enters the stage, which `C5` continues to prove.
+
+`C8` is the discriminating test — a real lounge ancillary, the operation crashed mid-flight before retention
+settles, the service then cancelled by an unrelated act, and the operation resumed. Restoring only the old
+`or Cancelled` clause makes exactly `C8` fail, and nothing else, out of 31.
+
+---
+
+### 19.9 Cancelled-state guard regression results
+
+| Suite | Result |
+| --- | --- |
+| `RetainAsResidualFreezeCorrectionTests` | 10 passed, 0 failed, 0 skipped |
+| `RetainAsResidualFlowTests` | 21 passed, 0 failed, 0 skipped |
+| `AncillaryDispositionGateTests` | 21 passed, 0 failed, 0 skipped |
+| `EmdReassociationFlowTests` | 29 passed, 0 failed, 0 skipped |
+| `AncillaryRefundFlowTests` | 35 passed, 0 failed, 0 skipped |
+| `EmdExchangeToNewEmdFlowTests` | 48 passed, 0 failed, 0 skipped |
+| `EmdExchangeFreezeGateCorrectionTests` | 43 passed, 0 failed, 0 skipped |
+| `EmdExchangeFreezeGuardTests` | 16 passed, 0 failed, 0 skipped |
+| `PostDocumentTruthFreezeGateTests` | 11 passed, 0 failed, 0 skipped |
+| `ResidualDocumentCouplingTests` | 15 passed, 0 failed, 0 skipped |
+| `ResidualEvidenceFreezeGateTests` | 12 passed, 0 failed, 0 skipped |
+| `MixedExchangeFlowTests` | 53 passed, 0 failed, 0 skipped |
+| `Contracts/AncillaryDisposition` | 20 passed, 0 failed, 0 skipped |
+| **`AeroTech.Ordering.Domain.Tests` (full)** | **544 passed, 0 failed, 0 skipped** |
+| **`AeroTech.Ordering.Persistence.Tests` (full)** | **1202 passed, 0 failed, 0 skipped** |
+| `dotnet build AeroTech.Ordering.sln` | Build succeeded, 0 errors |
+| `dotnet ef migrations has-pending-model-changes` | "No changes have been made to the model since the last migration." |
+
+---
+
 ## 20. Freeze Verdict
 
 ```text
@@ -606,6 +669,9 @@ replay. G1, G2, G3, the G3 residual rails and P3-F all remain frozen.
 
 Each guard is proven load-bearing: reverting the three original ones makes 13 of the 23 first-delivery cases
 fail (§11), and reverting the two correction fixes makes all 7 correction cases fail (§19.5).
+
+The §19.8 cancelled-state guard is closed too: reverting only its `or Cancelled` clause makes exactly `C8`
+fail out of 31, and `AlreadyApplied` no longer exists anywhere in the source.
 
 The two §19 blockers are closed: a post-ticket moved association now reconciles while a pre-document mismatch
 still fails closed, and G4 can no longer overwrite `Exchanged` air-service truth, silently ignore a present

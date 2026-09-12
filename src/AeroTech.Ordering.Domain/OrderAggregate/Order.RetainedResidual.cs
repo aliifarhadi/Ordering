@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.Dto;
 
@@ -24,8 +24,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
             if (service.RetainedResidualConflict() is { } conflict)
                 return AncillaryRetentionOutcome.Conflicted(conflict);
 
-            if (!service.MarkSupersededByRetainedResidual())
-                return AncillaryRetentionOutcome.AlreadyApplied;
+            service.MarkSupersededByRetainedResidual();
 
             RecomputeCommercialSummary();
             IncrementCommercialVersion();

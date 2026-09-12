@@ -332,6 +332,80 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Empty((await PredecessorAsync(scenario)).Exchanges);
         }
 
+        // ---------------------------------------------- 8. a pre-existing cancellation is not proof of retention
+
+        [Fact]
+        public async Task C8_a_service_already_cancelled_by_something_else_is_never_read_as_applied_retention()
+        {
+            var caller = Caller();
+            var associations = new DeterministicEmdAssociationAdapter();
+
+            await using var setup = NewHarness();
+            var issued = await LoungeOrderAsync(setup);
+            var lounge = await LoungeServiceAsync(issued.OrderId);
+            var ticket = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
+            var airCoupon = ticket.Coupons.First();
+
+            // _document sorts first and takes the reassociation that crashes; _secondDocument carries retention
+            await AttachAncillaryAsync(_fixture, setup, issued.OrderId, _document, [airCoupon.Id]);
+            await AttachAncillaryAsync(
+                _fixture, setup, issued.OrderId, _secondDocument, [airCoupon.Id],
+                deliveringOrderServiceId: lounge.Id);
+
+            await using var crashed = new OrderSliceHarness(_fixture, caller, emdAssociations: associations);
+            var scenario = await QuotedAsync(_fixture, crashed, issued, [1]);
+            ComposeTwoCouponRetention(crashed);
+            var key = NewKey();
+
+            associations.ThrowBeforeDispatch = true;
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => crashed.Exchange.ExchangeAsync(scenario.Execution(key)));
+
+            var afterCrash = await ReloadAsync(_fixture, scenario.OrderId);
+            var loungeAfterCrash = afterCrash.OrderServices.Single(service => service.Id == lounge.Id);
+
+            // an unrelated prior act cancels the ancillary service before G4 retention ever settles
+            await CancelOrderServiceAsync(_fixture, lounge.Id);
+
+            associations.ThrowBeforeDispatch = false;
+
+            await using var resumed = new OrderSliceHarness(_fixture, caller, emdAssociations: associations);
+            Register(resumed, scenario);
+            ComposeTwoCouponRetention(resumed);
+
+            var outcome = await resumed.Exchange.ExchangeAsync(scenario.Execution(key));
+
+            var after = await ReloadAsync(_fixture, scenario.OrderId);
+            var retainedService = after.OrderServices.Single(service => service.Id == lounge.Id);
+            var plan = await resumed.ExchangePlans.FindAsync(outcome.OperationId);
+            var retention = plan!.AncillaryRetentions.Single();
+
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, outcome.OperationStatus);
+            Assert.Null(retention.RetentionSettledAt);
+            Assert.Equal(afterCrash.CommercialVersion, after.CommercialVersion);
+
+            Assert.Equal(OrderServiceStatus.Cancelled, retainedService.Status);
+            Assert.Equal(OrderServiceCommercialStatus.Cancelled, retainedService.CommercialStatus);
+            Assert.Equal(loungeAfterCrash.DeliveryStatus, retainedService.DeliveryStatus);
+            Assert.Equal(loungeAfterCrash.DocumentStatus, retainedService.DocumentStatus);
+            Assert.Equal(loungeAfterCrash.FinancialStatus, retainedService.FinancialStatus);
+
+            Assert.Equal(ElectronicTicketStatus.Exchanged, (await PredecessorAsync(scenario)).StatusSummary);
+            Assert.NotNull(outcome.SuccessorElectronicTicketId);
+            Assert.Single(
+                await TicketsAsync(_fixture, scenario.OrderId),
+                candidate => candidate.PredecessorElectronicTicketId == scenario.TicketId);
+            Assert.Empty(resumed.DocumentExchanges.ObservedRequests);
+            Assert.Empty(resumed.EmdExchanges.ObservedRequests);
+            Assert.Empty(resumed.DocumentRefunds.ObservedRefundRequests);
+            Assert.Empty(resumed.RefundValues.ObservedRequests);
+            Assert.Empty(resumed.ExchangeResiduals.ObservedRequests);
+            Assert.Equal(
+                EmdCouponStatus.OpenForUse,
+                (await AncillaryAsync(_fixture, scenario.OrderId, _secondDocument)).Coupons.Single().Status);
+        }
+
         // ---------------------------------------------- helpers
 
         private async Task<IssuedTicket> LoungeOrderAsync(OrderSliceHarness harness)
