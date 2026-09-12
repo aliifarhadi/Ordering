@@ -33,6 +33,18 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public string? SuccessorDocumentNumber { get; set; }
 
+        public bool OmitCoupledResidualDocument { get; set; }
+
+        public decimal? ResidualAmountOverride { get; set; }
+
+        public int? ResidualCurrencyOverride { get; set; }
+
+        public ResidualInstrumentKind? ResidualInstrumentOverride { get; set; }
+
+        public string ResidualReasonForIssuanceCode { get; set; } = "R";
+
+        public string ResidualReasonForIssuanceSubCode { get; set; } = "0B5";
+
         public string? RecoveredSuccessorDocumentNumber { get; set; }
 
         public long IssuerCarrierId { get; set; } = 1;
@@ -80,7 +92,9 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 ExchangeOutcome == ProviderOperationOutcome.Rejected ? null : ProviderReferenceFor(request.PredecessorDocumentNumber),
                 ReportsSuccessor(ExchangeOutcome)
                     ? Successor(SuccessorDocumentNumber ?? StableSuccessorNumber(request.OperationId), request)
-                    : null));
+                    : null,
+                null,
+                CoupledResidual(ExchangeOutcome, request)));
         }
 
         public Task<DocumentExchangeRecovery> RecoverAsync(
@@ -104,8 +118,34 @@ namespace AeroTech.Ordering.Providers.Deterministic
                     ? Successor(
                         RecoveredSuccessorDocumentNumber ?? SuccessorDocumentNumber ?? StableSuccessorNumber(request.OperationId),
                         dispatched)
-                    : null));
+                    : null,
+                null,
+                CoupledResidual(RecoveryOutcome, dispatched)));
         }
+
+        private ResidualDocumentIdentity? CoupledResidual(
+            ProviderOperationOutcome outcome,
+            DocumentExchangeRequest request)
+            => request.Residual is { } residual
+               && outcome == ProviderOperationOutcome.Confirmed
+               && !OmitCoupledResidualDocument
+                ? new ResidualDocumentIdentity(
+                    StableResidualNumber(request.OperationId),
+                    ResidualInstrumentOverride ?? Family(residual.ExpectedInstrument),
+                    ResidualAmountOverride ?? residual.Amount,
+                    ResidualCurrencyOverride ?? residual.CurrencyId,
+                    IssuerCarrierId,
+                    IssuingOfficeId,
+                    Authority,
+                    ResidualReasonForIssuanceCode,
+                    ResidualReasonForIssuanceSubCode,
+                    $"RESDOC-{request.OperationId}")
+                : null;
+
+        private static ResidualInstrumentKind Family(ResidualInstrumentKind expected)
+            => expected == ResidualInstrumentKind.Unknown ? ResidualInstrumentKind.Emd : expected;
+
+        private static string StableResidualNumber(long operationId) => $"RES{operationId}";
 
         private bool ReportsSuccessor(ProviderOperationOutcome outcome)
             => outcome == ProviderOperationOutcome.Confirmed

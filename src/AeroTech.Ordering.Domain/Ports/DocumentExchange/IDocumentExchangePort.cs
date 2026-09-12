@@ -39,7 +39,14 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentExchange
         string QuotedExchangeId,
         string TargetSelectionRef,
         string? SourcePricingReference,
-        IReadOnlyList<DocumentExchangeCouponRequest> Coupons);
+        IReadOnlyList<DocumentExchangeCouponRequest> Coupons,
+        ExchangeCoupledResidualRequest? Residual = null);
+
+    public sealed record ExchangeCoupledResidualRequest(
+        decimal Amount,
+        int CurrencyId,
+        string Disposition,
+        ResidualInstrumentKind ExpectedInstrument);
 
     public sealed record DocumentExchangeCouponRequest(
         int PredecessorCouponNumber,
@@ -56,17 +63,31 @@ namespace AeroTech.Ordering.Domain.Ports.DocumentExchange
         ProviderOperationOutcome Outcome,
         string? ProviderReference = null,
         SuccessorDocumentIdentity? Successor = null,
-        string? Detail = null);
+        string? Detail = null,
+        ResidualDocumentIdentity? Residual = null);
 
     public sealed record DocumentExchangeRecovery(
         bool WasDispatched,
         ProviderOperationOutcome Outcome,
         string? ProviderReference = null,
         SuccessorDocumentIdentity? Successor = null,
-        string? Detail = null)
+        string? Detail = null,
+        ResidualDocumentIdentity? Residual = null)
     {
-        public DocumentExchangeResult AsResult() => new(Outcome, ProviderReference, Successor, Detail);
+        public DocumentExchangeResult AsResult() => new(Outcome, ProviderReference, Successor, Detail, Residual);
     }
+
+    public sealed record ResidualDocumentIdentity(
+        string DocumentNumber,
+        ResidualInstrumentKind Instrument,
+        decimal Amount,
+        int CurrencyId,
+        long IssuerCarrierId,
+        long? IssuingOfficeId,
+        DocumentAuthority Authority,
+        string ReasonForIssuanceCode,
+        string ReasonForIssuanceSubCode,
+        string? ProviderReference = null);
 
     public sealed record SuccessorDocumentIdentity(
         string DocumentNumber,

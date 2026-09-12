@@ -493,7 +493,67 @@ REGRESSION_RESULTS_PLACEHOLDER
 
 ## 16. Benchmark Traceability
 
-BENCHMARK_PLACEHOLDER
+Narrow question benchmarked, before implementation:
+
+> Once the accountable ticket exchange/reissue is confirmed by the document authority, may downstream
+> monetary or ancillary settlement uncertainty make the system behave as though the reissue has not happened?
+
+**Answer: no for the ancillary follow-up, and no for a confirmed reissue in general — with one genuine
+contradiction on residual value, recorded as `BLOCKED_DECISION` below.**
+
+| Semantic | Benchmark evidence | AeroTech behaviour | Test |
+| --- | --- | --- | --- |
+| EMD-A association is **coupon-level** | IATA, *Airline Guide to EMD Implementation*, 1st ed. July 2010, §4.2.5 / §5.1.4: "Association is by coupon…"; "Only one ET flight coupon may be associated to an EMD-A value coupon, however multiple EMD-A value coupons may be associated to the same ET flight coupon"; "association and disassociation is by coupon." Corroborated by Travelport Smartpoint *Working with EMDs*: "The EMD-A is linked to the specific Electronic Ticket (ET) flight coupon in the airline's ET database." | Scope, disposition, stable provider key, history and both transitions are all per `EmdCoupon`; `AcceptedExchangePlanAncillaries` is keyed `(OperationId, EmdCouponId)`; the provider key is `emd-reassociate:{doc}:{coupon}:{operationId}` | `Every_affected_ancillary_moves_under_its_own_stable_key`, `AncillaryDispositionGateTests.F` |
+| Ticket reissue and EMD follow-up are **separable facts** | IATA §4.2.5: "…EMD-A 001 coupon 1 is disassociated from ET 001 coupon 1. **After exchange of the ET**, EMD-A value document 001 … coupon 1 **can** be re-associated to the relevant coupon … on the new ET flight ticket." FAQ A24: "After disassociation the EMD-A is available for further use or for exchange or refund." Note "can", not "must" — and no ET rollback is contemplated where it is not. Travelport GWS *EMD Exchange* is its own service call against an already-ticketed booking. | The reissue is materialized and completed independently; the ancillary is a separate downstream stage whose `Pending`/`Unknown`/`Rejected`/contradictory outcome never undoes it | `G1_C2_C3`, `G1_C4`, `G1_C5` |
+| A reissue **requires** prior disassociation, and automating it is expected | IATA §5.2.2: "When exchanging/reissuing an EMD-A, **or the ET to which it is associated, the documents must first be disassociated**. As discussed in section 5.1.4.2, **some System Providers may automate this function**, if not it will be necessary for the user to disassociate them manually." | Ordering automates exactly this: `DisassociateCouponByReissue` is applied as a consequence of the confirmed reissue, in the materialization transaction, with no provider call of its own | `G1_C1`, `FG1_FG2`, `G1_C7_C8` |
+| A confirmed reissue is **final** and not re-openable by later steps | IATA §5.2.2: the Coupon Status Indicator for an exchanged/reissued coupon is `E`, and "**This is a final status** and … renders that coupon eligible to be included in the lift to Revenue Accounts." §5.2.3: an ET coupon already at `E` "**cannot** be associated" to an EMD-A coupon. Rollback exists only as an explicit, narrow, separately authorised compensating transaction — IATA §5.3.4 *Void Exchange* / *Refund Cancel*, and Amadeus `TRDC` gated by an airline-level `VOID EXCHANGE/REISSUE = Y/N` flag **and only on the day of the reissue**. | No automatic compensation of a confirmed document exchange for any downstream failure; a refused or contradictory downstream outcome becomes `NeedsReconciliation` with the successor and lineage retained | `FG3`, `G1_C4`, `G1_C5`, and the frozen P3-F evidence policies |
+| **Revalidation ≠ reissue** for the resulting association | Partly contradicted in mechanism, confirmed in outcome. IATA §4.2.5 requires a disassociate/re-associate cycle for revalidation **too**: "…requires the ET to be revalidated **or** exchanged, therefore EMD-A 002 coupon 1 is disassociated… After the revalidation or exchange of the ET, EMD-A 002 … can be re-associated to **original ET 002** coupon 1 **if revalidated** or to the relevant coupon on the **new ET** if exchanged." Carrier-official AEGEAN Hub states the net outcome: "EMD-A will remain associated to original ticket in case of involuntary **revalidation**"; "EMD-A will be associated to a **new** ticket in case of involuntary **reissue**." | Ordering preserves the association across revalidation with **no** transition and no history row. The **resulting authoritative state is identical** to IATA's cycle (same ticket, same coupon), but Ordering does not write the intermediate detach/attach pair. This is a deliberate, recorded divergence in mechanism, not in outcome | `FG10` |
+| Ancillary refund/reuse treatment is **authoritative-source driven**, never invented | Vendor-primary: Sabre Dev Studio *GetAncillaryOffers RQ/RS User Guide* (v3.0.2, Aug 2018) — ancillary data "contains part of the information from **S7 record**"; `AncillaryRules` are "Rules defined for an ancillary, such as **refundability** or form of payment"; payloads carry `<RefundableReissuable>Y/N/R</RefundableReissuable>` and `<FormOfRefund code="1">ORIGINAL</FormOfRefund>`. **ATPCO's own Optional Services reference manual was NOT obtained** (subscription-gated; atpco.net returns 403 to automated fetch), so this is vendor-primary evidence of ATPCO S7 semantics, not ATPCO primary | `IAncillaryExchangeDispositionPort` obtains every disposition from the authority; Ordering never defaults, infers or substitutes one, and refuses `Refund` / `ExchangeToNewEmd` / `RetainAsResidual` / `Cancel` / `ManualReview` with 20298 rather than approximating them | `AncillaryDispositionGateTests.G`, `.P`, `.Q`, `.R`; `AncillaryDispositionPortContract` |
+| Downstream EMD/value handling does **not** redefine whether a confirmed reissue occurred | **No affirmative standard found.** Strong indirect support from the `E`-is-final rule above. **NO RELIABLE PUBLIC EVIDENCE FOUND** for any standard requiring a confirmed ETKT exchange to be undone because a later EMD or money step failed | implemented as frozen | `FG1_FG2`, `FG3`, `FG4_FG5`, `FG6_FG7` |
+
+### Evidence gaps — stated, not filled
+
+* **No public evidence either way** on whether add-collect *capture* (PSP settlement) is decoupled from
+  ticketing-host exchange confirmation. In GDS/BSP flows the form of payment is part of the ticketing
+  transaction itself. Ordering's two-stage guarantee/capture rail is anchored in JetPay's own contract
+  (`RequiredGuarantee.AuthorizedBeforeIssuance`, `PaymentIntentStatus Guaranteed → CommittedForIssuance →
+  Capturing → Paid`), not in an industry standard.
+* **ATPCO primary not obtained** (see above).
+* Amadeus Service Hub statements are from indexed snippets only — every `servicehub.amadeus.com` fetch
+  returned HTTP 403. Treated as indicative and labelled as such; nothing in the implementation depends on
+  them alone.
+* IATA PSCRM resolution full text is licensed and not publicly retrievable. Note on citation hygiene: the
+  2010 guide cites "Reso 725f" for EMD, but in the current PSCRM (40th ed.) the EMD resolutions are **722h /
+  723 / 724 / 725**, and **725f is now "Collection of Reservation Change Fees."** Do not cite 725f as the
+  current EMD resolution.
+
+### Residual value — the contradiction that was found, and its resolution
+
+The benchmark exposed one genuine contradiction with the post-document model: a residual/refundable balance
+fulfilled as an EMD-S cannot be a downstream stage.
+
+* IATA §5.2.2.3 — "the EMD issued for the residual value or refundable balance **must be an EMD-S**."
+* IATA §5.2.2.4 — that EMD-S document number "**must be included in the same Change of Status request
+  message**."
+* IATA §5.3.5 — a "**single** exchange/reissue request message … **including** … **any EMD-S value document
+  number(s) issued for refundable balance or penalty fee**."
+* Amadeus Service Hub 911593 — a reissue is refused unless ticket and residual are issued in one entry.
+
+It was raised as `BLOCKED_DECISION` rather than silently implemented, and the business decision resolved it:
+an exchange-coupled residual document is executed and recovered as part of the same `IDocumentExchangePort`
+operation; external value instruments stay downstream. That correction is implemented and reported in
+[P3-F-MIXED-EXCHANGE-AND-FREEZE-REPORT.md](P3-F-MIXED-EXCHANGE-AND-FREEZE-REPORT.md) §7.1 and in
+`ICC-P3-EXCHANGE-DOCUMENT`.
+
+```text
+MUST NOW   exchange-coupled residual EMD-S issued inside the document exchange operation   — implemented
+DEFER      penalty-fee EMD-S issuance in the same message (IATA §5.3.5 names it alongside)  — not in scope
+DEFER      EMD-A re-association declared inside the exchange request (IATA §5.3.5, the agency/GDS protocol)
+           — Ordering is the carrier side, where §4.2.5 supports post-hoc re-association
+NOT APPLICABLE   add-collect capture coupling — no primary evidence either way; the rail follows JetPay's own
+           contract, not an industry standard
+```
+
 
 ---
 

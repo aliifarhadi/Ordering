@@ -300,6 +300,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             try
             {
                 ExchangePricingPolicy.EnsureWellFormed(accepted);
+                ExchangePricingPolicy.EnsureResidualFulfillmentIsCoherent(accepted, execution.QuotedExchangeId);
 
                 if (plan.RequiresFunding && string.IsNullOrWhiteSpace(plan.FundingMethodRef))
                     throw ExceptionFactory.ExchangeFundingMethodRequired(
@@ -842,7 +843,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     plan.QuotedExchangeId,
                     plan.TargetSelectionRef,
                     plan.SourcePricingReference,
-                    plan.Coupons.Select(DocumentCouponRequest).ToList()),
+                    plan.Coupons.Select(DocumentCouponRequest).ToList(),
+                    plan.RequiresDocumentCoupledResidual
+                        ? new ExchangeCoupledResidualRequest(
+                            plan.Residual!.Amount,
+                            plan.Residual.CurrencyId,
+                            plan.Residual.Disposition,
+                            plan.Residual.ExpectedInstrument)
+                        : null),
                 cancellationToken);
 
         private static DocumentExchangeCouponRequest DocumentCouponRequest(AcceptedExchangePlanCoupon coupon)
@@ -864,6 +872,31 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 operation.OperationId, result.Outcome, result.ProviderReference, result.Successor, result.Detail,
                 cancellationToken);
 
+            var settlesCoupledResidual =
+                result.Outcome == ProviderOperationOutcome.Confirmed && plan.RequiresDocumentCoupledResidual;
+
+            var coupledResidualContradiction = settlesCoupledResidual
+                ? ExchangeSettlementEvidencePolicy.CoupledResidualContradiction(plan, result.Residual)
+                : null;
+
+            if (settlesCoupledResidual)
+            {
+                await _plans.RecordResidualOutcomeAsync(
+                    operation.OperationId,
+                    coupledResidualContradiction is null
+                        ? ProviderOperationOutcome.Confirmed
+                        : ProviderOperationOutcome.Rejected,
+                    result.Residual?.ProviderReference ?? result.ProviderReference,
+                    result.Residual?.DocumentNumber,
+                    result.Residual?.Instrument,
+                    coupledResidualContradiction,
+                    cancellationToken);
+
+                if (coupledResidualContradiction is null)
+                    await MaterializeResidualDocumentAsync(
+                        order, operation, predecessor, result.Residual!, cancellationToken);
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var recorded = plan with
@@ -873,6 +906,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 DocumentExchangeDetail = result.Detail ?? plan.DocumentExchangeDetail,
                 Successor = result.Successor ?? plan.Successor
             };
+
+            if (settlesCoupledResidual)
+                recorded = recorded with
+                {
+                    ResidualOutcome = coupledResidualContradiction is null
+                        ? ProviderOperationOutcome.Confirmed
+                        : ProviderOperationOutcome.Rejected,
+                    ResidualProviderReference = result.Residual?.ProviderReference ?? result.ProviderReference,
+                    ResidualInstrumentReference = result.Residual?.DocumentNumber,
+                    ResidualInstrument = result.Residual?.Instrument,
+                    ResidualDetail = coupledResidualContradiction ?? recorded.ResidualDetail
+                };
 
             return result.Outcome switch
             {
@@ -985,6 +1030,45 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             return new MaterializedExchange(successorTicket, exchanged.OrderChangeId, exchanged.PriceChangeSetId);
         }
 
+        private async Task MaterializeResidualDocumentAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
+            ResidualDocumentIdentity residual,
+            CancellationToken cancellationToken)
+        {
+            var existing = await _miscDocuments.ListByOrderAsync(order.Id, cancellationToken);
+
+            if (existing.Any(document =>
+                    string.Equals(document.DocumentNumber, residual.DocumentNumber, StringComparison.Ordinal)))
+                return;
+
+            await _miscDocuments.AddAsync(
+                ElectronicMiscDocument.Issue(
+                    _idGenerator.NewId(),
+                    order.Id,
+                    predecessor.TravelerId,
+                    operation.OperationId,
+                    residual.DocumentNumber,
+                    ElectronicMiscDocumentType.Standalone,
+                    residual.ReasonForIssuanceCode,
+                    residual.IssuerCarrierId,
+                    residual.IssuingOfficeId,
+                    residual.Authority,
+                    residual.CurrencyId,
+                    [
+                        new EmdCouponIssuance(
+                            EmdCouponPurpose.ResidualValue,
+                            residual.ReasonForIssuanceSubCode,
+                            residual.Amount,
+                            [],
+                            ExternalValueReference: residual.DocumentNumber)
+                    ],
+                    _idGenerator,
+                    _clock),
+                cancellationToken);
+        }
+
         private static bool HasUnsettledDownstreamStage(AcceptedExchangePlan plan)
             => (plan.RequiresMonetarySettlement && !plan.IsMonetarySettled)
                || (plan.RequiresAncillaryReassociation && !plan.IsAncillarySettled);
@@ -1076,9 +1160,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     cancellationToken);
 
             if (plan.RequiresResidual && !plan.IsResidualSettled)
-                return await SettleResidualAsync(
-                    order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
-                    cancellationToken);
+                return plan.RequiresExternalResidual
+                    ? await SettleResidualAsync(
+                        order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
+                        cancellationToken)
+                    : await ReconcileAsync(
+                        order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
 
             return await ReconcileAsync(
                 order, operation, predecessor, plan, isReplay, cancellationToken, materialized);

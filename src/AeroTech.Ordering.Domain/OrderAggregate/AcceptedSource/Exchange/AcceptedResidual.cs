@@ -6,5 +6,9 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange
         decimal Amount,
         int CurrencyId,
         string Disposition,
-        ResidualInstrumentKind ExpectedInstrument = ResidualInstrumentKind.Unknown);
+        ResidualInstrumentKind ExpectedInstrument = ResidualInstrumentKind.Unknown,
+        ResidualFulfillment Fulfillment = ResidualFulfillment.ExternalValue)
+    {
+        public bool IsDocumentCoupled => Fulfillment == ResidualFulfillment.DocumentCoupled;
+    }
 }

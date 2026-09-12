@@ -58,6 +58,16 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
                 .Where(line => line.Effect == PricingEffect.CustomerBalance)
                 .Sum(line => PricingComponentPolicy.Sign(line.Direction) * line.SaleAmount);
 
+        public static void EnsureResidualFulfillmentIsCoherent(AcceptedExchange accepted, string quotedExchangeId)
+        {
+            ArgumentNullException.ThrowIfNull(accepted);
+
+            if (accepted.Residual is { IsDocumentCoupled: true } residual
+                && residual.ExpectedInstrument is not (ResidualInstrumentKind.Emd or ResidualInstrumentKind.Mco))
+                throw ExceptionFactory.ExchangeResidualFulfillmentMalformed(
+                    quotedExchangeId, residual.ExpectedInstrument);
+        }
+
         public static void EnsureWellFormed(AcceptedExchange accepted)
         {
             ArgumentNullException.ThrowIfNull(accepted);

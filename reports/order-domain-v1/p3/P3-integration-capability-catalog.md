@@ -709,15 +709,40 @@ ownership is deliberately not asserted.
 Residual is not a cash refund and must not be routed through the cash return-of-value port merely because
 both return value to the customer.
 
-**In a mixed exchange the residual is a dependent second leg**, eligible only after the document is confirmed
-and the collection capture is confirmed with exact evidence, for the same reason as the refund leg. The port,
-its instrument-evidence rules and its recovery guarantees are unchanged whether the residual stands alone or
-follows a collection. Ordering requires a narrow boundary that creates one authoritative residual
-instrument for an accepted obligation and can later identify it.
+**This entry now covers only one of the two residual fulfilments.** The accepted residual carries
+`AcceptedResidual.Fulfillment`, authoritative source evidence, with two values:
 
-Residual mechanisms vary by market and may externally be an MCO, an EMD, a voucher, a travel credit or
-something else. Ordering keeps the family provider-neutral and hardcodes none of them. Generic EMD servicing
-belongs to P3-G, which can enrich this outcome later without redesigning Exchange.
+| Fulfilment | Who creates the value | Where it is executed |
+| --- | --- | --- |
+| `DocumentCoupled` | the document authority, inside the exchange transaction | `ICC-P3-EXCHANGE-DOCUMENT` — see the coupled-residual section there |
+| `ExternalValue` | an external value owner, after the exchange | **this entry** |
+
+The split was forced by primary evidence, not by convenience. IATA *Airline Guide to EMD Implementation*
+§5.2.2.3 requires a residual/refundable balance to be an **EMD-S**; §5.2.2.4 requires that EMD-S document
+number to be "included in the **same** Change of Status request message"; §5.3.5 requires a "**single**
+exchange/reissue request message … including … **any EMD-S value document number(s) issued for refundable
+balance or penalty fee**"; and Amadeus refuses a reissue unless ticket and residual are issued in one entry
+(Service Hub 911593). A document-coupled residual therefore cannot be created by a later operation, because
+its document number must already exist inside the exchange message.
+
+`ExchangePricingPolicy.EnsureResidualFulfillmentIsCoherent` refuses a `DocumentCoupled` residual that names a
+non-document instrument family with `ExchangeResidualFulfillmentMalformed` (20305, 422) before anything is
+persisted. Ordering never infers the category from the disposition string or from the instrument family alone.
+
+**For an external residual in a mixed exchange it remains a dependent second leg**, eligible only after the
+document is confirmed and the collection capture is confirmed with exact evidence, for the same reason as the
+refund leg. The port, its instrument-evidence rules and its recovery guarantees are unchanged. Ordering
+requires a narrow boundary that creates one authoritative residual instrument for an accepted obligation and
+can later identify it.
+
+External residual mechanisms vary by market — a voucher, a travel credit or something else. Ordering keeps the
+family provider-neutral and hardcodes none of them. Generic EMD servicing belongs to P3-G, which can enrich
+this outcome later without redesigning Exchange.
+
+**This port must never execute a document-coupled residual.** `SettleMonetaryAsync` dispatches it only when
+`plan.RequiresExternalResidual`, so one accepted residual can never be fulfilled through both this port and
+the document-exchange port. A document-coupled residual left unsettled after a confirmed exchange reconciles;
+it is never retried here.
 
 ### Ordering Port / Dependency Boundary
 
@@ -735,6 +760,9 @@ document number, beneficiary traveller id, exact accepted amount, currency, acce
 instrument family and source pricing reference. Every value comes from the immutable accepted plan. No
 mutable order state and no Ordering-local surrogate keys cross the boundary; correlation is by provider-native
 document numbers and the Ordering-supplied operation key.
+
+The port is reached only for `ResidualFulfillment.ExternalValue`, so a request on this boundary is itself
+evidence that the accepted plan did not couple the residual to the document act.
 
 ### Outcome Semantics
 
@@ -842,6 +870,83 @@ Flow coverage is `ResidualExchangeFlowTests`, cases S through AH.
 
 Ordering does not create, price, revalue, extend, reissue, refund or void residual instruments, does not
 choose the instrument family, and does not implement EMD servicing.
+
+---
+
+### Exchange-coupled residual document
+
+When the accepted plan carries `AcceptedResidual.Fulfillment = DocumentCoupled`, this capability produces
+**two** accountable outcomes under one operation:
+
+```text
+successor ETKT  +  residual accountable document (EMD-S)
+```
+
+**Request.** `DocumentExchangeRequest.Residual` is an `ExchangeCoupledResidualRequest` carrying the approved
+amount, currency, disposition and expected instrument family. It is present only when the accepted plan says
+the residual is document-coupled, and it is absent otherwise.
+
+**Result and recovery.** `DocumentExchangeResult.Residual` and `DocumentExchangeRecovery.Residual` carry a
+`ResidualDocumentIdentity`: document number, instrument family, amount, currency, issuer carrier, issuing
+office, document authority, reason for issuance code and sub code, and an optional provider reference.
+Correlation to the accepted exchange is the shared operation key; nothing Ordering-local crosses the boundary,
+and no IATA, Amadeus or host DTO enters the Domain. How a real ACL preallocates document numbers or formats
+BSP/GDS messaging is entirely its own concern.
+
+**One durable operation.** A document-coupled residual has no operation key of its own:
+
+```text
+ONE document exchange key   ONE dispatch   ONE recover   ONE WasDispatched decision
+```
+
+A read-back returns the successor **and** the residual document together, so a crash after the host executed
+recovers both and redispatches neither.
+
+**Evidence rule.** `ExchangeSettlementEvidencePolicy.CoupledResidualContradiction` is the single place this is
+judged. A confirmed exchange is contradictory when it returns no residual document for a document-coupled
+residual, returns one with no document number or no reason for issuance, or returns an amount, currency or
+instrument family that differs from the accepted obligation. It is also contradictory to return a residual
+document at all when the accepted plan owes none or fulfils it externally. A contradiction persists into
+`ResidualDetail`, leaves the residual unsettled, keeps the confirmed ticket truth, and moves the operation to
+`NeedsReconciliation`. Ordering never invents the document and never re-exchanges.
+
+**Local representation.** The returned residual document is materialized on the **existing**
+`ElectronicMiscDocument` aggregate — `Standalone` type, one coupon with `EmdCouponPurpose.ResidualValue`, the
+returned document number as its `ExternalValueReference`, and **no** `OrderServiceId`, preserving the frozen P2
+rule that an EMD-S fee/penalty/residual document needs no deliverable `OrderService`. No second residual
+aggregate, no wallet and no stored-value accounting were created. It is written in the same transaction that
+records the document confirmation, so the outcome and the local document commit together; a replay that finds
+the document number already present does nothing.
+
+**Ordering-step position.**
+
+```text
+funding guarantee -> inventory -> document exchange (+ residual document)
+-> persist confirmation and residual evidence + materialize the residual document
+-> local post-document materialization checkpoint (ticket, lineage, EMD-A disassociation)
+-> capture the collection
+-> external return of value if any
+-> EMD-A reassociation if any
+-> complete
+```
+
+The capture now follows the residual document for a coupled residual, because the host protocol requires the
+residual inside the exchange transaction. The funding **guarantee** still precedes the irreversible exchange.
+
+**Consumer contract tests.** `ResidualDocumentCouplingTests` — RD1 to RD11: confirmed pair, replay, host
+`Pending`/`Unknown`, host `Rejected`, confirmation with a missing residual document, three contradictory-evidence
+shapes, crash-after-dispatch recovering both, mixed collection with the capture unresolved and refused, the
+external residual staying downstream, and the incoherent accepted fulfilment failing closed.
+
+### BLOCKED_INTEGRATION — coupled residual
+
+1. No real document host is wired, so whether it can return the residual document number in the exchange
+   response — as IATA §5.3.5 requires of the request — is unverified from inside Ordering.
+2. Whether document numbers are preallocated by Ordering, by the host, or by BSP stock control. The
+   `ResidualDocumentIdentity` contract assumes the host names the document it issued.
+3. Whether penalty-fee EMD-S documents ride the same message. IATA §5.3.5 mentions them in the same sentence
+   as the refundable balance. This revision implements the residual case only and does not model penalty EMD-S
+   issuance.
 
 ---
 

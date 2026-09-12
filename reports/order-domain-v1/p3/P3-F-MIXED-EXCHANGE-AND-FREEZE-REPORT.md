@@ -109,9 +109,16 @@ this deliberately in place of a rejection test that could not be written.
 | `Even` | none | none | document confirmed |
 | `AddCollect` | one collection | capture | document + capture confirmed |
 | `Refund` | one refund-due | payout | document + payout confirmed |
-| `Residual` | one residual | instrument | document + instrument confirmed |
+| `Residual` — external value | one residual | instrument | document + instrument confirmed |
+| `Residual` — document coupled | one residual | **issued inside the document exchange** | document + residual document confirmed together |
 | `Mixed` collection + refund-due | two | capture then payout | document + capture + payout confirmed |
-| `Mixed` collection + residual | two | capture then instrument | document + capture + instrument confirmed |
+| `Mixed` collection + residual — external value | two | capture then instrument | document + capture + instrument confirmed |
+| `Mixed` collection + residual — document coupled | two | **residual document inside the exchange, then capture** | document + residual document + capture confirmed |
+
+> **Corrected after P3-G1 freeze (residual document-coupling correction).** The two document-coupled rows are
+> new and they supersede the original statement that a residual is always a post-document downstream leg.
+> `AcceptedResidual.Fulfillment` now says which of the two applies, and it is authoritative source evidence,
+> not an Ordering inference. See §7.1.
 
 ---
 
@@ -160,20 +167,78 @@ AirPrice quote
   -> protect the collection                       [reversible by release]
   -> inventory mutation
   -> document exchange                            [irreversible]
-  -> persist the document confirmation and raw successor evidence
+       (+ the document-coupled residual document, when the accepted plan says so)
+  -> persist the document confirmation, the raw successor evidence
+     and any returned residual document
+  -> local post-document materialization checkpoint
   -> capture the collection                       [irreversible]
   -> persist the capture confirmation
-  -> execute the return leg: refund-due OR residual   [irreversible]
-  -> single local finalization transaction
+  -> execute the external return leg: refund-due OR external residual   [irreversible]
+  -> complete the servicing operation
 ```
 
-The return leg is dispatched only when the collection capture is confirmed. Otherwise the system could reissue
-the document and give value back while failing to collect what is owed. `SettleMonetaryAsync` enforces it
-structurally: it returns at the capture stage whenever the collection is unsettled, so the return leg is
-never reached.
+The **external** return leg is dispatched only when the collection capture is confirmed. Otherwise the system
+could reissue the document and give value back while failing to collect what is owed. `SettleMonetaryAsync`
+enforces it structurally: it returns at the capture stage whenever the collection is unsettled, so the return
+leg is never reached.
 
-Checkpoint ordering is respected. The capture outcome is recorded and saved before the return leg is
+Checkpoint ordering is respected. The capture outcome is recorded and saved before the external return leg is
 dispatched, so a crash between them is unambiguous on replay.
+
+### 7.1 Correction — a document-coupled residual is not a downstream leg
+
+Two statements in the original P3-F freeze were wrong and are corrected here.
+
+**Wrong:** a residual is always fulfilled after the document exchange, through `IExchangeResidualValuePort`.
+**Wrong:** in a Mixed plan the residual always follows the capture.
+
+Primary evidence, verified verbatim:
+
+* IATA, *Airline Guide to EMD Implementation* §5.2.2.3 — "If the transaction results in a residual value or
+  refundable balance, the EMD issued for the residual value or refundable balance **must be an EMD-S**."
+* IATA §5.2.2.4 — "When the transaction results in an EMD-S issued for residual value or refundable balance,
+  the document number of the EMD-S **must be included in the same Change of Status request message**."
+* IATA §5.3.5 — "…will generate a **single** exchange/reissue request message … **including** the new document
+  number(s) … **and any EMD-S value document number(s) issued for refundable balance or penalty fee**."
+* Amadeus Service Hub 911593, "RESIDUAL VALUE MUST BE ISSUED SIMULTANEOUSLY" — a reissue is refused unless the
+  ticket and the residual document are issued in one entry.
+
+An EMD-S residual therefore cannot be created by a second operation after the exchange has already been
+confirmed: its document number has to exist inside the exchange message.
+
+**Corrected semantic:**
+
+```text
+document exchange may atomically return
+    successor ETKT + exchange-coupled residual document
+```
+
+```text
+exchange-coupled residual EMD-S  !=  post-document IExchangeResidualValuePort dispatch
+```
+
+External value instruments — voucher, travel credit, other source-approved external value — genuinely are
+created by their value owner after the exchange, and they keep the original downstream rail unchanged.
+
+**What did not change.** The collection still precedes any *external* return of value. No downstream
+return-of-value operation was invented. No automatic compensation was introduced. Ordering still calculates no
+residual value: the amount, currency, disposition, expected instrument and now the fulfilment category are all
+authoritative source evidence on `AcceptedResidual`.
+
+**Why the Mixed order moves for the coupled case.** The EMD-S cannot wait for the capture, because the host
+protocol requires it inside the exchange transaction. The funding **guarantee** still precedes the irreversible
+exchange, so the collection is still protected before the document act; only the *capture* now follows the
+residual document rather than preceding it. Nothing else in the leg order moved.
+
+**One durable operation.** A document-coupled residual has no operation key of its own: one
+`IDocumentExchangePort` key, one dispatch, one recover, one `WasDispatched` decision, covering the successor
+ticket and the residual document together. `SettleMonetaryAsync` routes to `IExchangeResidualValuePort` only
+when `plan.RequiresExternalResidual`, so the same accepted residual can never be fulfilled through both ports.
+
+**When the host confirms but proves nothing.** A confirmed exchange that returns no residual document, or one
+whose amount, currency or instrument family contradicts the accepted obligation, does not invent a document and
+does not roll back the ticket. The confirmed document truth is persisted, the residual stays unsettled, and the
+operation becomes `NeedsReconciliation`.
 
 ---
 

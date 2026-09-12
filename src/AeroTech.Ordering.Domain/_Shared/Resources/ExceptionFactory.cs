@@ -853,6 +853,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException AncillaryDispositionContextMismatch(params object?[] args) =>
             new(20304, ExceptionMessages.AncillaryDispositionContextMismatch, args) { HttpStatus = 422 };
 
+        public static BusinessException ExchangeResidualFulfillmentMalformed(params object?[] args) =>
+            new(20305, ExceptionMessages.ExchangeResidualFulfillmentMalformed, args) { HttpStatus = 422 };
+
         public static BusinessException IdempotencyKeyRequired(params object?[] args) =>
             new(20264, ExceptionMessages.IdempotencyKeyRequired, args) { HttpStatus = 400 };
 

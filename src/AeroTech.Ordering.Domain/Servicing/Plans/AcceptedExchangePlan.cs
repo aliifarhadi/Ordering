@@ -90,6 +90,10 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool RequiresResidual => Residual is not null;
 
+        public bool RequiresDocumentCoupledResidual => Residual is { IsDocumentCoupled: true };
+
+        public bool RequiresExternalResidual => Residual is { IsDocumentCoupled: false };
+
         public bool IsRefundDueSettled => RefundDueOutcome == ProviderOperationOutcome.Confirmed;
 
         public bool IsRefundDueRejected => RefundDueOutcome == ProviderOperationOutcome.Rejected;

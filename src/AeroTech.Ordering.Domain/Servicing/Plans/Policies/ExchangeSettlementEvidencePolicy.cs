@@ -1,3 +1,5 @@
+using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Ports.EmdAssociation;
 using AeroTech.Ordering.Domain.Ports.ExchangeResidual;
 using AeroTech.Ordering.Domain.Ports.RefundValue;
@@ -65,6 +67,47 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Policies
                    && associatedCoupon != successorCouponNumber
                 ? $"the confirmed reassociation attached the ancillary to coupon {associatedCoupon} "
                   + $"against a requested {successorCouponNumber}"
+                : null;
+        }
+
+        public static string? CoupledResidualContradiction(
+            AcceptedExchangePlan plan,
+            ResidualDocumentIdentity? residual)
+        {
+            ArgumentNullException.ThrowIfNull(plan);
+
+            if (plan.Residual is not { } obligation)
+                return residual is null
+                    ? null
+                    : "the exchange returned a residual document for an exchange that owes none";
+
+            if (!obligation.IsDocumentCoupled)
+                return residual is null
+                    ? null
+                    : "the exchange returned a residual document for an externally fulfilled residual";
+
+            if (residual is null)
+                return "the confirmed exchange returned no residual document for a document-coupled residual";
+
+            if (string.IsNullOrWhiteSpace(residual.DocumentNumber))
+                return "the returned residual document carries no document number";
+
+            if (string.IsNullOrWhiteSpace(residual.ReasonForIssuanceCode)
+                || string.IsNullOrWhiteSpace(residual.ReasonForIssuanceSubCode))
+                return "the returned residual document carries no reason for issuance";
+
+            if (residual.Amount != obligation.Amount)
+                return $"the returned residual document is for {residual.Amount} "
+                       + $"against an obligation of {obligation.Amount}";
+
+            if (residual.CurrencyId != obligation.CurrencyId)
+                return $"the returned residual document used currency {residual.CurrencyId} "
+                       + $"against an obligation in {obligation.CurrencyId}";
+
+            return obligation.ExpectedInstrument != ResidualInstrumentKind.Unknown
+                   && residual.Instrument != obligation.ExpectedInstrument
+                ? $"the returned residual document is a {residual.Instrument} "
+                  + $"against an approved {obligation.ExpectedInstrument}"
                 : null;
         }
 
