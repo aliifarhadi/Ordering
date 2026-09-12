@@ -503,7 +503,7 @@ dotnet test tests/AeroTech.Ordering.Domain.Tests/AeroTech.Ordering.Domain.Tests.
   passed 511   failed 0   skipped 0   total 511
 
 dotnet test tests/AeroTech.Ordering.Persistence.Tests/AeroTech.Ordering.Persistence.Tests.csproj
-  passed 985   failed 0   skipped 0   total 985
+  passed 997   failed 0   skipped 0   total 997
 ```
 
 ### Focused suites
@@ -518,7 +518,18 @@ dotnet test tests/AeroTech.Ordering.Persistence.Tests/AeroTech.Ordering.Persiste
 | `MixedExchangeFlowTests` | 53 | 0 | 0 | 53 |
 | `DocumentExchangeIdentityTests` + `ExchangeCrashBoundaryTests` | 40 | 0 | 0 | 40 |
 | Both port contract kits — `Contracts.AncillaryDisposition` + `Contracts.EmdAssociation` | 35 | 0 | 0 | 35 |
+| `ResidualEvidenceFreezeGateTests` — FFC1–FFC8 plus the identity guard | 12 | 0 | 0 | 12 |
+| `ExchangeCrashBoundaryTests` | 29 | 0 | 0 | 29 |
+| `DocumentExchangeIdentityTests` | 11 | 0 | 0 | 11 |
+| All port contract kits (`Contracts.`) | 108 | 0 | 0 | 108 |
 | P3-F exchange regression — `AddCollectExchangeFlowTests`, `AddCollectFundingRecoveryTests`, `RefundDueExchangeFlowTests`, `ExchangeFlowTests`, `PartiallyUsedExchangeFlowTests`, `MultiCouponExchangeFlowTests` | 216 | 0 | 0 | 216 |
+
+### Solution build
+
+```text
+dotnet build AeroTech.Ordering.sln
+  Build succeeded.   35 Warning(s)   0 Error(s)
+```
 
 ### Migration check
 
@@ -867,9 +878,73 @@ All inside the mandated 20000–29999 range and contiguous.
 | 20302 | `ElectronicMiscDocumentAssociationMoved` | 409 |
 | 20303 | `ElectronicMiscDocumentNotFound` | 404 |
 | 20304 | `AncillaryDispositionContextMismatch` | 422 |
+| 20305 | `ExchangeResidualFulfillmentMalformed` | 422 |
 
-Verified mechanically: 304 codes, 20001–20304, no gaps, no duplicates, none outside the range, and no inline
+Verified mechanically: 305 codes, 20001–20305, no gaps, no duplicates, none outside the range, and no inline
 `new BusinessException` anywhere in `src/`.
+
+---
+
+## 24.1 Final two-blocker correction
+
+Two production blockers were found while reviewing the residual document-coupling work and are closed here.
+
+**Blocker 1 — an unexpected host residual could double-fulfil.** Residual evidence was validated only when the
+accepted plan required a document-coupled residual. A host that returned a residual document when the plan
+owed none, or when the plan fulfilled the residual **externally**, was never judged: the exchange completed,
+and in the external case `IExchangeResidualValuePort` then fulfilled the same obligation a second time.
+
+Fixed by judging **every** confirmed exchange against the accepted obligation. The evidence policy already
+knew both negative cases; the orchestration now enforces them. On any contradiction the outcome is recorded
+with `ResidualOutcome = Rejected` and a detail, the returned document is **not** materialized, and one new
+gate in `FinalizeAsync` — `if (plan.IsResidualRejected) return ReconcileAsync(..., materialized)` — placed
+after materialization and before the monetary stage, guarantees the operation can neither complete nor reach
+the downstream port. The ticket stays authoritative throughout.
+
+The resulting truth table, all of it executable:
+
+| Accepted plan | Host residual | Result |
+| --- | --- | --- |
+| none | none | normal completion |
+| none | unexpected EMD | `NeedsReconciliation`, no local document, no downstream dispatch |
+| `ExternalValue` | none | downstream residual executes exactly once |
+| `ExternalValue` | unexpected EMD | `NeedsReconciliation`, no local document, **no downstream dispatch** |
+| `DocumentCoupled` EMD | matching EMD | settled and materialized once, inside the exchange |
+| `DocumentCoupled` EMD | missing | `NeedsReconciliation`, no invented document |
+| `DocumentCoupled` EMD | contradictory | `NeedsReconciliation`, no invented document |
+| `DocumentCoupled` MCO | n/a | refused before any irreversible work |
+
+**Why double fulfilment is now structurally impossible.** A residual reaches `IExchangeResidualValuePort` only
+through `SettleMonetaryAsync`, and that call is guarded by `plan.RequiresExternalResidual`. A host-issued
+residual document forces `ResidualOutcome = Rejected`, and a rejected residual reconciles before the monetary
+stage is reached. The two fulfilment routes are therefore mutually exclusive on every path, including replay:
+a reconciling operation short-circuits at `AwaitsReconciliationAsync` on the next attempt.
+
+**Blocker 2 — MCO would have been materialized as an EMD.** The coherence check admitted
+`DocumentCoupled + Mco`, but local materialization only knows how to write an `ElectronicMiscDocument`. An MCO
+would have been silently written as an EMD-S. `ExpectedInstrument` must now be `Emd`; every other family,
+including MCO, fails closed with `ExchangeResidualFulfillmentMalformed` (20305) before irreversible work. No
+MCO aggregate was created, MCO is not mapped onto `ElectronicMiscDocument`, and MCO is **not** reinterpreted
+as external value. Document-coupled MCO is **deferred** until a real MCO lifecycle and authority are designed.
+
+**Existing-document identity.** The replay guard was a document-number scan, which would have let an unrelated
+document with the same number silently satisfy the expected residual. It now also requires the existing
+document to be `Standalone` and to carry a `ResidualValue` coupon whose amount and currency match the reported
+residual; anything else is a contradiction. That is the smallest comparison the invariant needs.
+
+**One further gap found by these tests.** A reconciling **replay** reported `SuccessorElectronicTicketId = null`
+even though the ticket was already materialized, because `AdvanceAsync`'s reconcile branch did not carry the
+materialized truth. That contradicted the post-document truth rule for replays, and is fixed by
+`AlreadyMaterializedAsync`, now the single reading used by both the reconcile branch and `MaterializeAsync`.
+
+**Files changed:** `ExchangeService.cs`, `ExchangePricingPolicy.cs`, `ExceptionMessages.cs`,
+`DeterministicDocumentExchangeAdapter.cs` (one simulation control — return a residual document that was never
+requested, plus a pinned document number, both required to prove FFC1/FFC2 and the identity guard), and the
+new `ResidualEvidenceFreezeGateTests.cs`. No schema change.
+
+**FFC coverage:** FFC1/FFC7 unrequested residual; FFC2 the load-bearing double-fulfilment guard; FFC3 the
+untouched external path; FFC4 the valid coupled path; FFC5/FFC6 MCO, Voucher, TravelCredit, Other and Unknown
+all failing closed; FFC8 replay after both contradiction shapes; plus the impostor-document identity test.
 
 ---
 
@@ -880,9 +955,11 @@ P3-F RESIDUAL CORRECTION READY TO FREEZE: YES
 P3-G1 READY TO FREEZE: YES
 ```
 
-Every freeze-gate test is green, in isolation, with exact counts recorded in §15. `BLOCKED_DEVELOPMENT` is
-empty. Both remaining `BLOCKED_INTEGRATION` families are real-provider absences, not unresolved Ordering
-semantics, and neither blocks the deterministic capability.
+Every freeze-gate test is green, in isolation, with exact counts recorded in §15 — including the two-blocker
+correction in §24.1, whose twelve new tests discriminate the double-fulfilment and MCO defects that the
+previous round's premature `YES` did not cover. `BLOCKED_DEVELOPMENT` is empty. Every remaining
+`BLOCKED_INTEGRATION` item is a real-provider absence, not an unresolved Ordering semantic, and none blocks
+the deterministic capability.
 
 The one `BLOCKED_DECISION` this work raised — whether a residual EMD-S may be a downstream stage — was
 resolved by the business and implemented: an exchange-coupled residual is executed and recovered inside the

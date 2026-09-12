@@ -386,11 +386,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     order, operation, predecessor, plan, ExchangeFundingReleaseReason.DocumentRejected,
                     dispatchFresh: false, isReplay, cancellationToken);
 
-            var materialized = CommittedExchange(order, operation.OperationId) is not null;
+            var alreadyMaterialized = await AlreadyMaterializedAsync(order, operation, plan, cancellationToken);
 
             if (await AwaitsReconciliationAsync(operation, cancellationToken)
-                || (!materialized && order.CommercialVersion != plan.ExpectedCommercialVersion))
-                return await ReconcileAsync(order, operation, predecessor, plan, isReplay, cancellationToken);
+                || (alreadyMaterialized is null && order.CommercialVersion != plan.ExpectedCommercialVersion))
+                return await ReconcileAsync(
+                    order, operation, predecessor, plan, isReplay, cancellationToken, alreadyMaterialized);
 
             if (plan.IsDocumentExchangeConfirmed)
                 return await FinalizeAsync(
@@ -872,27 +873,29 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 operation.OperationId, result.Outcome, result.ProviderReference, result.Successor, result.Detail,
                 cancellationToken);
 
-            var settlesCoupledResidual =
-                result.Outcome == ProviderOperationOutcome.Confirmed && plan.RequiresDocumentCoupledResidual;
+            var confirmed = result.Outcome == ProviderOperationOutcome.Confirmed;
 
-            var coupledResidualContradiction = settlesCoupledResidual
+            var residualContradiction = confirmed
                 ? ExchangeSettlementEvidencePolicy.CoupledResidualContradiction(plan, result.Residual)
+                    ?? await ResidualDocumentConflictAsync(order, plan, result.Residual, cancellationToken)
                 : null;
 
-            if (settlesCoupledResidual)
+            var settlesCoupledResidual = confirmed && plan.RequiresDocumentCoupledResidual;
+
+            if (confirmed && (settlesCoupledResidual || residualContradiction is not null))
             {
                 await _plans.RecordResidualOutcomeAsync(
                     operation.OperationId,
-                    coupledResidualContradiction is null
+                    residualContradiction is null
                         ? ProviderOperationOutcome.Confirmed
                         : ProviderOperationOutcome.Rejected,
                     result.Residual?.ProviderReference ?? result.ProviderReference,
                     result.Residual?.DocumentNumber,
                     result.Residual?.Instrument,
-                    coupledResidualContradiction,
+                    residualContradiction,
                     cancellationToken);
 
-                if (coupledResidualContradiction is null)
+                if (residualContradiction is null && settlesCoupledResidual)
                     await MaterializeResidualDocumentAsync(
                         order, operation, predecessor, result.Residual!, cancellationToken);
             }
@@ -907,16 +910,20 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 Successor = result.Successor ?? plan.Successor
             };
 
-            if (settlesCoupledResidual)
+            if (confirmed && (settlesCoupledResidual || residualContradiction is not null))
                 recorded = recorded with
                 {
-                    ResidualOutcome = coupledResidualContradiction is null
+                    ResidualOutcome = residualContradiction is null
                         ? ProviderOperationOutcome.Confirmed
                         : ProviderOperationOutcome.Rejected,
                     ResidualProviderReference = result.Residual?.ProviderReference ?? result.ProviderReference,
-                    ResidualInstrumentReference = result.Residual?.DocumentNumber,
-                    ResidualInstrument = result.Residual?.Instrument,
-                    ResidualDetail = coupledResidualContradiction ?? recorded.ResidualDetail
+                    ResidualInstrumentReference = residualContradiction is null
+                        ? result.Residual?.DocumentNumber
+                        : recorded.ResidualInstrumentReference,
+                    ResidualInstrument = residualContradiction is null
+                        ? result.Residual?.Instrument
+                        : recorded.ResidualInstrument,
+                    ResidualDetail = residualContradiction ?? recorded.ResidualDetail
                 };
 
             return result.Outcome switch
@@ -955,6 +962,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             var materialized = await MaterializeAsync(
                 order, operation, predecessor, plan, successor, cancellationToken);
 
+            if (plan.IsResidualRejected)
+                return await ReconcileAsync(
+                    order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
+
             if (plan.RequiresMonetarySettlement && !plan.IsMonetarySettled)
                 return await SettleMonetaryAsync(
                     order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
@@ -976,17 +987,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             SuccessorDocumentIdentity successor,
             CancellationToken cancellationToken)
         {
-            if (CommittedExchange(order, operation.OperationId) is { } committed)
+            if (await AlreadyMaterializedAsync(order, operation, plan, cancellationToken) is { } already)
             {
                 await DisassociateAncillariesAsync(operation, plan, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-                return new MaterializedExchange(
-                    await _tickets.GetAsync(plan.SuccessorElectronicTicketId, cancellationToken)
-                    ?? throw ExceptionFactory.AccountableDocumentNotFound(
-                        plan.SuccessorElectronicTicketId, order.Id),
-                    committed.Id,
-                    order.PriceChangeSets.Single(set => set.ChangeId == committed.Id).Id);
+                return already;
             }
 
             var staged = order.PrepareExchange(ToArgs(plan, predecessor), _idGenerator, _clock);
@@ -1028,6 +1034,48 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             }
 
             return new MaterializedExchange(successorTicket, exchanged.OrderChangeId, exchanged.PriceChangeSetId);
+        }
+
+        private async Task<MaterializedExchange?> AlreadyMaterializedAsync(
+            Order order,
+            OrderOperation operation,
+            AcceptedExchangePlan plan,
+            CancellationToken cancellationToken)
+            => CommittedExchange(order, operation.OperationId) is { } committed
+                ? new MaterializedExchange(
+                    await _tickets.GetAsync(plan.SuccessorElectronicTicketId, cancellationToken)
+                    ?? throw ExceptionFactory.AccountableDocumentNotFound(
+                        plan.SuccessorElectronicTicketId, order.Id),
+                    committed.Id,
+                    order.PriceChangeSets.Single(set => set.ChangeId == committed.Id).Id)
+                : null;
+
+        private async Task<string?> ResidualDocumentConflictAsync(
+            Order order,
+            AcceptedExchangePlan plan,
+            ResidualDocumentIdentity? residual,
+            CancellationToken cancellationToken)
+        {
+            if (residual is null || !plan.RequiresDocumentCoupledResidual)
+                return null;
+
+            var existing = (await _miscDocuments.ListByOrderAsync(order.Id, cancellationToken))
+                .FirstOrDefault(document =>
+                    string.Equals(document.DocumentNumber, residual.DocumentNumber, StringComparison.Ordinal));
+
+            if (existing is null)
+                return null;
+
+            var coupon = existing.Coupons.SingleOrDefault(candidate =>
+                candidate.Purpose == EmdCouponPurpose.ResidualValue);
+
+            return existing.Type == ElectronicMiscDocumentType.Standalone
+                   && coupon is not null
+                   && coupon.IssuanceValue == residual.Amount
+                   && coupon.CurrencyId == residual.CurrencyId
+                ? null
+                : $"miscellaneous document {residual.DocumentNumber} already exists and is not "
+                  + "the residual document this exchange reported";
         }
 
         private async Task MaterializeResidualDocumentAsync(

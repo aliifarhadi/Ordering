@@ -35,6 +35,10 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public bool OmitCoupledResidualDocument { get; set; }
 
+        public bool ReturnUnrequestedResidualDocument { get; set; }
+
+        public string? ResidualDocumentNumberOverride { get; set; }
+
         public decimal? ResidualAmountOverride { get; set; }
 
         public int? ResidualCurrencyOverride { get; set; }
@@ -126,14 +130,14 @@ namespace AeroTech.Ordering.Providers.Deterministic
         private ResidualDocumentIdentity? CoupledResidual(
             ProviderOperationOutcome outcome,
             DocumentExchangeRequest request)
-            => request.Residual is { } residual
-               && outcome == ProviderOperationOutcome.Confirmed
+            => outcome == ProviderOperationOutcome.Confirmed
+               && (request.Residual is not null || ReturnUnrequestedResidualDocument)
                && !OmitCoupledResidualDocument
                 ? new ResidualDocumentIdentity(
-                    StableResidualNumber(request.OperationId),
-                    ResidualInstrumentOverride ?? Family(residual.ExpectedInstrument),
-                    ResidualAmountOverride ?? residual.Amount,
-                    ResidualCurrencyOverride ?? residual.CurrencyId,
+                    ResidualDocumentNumberOverride ?? StableResidualNumber(request.OperationId),
+                    ResidualInstrumentOverride ?? Family(request.Residual?.ExpectedInstrument ?? ResidualInstrumentKind.Emd),
+                    ResidualAmountOverride ?? request.Residual?.Amount ?? UnrequestedResidualAmount,
+                    ResidualCurrencyOverride ?? request.Residual?.CurrencyId ?? UnrequestedResidualCurrencyId,
                     IssuerCarrierId,
                     IssuingOfficeId,
                     Authority,
@@ -141,6 +145,10 @@ namespace AeroTech.Ordering.Providers.Deterministic
                     ResidualReasonForIssuanceSubCode,
                     $"RESDOC-{request.OperationId}")
                 : null;
+
+        public decimal UnrequestedResidualAmount { get; set; } = 1m;
+
+        public int UnrequestedResidualCurrencyId { get; set; } = 1;
 
         private static ResidualInstrumentKind Family(ResidualInstrumentKind expected)
             => expected == ResidualInstrumentKind.Unknown ? ResidualInstrumentKind.Emd : expected;

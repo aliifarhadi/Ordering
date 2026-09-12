@@ -63,7 +63,7 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
             ArgumentNullException.ThrowIfNull(accepted);
 
             if (accepted.Residual is { IsDocumentCoupled: true } residual
-                && residual.ExpectedInstrument is not (ResidualInstrumentKind.Emd or ResidualInstrumentKind.Mco))
+                && residual.ExpectedInstrument != ResidualInstrumentKind.Emd)
                 throw ExceptionFactory.ExchangeResidualFulfillmentMalformed(
                     quotedExchangeId, residual.ExpectedInstrument);
         }

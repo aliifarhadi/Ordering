@@ -43,6 +43,8 @@ two shapes: one collection with one refund-due, or one collection with one resid
   single-outcome and mixed handling uniform and keeps every historical row valid.
 * The settlement stage walks the legs in a fixed order: collection first, then the single return of value.
 * Every frozen rail is reused as-is. No new port, no new simulator, no new migration.
+  *(Superseded for the residual leg by the document-coupling correction in §7.1 and §11.1: `IDocumentExchangePort`
+  gained coupled-residual request, result and recovery semantics, and `ResidualFulfillment` was added.)*
 * The projection gained a structured leg collection, so a client can observe each obligation separately.
 
 Verified mechanically: there is **no arithmetic anywhere in `src/` on an accepted monetary amount**, and no
@@ -271,13 +273,16 @@ result and the finalization from the plan alone.
 ```text
 Migrations added: none
 Schema changes:   none
-Enum changes:     none
+Enum changes:     none at the time of the Mixed bundle
+                  ResidualFulfillment added later by the document-coupling correction (new enum, new file,
+                  no persisted numeric value changed, still no migration)
 ```
 
 The eight refund and residual columns and the nine funding columns from the previous bundles already carry
-every leg's provider state and evidence. `Mixed` already existed in `ChangeMonetaryOutcome`. Amounts and
-currencies stay in the immutable accepted plan JSON, which the two-condition persistence rule says not to
-duplicate.
+every leg's provider state and evidence — including, after the document-coupling correction, a residual that
+is settled by the document act rather than by a downstream call. `Mixed` already existed in
+`ChangeMonetaryOutcome`. Amounts and currencies stay in the immutable accepted plan JSON, which the
+two-condition persistence rule says not to duplicate.
 
 Historical single-outcome rows remain readable and keep their semantics, because the obligation readings are
 presence-based rather than outcome-based.
@@ -324,7 +329,7 @@ providers' own.
 
 ## 11. Semantic Ports and Contract Tests
 
-No port was added and none was changed. Mixed reuses the frozen rails exactly:
+No port was added and none was changed **by the Mixed bundle itself**. Mixed reuses the frozen rails exactly:
 
 | Leg | Port | Operation key |
 | --- | --- | --- |
@@ -338,6 +343,31 @@ Each leg's key is distinct by construction because the step name differs, so two
 to the same economic operation. No `IMixedPaymentPort`, `IMixedRefundPort` or `IMultiLegProvider` was created,
 and no all-in-one mixed simulator was built. The existing reusable contract kits are unchanged and still
 green, including their same-key conflicting-intent rejection.
+
+### 11.1 Correction — one port did change
+
+The document-coupling correction (§7.1) changed `IDocumentExchangePort`. The final capability split is:
+
+| Port | What it does |
+| --- | --- |
+| `IDocumentExchangePort` | the ETKT exchange **plus**, when the accepted plan says so, the exchange-coupled residual EMD-S — one key, one dispatch, one recover |
+| `IExchangeResidualValuePort` | **external** residual fulfilment only — voucher, travel credit, other source-approved external value |
+
+`DocumentExchangeRequest` gained an optional `ExchangeCoupledResidualRequest`; `DocumentExchangeResult` and
+`DocumentExchangeRecovery` gained an optional `ResidualDocumentIdentity`. The residual row in the table above
+therefore applies only to an **external** residual; a document-coupled residual has no key of its own and
+never reaches `IExchangeResidualValuePort`.
+
+**Every confirmed exchange is judged against the accepted residual obligation**, not only a coupled one. A
+residual document returned when the plan owes none, or when the plan fulfils the residual externally, is
+contradictory evidence: it is recorded, the document is not materialized, the downstream port is not
+dispatched, and the operation reconciles on top of an authoritative ticket. That is what makes
+double-fulfilment structurally impossible rather than merely unlikely.
+
+**Only an EMD-S is executable as a coupled document today.** A `DocumentCoupled` residual naming any other
+instrument family — including MCO — fails closed with `ExchangeResidualFulfillmentMalformed` (20305) before
+any irreversible work. MCO is deferred until a real MCO lifecycle and authority are designed; it is not mapped
+onto `ElectronicMiscDocument` and it is not silently reinterpreted as external value.
 
 ---
 
