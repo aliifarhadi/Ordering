@@ -69,6 +69,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             AcceptedExchangeAncillaryExchangeGroup group)
             => Step(operation, group.FundingCaptureLegIdentity);
 
+        public string AncillaryExchangeRefundDue(
+            OrderOperation operation,
+            AcceptedExchangeAncillaryExchangeGroup group)
+            => Step(operation, group.RefundDueLegIdentity);
+
         public string AncillaryExchangeResidual(
             OrderOperation operation,
             AcceptedExchangeAncillaryExchangeGroup group)

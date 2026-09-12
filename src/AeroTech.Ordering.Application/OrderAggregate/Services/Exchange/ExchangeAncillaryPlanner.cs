@@ -245,6 +245,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             var couponNumbers = members.Select(member => member.EmdCouponNumber).Order().ToList();
 
+            if (couponNumbers.Count != terms.SuccessorCoupons.Count)
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    exchangeGroupRef,
+                    $"it exchanges {couponNumbers.Count} source coupons into "
+                    + $"{terms.SuccessorCoupons.Count} successor coupons, and this capability carries only a "
+                    + "one-to-one mapping");
+
             return new AcceptedExchangeAncillaryExchangeGroup(
                 exchangeGroupRef,
                 members[0].ElectronicMiscDocumentId,
@@ -367,6 +374,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             if (exchange.SuccessorCoupons.Count == 0)
                 throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "successor coupons");
 
+            if (exchange.PricingLines.Count == 0)
+                throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "pricing evidence");
+
             foreach (var successor in exchange.SuccessorCoupons)
             {
                 if (string.IsNullOrWhiteSpace(successor.ReasonForIssuanceSubCode))
@@ -396,17 +406,66 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             if (exchange.AddCollect is not null && string.IsNullOrWhiteSpace(exchange.FundingMethodRef))
                 throw ExceptionFactory.AncillaryExchangeTermsMissing(document, coupon, "a funding method");
 
-            if (exchange.AddCollect is not null && exchange.RefundDue is not null)
-                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
-                    exchange.ExchangeGroupRef, "it carries both a collection and a refund obligation");
+            EnsureMonetaryShapeIsSupported(exchange);
 
-            if (exchange.PricingLines.Count > 0)
-                AncillaryExchangeConservationPolicy.EnsureReconciles(
-                    exchange.PricingLines, exchange.AddCollect, exchange.RefundDue, exchange.Residual);
-            else if (AncillaryExchangeConservationPolicy.ExpectedNetCustomerCredit(
-                         exchange.AddCollect, exchange.RefundDue, exchange.Residual) != 0m)
-                throw ExceptionFactory.AncillaryExchangeTermsMissing(
-                    document, coupon, "pricing evidence for its monetary obligation");
+            AncillaryExchangeConservationPolicy.EnsureReconciles(
+                exchange.PricingLines, exchange.AddCollect, exchange.RefundDue, exchange.Residual);
+        }
+
+        private static void EnsureMonetaryShapeIsSupported(AncillaryEmdExchangeTerms exchange)
+        {
+            var group = exchange.ExchangeGroupRef;
+
+            if (exchange.RefundDue is not null && exchange.Residual is not null)
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    group, "it carries both a refund and a residual obligation");
+
+            if (exchange.AddCollect is { } addCollect)
+            {
+                if (addCollect.Amount <= 0m)
+                    throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                        group, "its collection amount is not positive");
+
+                if (addCollect.CurrencyId != exchange.CurrencyId)
+                    throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                        group, $"its collection currency is not the group currency ({exchange.CurrencyId})");
+            }
+
+            if (exchange.RefundDue is { } refundDue)
+            {
+                if (refundDue.Amount <= 0m)
+                    throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                        group, "its refund amount is not positive");
+
+                if (refundDue.CurrencyId != exchange.CurrencyId)
+                    throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                        group, $"its refund currency is not the group currency ({exchange.CurrencyId})");
+
+                if (string.IsNullOrWhiteSpace(refundDue.Disposition))
+                    throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                        group, "its refund carries no disposition");
+            }
+
+            if (exchange.Residual is not { } residual)
+                return;
+
+            if (residual.Amount <= 0m)
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    group, "its residual amount is not positive");
+
+            if (residual.CurrencyId != exchange.CurrencyId)
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    group, $"its residual currency is not the group currency ({exchange.CurrencyId})");
+
+            if (string.IsNullOrWhiteSpace(residual.Disposition))
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    group, "its residual carries no disposition");
+
+            if (residual.IsDocumentCoupled && residual.ExpectedInstrument != ResidualInstrumentKind.Emd)
+                throw ExceptionFactory.AncillaryExchangeGroupMalformed(
+                    group,
+                    $"its document-coupled residual expects a {residual.ExpectedInstrument}, "
+                    + "and this capability fulfils a coupled residual only as a miscellaneous document");
         }
 
         private static void EnsureRefundIsExecutable(

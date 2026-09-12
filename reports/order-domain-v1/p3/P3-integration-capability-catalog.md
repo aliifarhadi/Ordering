@@ -1783,6 +1783,19 @@ OrderPriceChangeSet    ChangeId is NOT unique;  UNIQUE (OrderId, FinancialSequen
 
 so one Exchange operation may own several price change sets without owning several order changes.
 
+**Every confirmed group owns exactly one consequence.**
+
+```text
+one confirmed EMD exchange group
+  => exactly one dependent PriceChangeSet
+  => exactly one OrderPricingChanged
+  => exactly one CommercialVersion advance
+```
+
+Therefore every executable `ExchangeToNewEmd` group must carry source-approved pricing lines, an even exchange
+included — expressed as an authoritative zero-net withdrawal/grant pair. A group with no pricing evidence is
+refused at acceptance. Ordering never invents zero-value lines, and replay appends nothing.
+
 The commit rail follows the already-frozen Refund pattern:
 
 ```text
@@ -1980,6 +1993,48 @@ one accepted exchange group = one IEmdExchangePort operation = one successor doc
 the materializing transaction (G1, frozen), so an exchange always acts on a coupon already detached from the
 exchanged predecessor ticket coupon — the benchmarked precondition.
 
+**Supported monetary shapes are frozen, and none is collapsed into a signed delta.**
+
+```text
+supported   Even, AddCollect, RefundDue, Residual, AddCollect + RefundDue, AddCollect + Residual
+refused     RefundDue + Residual, AddCollect + RefundDue + Residual,
+            a non-positive leg amount, a leg currency that is not the group currency,
+            a blank refund or residual disposition
+```
+
+Each leg keeps its own accepted value object, its own group-scoped operation key and its own durable outcome.
+A duplicate leg of one kind cannot be expressed: the accepted terms hold at most one collection, one refund
+and one residual. `RefundDue` keeps its original-refundable-source semantics and a residual is never
+reinterpreted as a refund.
+
+**A document-coupled residual can only be an EMD in this slice.**
+
+```text
+ResidualFulfillment.DocumentCoupled  =>  ExpectedInstrument == ResidualInstrumentKind.Emd
+```
+
+Any other instrument — `Mco`, `Voucher`, `TravelCredit`, `Other`, `Unknown` — is refused at acceptance, before
+any irreversible ticket or document work. No MCO lifecycle exists, no MCO is mapped onto an EMD, and no
+unsupported instrument is silently downgraded to external value.
+
+**Source-to-successor mapping is one-to-one, and that is a representation limit, not an industry rule.**
+
+```text
+SourceCouponNumbers.Count == SuccessorCoupons.Count
+
+sorted source coupon order  <->  accepted successor-coupon order  <->  normalized provider result order
+```
+
+Merge (N:1) and split (1:M) EMD exchanges are industry-valid. They require an explicit authoritative mapping
+in the accepted terms, which this contract does not carry. Ordering must not infer one, so any other
+cardinality is refused before the ticket exchange. Supporting them is a future extension of the accepted
+disposition contract.
+
+**Provider coupon numbers are authoritative.** The successor document is created with the exact coupon numbers
+the authority returned, never renumbered `1..N`; a non-positive or repeated returned number is a contradiction.
+Normalized result order corresponds to the request successor-coupon order. Both lineage directions carry the
+actual provider number.
+
 **Association at issuance, not by a second act.** When the source approves an `Associated` successor, the
 successor EMD is created already bound to the approved successor ticket coupon and records that association as
 its issuance history. `IEmdAssociationPort` is **not** called: creating a document and then "reassociating" it
@@ -2013,7 +2068,19 @@ Operation keys are server-derived and stable per group:
 emd-exchange:{ExchangeGroupRef}
 emd-exchange-guarantee:{ExchangeGroupRef}
 emd-exchange-capture:{ExchangeGroupRef}
+emd-exchange-refund:{ExchangeGroupRef}
 emd-exchange-residual:{ExchangeGroupRef}
+```
+
+Monetary sequencing per group:
+
+```text
+guarantee (when the group collects)
+ -> EMD exchange act
+ -> one local checkpoint
+ -> capture
+ -> refund value  (IRefundValuePort, when the group owes a refund)
+ -> external residual  (only when the source says the residual is non-document value)
 ```
 
 so ticket monetary acts, different EMD groups, and the G2 refund rails can never collide.
@@ -2025,9 +2092,24 @@ carrier, issuing office, authority, RFIC, currency, and one coupon identity per 
 (number, purpose, RFISC, value, currency, and the associated ticket coupon number for `Associated`). A coupled
 residual obligation must be answered in the same result with its own document identity.
 
+A `Confirmed` result must additionally carry the beneficiary the request bound, coupon numbers that are
+positive and unique, and — for an `Associated` successor — the associated ticket **document** and a per-coupon
+association, both exact. A `Standalone` successor must carry neither. A confirmed coupled residual must carry
+its document number, reason-for-issuance code and sub code, an exact amount and currency, and an instrument
+equal to the accepted `ExpectedInstrument`. A confirmed **external** residual must carry a provider reference,
+an instrument reference, an instrument, an exact amount and currency, and an instrument matching the accepted
+expectation whenever that is not `Unknown`. A confirmed refund value must carry a value movement reference, an
+exact amount and currency, and an exact disposition when echoed.
+
 Every echoed field is verified against the accepted group. A `Confirmed` result that contradicts it is treated
 as contradictory evidence, not as a rejection: it is persisted, the operation becomes `NeedsReconciliation`,
 nothing local is materialized, and the act is **not** re-dispatched.
+
+When the returned successor document number already exists locally, it is accepted as a replay only on exact
+identity: origin servicing operation, beneficiary, type, currency, issuer, issuing office, authority, RFIC,
+coupon count, and per returned coupon number the purpose, RFISC, value, currency, predecessor EMD
+id/document/coupon mapping, ticket association, order service and external value reference. Any mismatch
+reconciles; no other document number is generated and the confirmed exchange is not re-dispatched.
 
 ### Recovery
 
@@ -2056,7 +2138,10 @@ residual reaches `IExchangeResidualValuePort`, and only after document truth is 
 
 `DeterministicEmdExchangeAdapter` in `AeroTech.Ordering.Providers.Deterministic`, in the durable-key shape:
 a repeated key returns the remembered result, a conflicting immutable intent on a known key fails closed, an
-unresolved outcome resolves on read-back, and a resolved refusal is never rewritten.
+unresolved outcome resolves on read-back, and a resolved refusal is never rewritten. The intent fingerprint
+covers every materially binding field — source scope, beneficiary, successor semantics and targets, ticket
+document, decision and source pricing references, and every coupled-residual field including its expected
+instrument.
 
 Contract coverage: `tests/AeroTech.Ordering.Persistence.Tests/Contracts/EmdExchange/` — 18 cases across the
 reusable kit, the deterministic binding and the unconfigured 501 refusal.
@@ -2065,6 +2150,17 @@ Flow coverage: `EmdExchangeToNewEmdFlowTests` — 48 cases: G3H1–H6 (associate
 grouping, two independent groups, mixed G1/G2/G3 dispositions, multi-coupon partial exchange), G3S1–S3
 (acceptance refusals), G3P1–P6 (provider lifecycle and crash recovery), G3R1–R4 (replay and identity),
 G3M1–M6 (monetary and coupled residual), G3F1–F3 (frozen invariants).
+
+Correction coverage: `EmdExchangeFreezeGateCorrectionTests` — 43 cases: C1–C4 (refund-due execution, unresolved,
+refused and contradictory, and the `AddCollect + RefundDue` sequence), C5 (frozen monetary shapes), C6
+(document-coupled non-EMD refusal), C7–C8 (coupled and external residual evidence), C9–C10 (provider coupon
+number fidelity and malformed numbers), C11 (mapping cardinality), C12 (an existing number from another
+operation), C13 (association and beneficiary evidence), C14 (deterministic request identity), C15 (mandatory
+consequence), C16 (exact replay of a full monetary group). Plus
+`ElectronicMiscDocumentIdentityPolicyTests` — 16 Domain cases covering each existing-document identity facet
+directly, because the deeper facets are unreachable through the servicing flow: the only path that reaches the
+policy is a fresh dispatch against a pre-existing document, which by construction came from a different
+operation, so the origin-operation check always fires first.
 
 ### Real-Service Verification Status
 
@@ -2091,6 +2187,10 @@ G3M1–M6 (monetary and coupled residual), G3F1–F3 (frozen invariants).
    Ordering reuses `IExchangeFundingPort` with group-scoped keys; its request field names (`QuotedExchangeId`,
    `PredecessorDocumentNumber`, `SuccessorDocumentNumber`) carry the exchange-group reference and the EMD
    document numbers, which is a naming imprecision in a frozen P3-F contract, not a semantic one.
+8. Whether a refund arising from an EMD exchange is accepted on the same return-of-value rail as a ticket
+   refund-due. Ordering reuses `IRefundValuePort` with a group-scoped key and the EMD source document number.
+9. Whether the real authority returns coupon numbers that are stable across a read-back. Ordering persists the
+   numbers from the first confirmation and treats a later differing set as a contradiction.
 
 ### Known Semantic Gaps
 
@@ -2105,6 +2205,12 @@ G3M1–M6 (monetary and coupled residual), G3F1–F3 (frozen invariants).
   approves a fee-purpose successor with no commercial consequence at all is refused at acceptance.
 * Ordering does not revalue, reprice or re-derive any successor term. A source that supplies incomplete terms
   is refused before the ticket document exchange is dispatched, never approximated.
+* Merge and split EMD exchanges are not supported. The accepted disposition contract carries no explicit
+  source-to-successor mapping, so only 1:1 is executable and any other cardinality is refused. This is a
+  representation limit of the current contract, not an industry restriction.
+* A standalone successor coupon carrying a ticket association is unconstructible: the aggregate already refuses
+  it at issuance. The identity policy keeps the branch as defence, and it is unreachable by design rather than
+  untested.
 
 ### Explicit Non-Responsibilities
 

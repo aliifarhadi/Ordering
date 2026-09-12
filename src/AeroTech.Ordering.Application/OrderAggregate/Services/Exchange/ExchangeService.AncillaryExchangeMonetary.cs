@@ -5,6 +5,7 @@ using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Ports.ExchangeFunding;
 using AeroTech.Ordering.Domain.Ports.ExchangeResidual;
+using AeroTech.Ordering.Domain.Ports.RefundValue;
 using AeroTech.Ordering.Domain.Servicing.Operations;
 using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain.Servicing.Plans.Policies;
@@ -193,6 +194,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 throw;
             }
 
+            var contradiction = result.Outcome == ProviderOperationOutcome.Confirmed
+                ? AncillaryExchangeEvidencePolicy.ExternalResidualContradiction(group, result)
+                : null;
+
             await _plans.RecordAncillaryExchangeResidualOutcomeAsync(
                 operation.OperationId,
                 group.ExchangeGroupRef,
@@ -200,7 +205,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 result.ProviderReference,
                 result.InstrumentReference,
                 result.Instrument,
-                result.Detail,
+                contradiction ?? result.Detail,
                 cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -211,12 +216,80 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 ResidualProviderReference = result.ProviderReference ?? group.ResidualProviderReference,
                 ResidualInstrumentReference = result.InstrumentReference ?? group.ResidualInstrumentReference,
                 ResidualInstrument = result.Instrument ?? group.ResidualInstrument,
-                ResidualDetail = result.Detail ?? group.ResidualDetail
+                ResidualDetail = contradiction ?? result.Detail ?? group.ResidualDetail
             });
 
             return await ContinueAncillaryExchangeAsync(
                 order, operation, predecessor, settled, successor, materialized, group.ExchangeGroupRef,
-                result.Outcome, null, documentJustConfirmed: false, isReplay, cancellationToken);
+                result.Outcome, contradiction, documentJustConfirmed: false, isReplay, cancellationToken);
+        }
+
+        private async Task<ExchangeOutcome> SettleAncillaryExchangeRefundDueAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket predecessor,
+            AcceptedExchangePlan plan,
+            SuccessorDocumentIdentity successor,
+            MaterializedExchange materialized,
+            AcceptedExchangeAncillaryExchangeGroup group,
+            bool isReplay,
+            CancellationToken cancellationToken)
+        {
+            var key = _keys.AncillaryExchangeRefundDue(operation, group);
+            RefundValueResult result;
+
+            try
+            {
+                var recovered = await _refundValues.RecoverAsync(
+                    new RefundValueRecoveryRequest(key, order.Id, operation.OperationId),
+                    cancellationToken);
+
+                result = recovered.WasDispatched
+                    ? recovered.AsResult()
+                    : await _refundValues.RequestAsync(
+                        new RefundValueRequest(
+                            key,
+                            order.Id,
+                            operation.OperationId,
+                            group.SourceDocumentNumber,
+                            group.RefundDue!.Amount,
+                            group.RefundDue.CurrencyId,
+                            group.RefundDue.Disposition,
+                            group.DecisionReference,
+                            group.SuccessorDocumentNumber!,
+                            group.SourceReference),
+                        cancellationToken);
+            }
+            catch
+            {
+                await MarkAwaitingExternalAsync(operation);
+                throw;
+            }
+
+            var contradiction = result.Outcome == ProviderOperationOutcome.Confirmed
+                ? AncillaryExchangeEvidencePolicy.RefundDueContradiction(group, result)
+                : null;
+
+            await _plans.RecordAncillaryExchangeRefundDueOutcomeAsync(
+                operation.OperationId,
+                group.ExchangeGroupRef,
+                result.Outcome,
+                result.ValueMovementReference,
+                contradiction ?? result.Detail,
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var settled = plan.WithExchangeGroup(group with
+            {
+                RefundDueOutcome = result.Outcome,
+                RefundDueReference = result.ValueMovementReference ?? group.RefundDueReference,
+                RefundDueDetail = contradiction ?? result.Detail ?? group.RefundDueDetail
+            });
+
+            return await ContinueAncillaryExchangeAsync(
+                order, operation, predecessor, settled, successor, materialized, group.ExchangeGroupRef,
+                result.Outcome, contradiction, documentJustConfirmed: false, isReplay, cancellationToken);
         }
 
         private async Task<ExchangeOutcome> ContinueAncillaryExchangeAsync(

@@ -99,6 +99,14 @@ namespace AeroTech.Ordering.Providers.Deterministic
         public ResidualFulfillment ExchangeResidualFulfillment { get; set; }
             = ResidualFulfillment.DocumentCoupled;
 
+        public ResidualInstrumentKind ExchangeResidualInstrument { get; set; } = ResidualInstrumentKind.Emd;
+
+        public int? ExchangeRefundCurrencyOverride { get; set; }
+
+        public bool OmitExchangeRefundDisposition { get; set; }
+
+        public bool MergeExchangeGroupToOneSuccessor { get; set; }
+
         public long? ExchangeSuccessorOrderServiceId { get; set; }
 
         public string? ExchangeSuccessorExternalValueReference { get; set; }
@@ -206,6 +214,9 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 if (DuplicateExchangeGroupCoupon && successors.Count > 0)
                     successors.Add(successors[0]);
 
+                if (MergeExchangeGroupToOneSuccessor && successors.Count > 1)
+                    successors = [successors[0]];
+
                 var shared = new AncillaryEmdExchangeTerms(
                     OmitExchangeGroupRef ? string.Empty : group.Key,
                     ExchangeSuccessorType,
@@ -222,14 +233,18 @@ namespace AeroTech.Ordering.Providers.Deterministic
                         : null,
                     ExchangeRefundDue is { } refundDue
                         ? new AcceptedRefundDue(
-                            refundDue, ExchangeCurrencyId, AcceptedRefundDue.OriginalFormOfPayment)
+                            refundDue,
+                            ExchangeRefundCurrencyOverride ?? ExchangeCurrencyId,
+                            OmitExchangeRefundDisposition
+                                ? string.Empty
+                                : AcceptedRefundDue.OriginalFormOfPayment)
                         : null,
                     ExchangeResidual is { } residual
                         ? new AcceptedResidual(
                             residual,
                             ExchangeCurrencyId,
                             AcceptedRefundDue.OriginalFormOfPayment,
-                            ResidualInstrumentKind.Emd,
+                            ExchangeResidualInstrument,
                             ExchangeResidualFulfillment)
                         : null,
                     OmitExchangeFundingMethod ? null : ExchangeFundingMethodRef);

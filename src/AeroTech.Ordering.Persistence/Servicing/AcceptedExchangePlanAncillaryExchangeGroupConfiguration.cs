@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace AeroTech.Ordering.Persistence.Servicing
@@ -31,6 +31,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
             builder.Property(group => group.FundingGuaranteeDetail).HasMaxLength(512);
             builder.Property(group => group.FundingCaptureReference).HasMaxLength(128);
             builder.Property(group => group.FundingCaptureDetail).HasMaxLength(512);
+            builder.Property(group => group.RefundDueReference).HasMaxLength(128);
+            builder.Property(group => group.RefundDueDetail).HasMaxLength(512);
             builder.Property(group => group.ResidualProviderReference).HasMaxLength(128);
             builder.Property(group => group.ResidualInstrumentReference).HasMaxLength(128);
             builder.Property(group => group.ResidualDetail).HasMaxLength(512);

@@ -48,6 +48,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 return await CaptureAncillaryExchangeFundingAsync(
                     order, operation, predecessor, plan, successor, materialized, group, isReplay, cancellationToken);
 
+            if (group.RequiresRefundDue && !group.IsRefundDueSettled)
+                return await SettleAncillaryExchangeRefundDueAsync(
+                    order, operation, predecessor, plan, successor, materialized, group, isReplay, cancellationToken);
+
             if (group.RequiresExternalResidual && !group.IsResidualSettled)
                 return await SettleAncillaryExchangeResidualAsync(
                     order, operation, predecessor, plan, successor, materialized, group, isReplay, cancellationToken);
@@ -117,8 +121,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                       group,
                       successor.DocumentNumber,
                       ExpectedSuccessorTicketCouponNumbers(group, successor),
+                      predecessor.TravelerId,
                       result)
-                  ?? await SuccessorEmdConflictAsync(order, group, result.Successor!, cancellationToken)
+                  ?? await SuccessorEmdConflictAsync(
+                      order, operation, group, result.Successor!, predecessor.TravelerId, cancellationToken)
                   ?? await ResidualEmdConflictAsync(order, result.Residual, cancellationToken)
                 : null;
 
@@ -235,16 +241,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
         private async Task<string?> SuccessorEmdConflictAsync(
             Order order,
+            OrderOperation operation,
             AcceptedExchangeAncillaryExchangeGroup group,
             SuccessorEmdIdentity successor,
+            long? beneficiaryTravellerId,
             CancellationToken cancellationToken)
         {
             var existing = await FindMiscDocumentAsync(order.Id, successor.DocumentNumber, cancellationToken);
 
-            if (existing is null)
-                return null;
-
-            return ElectronicMiscDocumentIdentityPolicy.Conflict(existing, group, successor);
+            return existing is null
+                ? null
+                : ElectronicMiscDocumentIdentityPolicy.Conflict(
+                    existing, group, successor, operation.OperationId, beneficiaryTravellerId);
         }
 
         private async Task<string?> ResidualEmdConflictAsync(

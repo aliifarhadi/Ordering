@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain._Shared.Documents;
 
 namespace AeroTech.Ordering.Domain.Ports.EmdExchange
@@ -12,5 +12,6 @@ namespace AeroTech.Ordering.Domain.Ports.EmdExchange
         string ReasonForIssuanceCode,
         int CurrencyId,
         IReadOnlyList<SuccessorEmdCouponIdentity> Coupons,
+        long? BeneficiaryTravellerId = null,
         string? AssociatedTicketDocumentNumber = null);
 }

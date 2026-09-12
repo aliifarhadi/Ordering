@@ -96,6 +96,14 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Contracts
             string? detail,
             CancellationToken cancellationToken = default);
 
+        Task RecordAncillaryExchangeRefundDueOutcomeAsync(
+            long operationId,
+            string exchangeGroupRef,
+            ProviderOperationOutcome outcome,
+            string? valueMovementReference,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
         Task RecordAncillaryExchangeResidualOutcomeAsync(
             long operationId,
             string exchangeGroupRef,

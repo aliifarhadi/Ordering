@@ -310,6 +310,81 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
             IReadOnlyList<EmdCouponIssuance> coupons,
             IIdGenerator idGenerator,
             IClock clock)
+            => Create(
+                id,
+                orderId,
+                travelerId,
+                operationId,
+                documentNumber,
+                type,
+                reasonForIssuanceCode,
+                issuerCarrierId,
+                issuingOfficeId,
+                authority,
+                currencyId,
+                coupons,
+                null,
+                idGenerator,
+                clock);
+
+        public static ElectronicMiscDocument IssueProviderConfirmed(
+            long id,
+            long orderId,
+            long? travelerId,
+            long operationId,
+            string documentNumber,
+            ElectronicMiscDocumentType type,
+            string reasonForIssuanceCode,
+            long issuerCarrierId,
+            long? issuingOfficeId,
+            DocumentAuthority authority,
+            int currencyId,
+            IReadOnlyList<EmdCouponIssuance> coupons,
+            IReadOnlyList<int> providerCouponNumbers,
+            IIdGenerator idGenerator,
+            IClock clock)
+        {
+            ArgumentNullException.ThrowIfNull(coupons);
+            ArgumentNullException.ThrowIfNull(providerCouponNumbers);
+
+            if (providerCouponNumbers.Count != coupons.Count)
+                throw ExceptionFactory.ElectronicMiscDocumentCouponNumbersMalformed(
+                    documentNumber, "the returned coupon numbers do not cover the accepted coupons");
+
+            return Create(
+                id,
+                orderId,
+                travelerId,
+                operationId,
+                documentNumber,
+                type,
+                reasonForIssuanceCode,
+                issuerCarrierId,
+                issuingOfficeId,
+                authority,
+                currencyId,
+                coupons,
+                providerCouponNumbers,
+                idGenerator,
+                clock);
+        }
+
+        private static ElectronicMiscDocument Create(
+            long id,
+            long orderId,
+            long? travelerId,
+            long operationId,
+            string documentNumber,
+            ElectronicMiscDocumentType type,
+            string reasonForIssuanceCode,
+            long issuerCarrierId,
+            long? issuingOfficeId,
+            DocumentAuthority authority,
+            int currencyId,
+            IReadOnlyList<EmdCouponIssuance> coupons,
+            IReadOnlyList<int>? providerCouponNumbers,
+            IIdGenerator idGenerator,
+            IClock clock)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(documentNumber);
 
@@ -318,6 +393,9 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
 
             if (string.IsNullOrWhiteSpace(reasonForIssuanceCode))
                 throw ExceptionFactory.ReasonForIssuanceCodeRequired();
+
+            if (providerCouponNumbers is not null)
+                EnsureCouponNumbersAreWellFormed(documentNumber, providerCouponNumbers);
 
             var document = new ElectronicMiscDocument(
                 id,
@@ -334,16 +412,22 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                 coupons.Sum(coupon => coupon.IssuanceValue),
                 currencyId);
 
-            var couponNumber = 1;
+            var position = 0;
 
             foreach (var issuance in coupons)
             {
+                var couponNumber = providerCouponNumbers is null
+                    ? position + 1
+                    : providerCouponNumbers[position];
+
+                position++;
+
                 EnsureCouponIsWellFormed(type, couponNumber, issuance);
 
                 var coupon = new EmdCoupon(
                     idGenerator.NewId(),
                     id,
-                    couponNumber++,
+                    couponNumber,
                     issuance.Purpose,
                     issuance.ReasonForIssuanceSubCode.Trim(),
                     issuance.OrderServiceId,
@@ -470,6 +554,19 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
 
         public bool DocumentsService(long orderServiceId)
             => _coupons.Any(coupon => coupon.OrderServiceId == orderServiceId);
+
+        private static void EnsureCouponNumbersAreWellFormed(
+            string documentNumber,
+            IReadOnlyList<int> couponNumbers)
+        {
+            if (couponNumbers.Any(couponNumber => couponNumber <= 0))
+                throw ExceptionFactory.ElectronicMiscDocumentCouponNumbersMalformed(
+                    documentNumber, "a returned coupon number is not positive");
+
+            if (couponNumbers.Distinct().Count() != couponNumbers.Count)
+                throw ExceptionFactory.ElectronicMiscDocumentCouponNumbersMalformed(
+                    documentNumber, "a returned coupon number is repeated");
+        }
 
         private static void EnsureCouponIsWellFormed(
             ElectronicMiscDocumentType type,

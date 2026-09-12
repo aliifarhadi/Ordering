@@ -874,6 +874,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException AncillaryExchangeGroupMalformed(params object?[] args) =>
             new(20312, ExceptionMessages.AncillaryExchangeGroupMalformed, args) { HttpStatus = 422 };
 
+        public static BusinessException ElectronicMiscDocumentCouponNumbersMalformed(params object?[] args) =>
+            new(20315, ExceptionMessages.ElectronicMiscDocumentCouponNumbersMalformed, args) { HttpStatus = 422 };
+
         public static BusinessException AncillaryExchangeAmountDoesNotReconcile(params object?[] args) =>
             new(20314, ExceptionMessages.AncillaryExchangeAmountDoesNotReconcile, args) { HttpStatus = 422 };
 

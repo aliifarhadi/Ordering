@@ -197,6 +197,9 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 group.FundingCaptureOutcome,
                 group.FundingCaptureReference,
                 group.FundingCaptureDetail,
+                group.RefundDueOutcome,
+                group.RefundDueReference,
+                group.RefundDueDetail,
                 group.ResidualOutcome,
                 group.ResidualProviderReference,
                 group.ResidualInstrumentReference,
@@ -321,6 +324,9 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         FundingCaptureOutcome = group.FundingCaptureOutcome,
                         FundingCaptureReference = group.FundingCaptureReference,
                         FundingCaptureDetail = group.FundingCaptureDetail,
+                        RefundDueOutcome = group.RefundDueOutcome,
+                        RefundDueReference = group.RefundDueReference,
+                        RefundDueDetail = group.RefundDueDetail,
                         ResidualOutcome = group.ResidualOutcome,
                         ResidualProviderReference = group.ResidualProviderReference,
                         ResidualInstrumentReference = group.ResidualInstrumentReference,
@@ -579,6 +585,23 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 row.FundingGuaranteeReference = providerReference ?? row.FundingGuaranteeReference;
                 row.FundingGuaranteeDetail = detail ?? row.FundingGuaranteeDetail;
             }
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordAncillaryExchangeRefundDueOutcomeAsync(
+            long operationId,
+            string exchangeGroupRef,
+            ProviderOperationOutcome outcome,
+            string? valueMovementReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireGroupAsync(operationId, exchangeGroupRef, cancellationToken);
+
+            row.RefundDueOutcome = outcome;
+            row.RefundDueReference = valueMovementReference ?? row.RefundDueReference;
+            row.RefundDueDetail = detail ?? row.RefundDueDetail;
 
             await TouchAsync(operationId, cancellationToken);
         }

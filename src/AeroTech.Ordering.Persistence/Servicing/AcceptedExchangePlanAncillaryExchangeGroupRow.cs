@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Persistence.Servicing
 {
@@ -75,6 +75,12 @@ namespace AeroTech.Ordering.Persistence.Servicing
         public string? FundingCaptureReference { get; set; }
 
         public string? FundingCaptureDetail { get; set; }
+
+        public ProviderOperationOutcome? RefundDueOutcome { get; set; }
+
+        public string? RefundDueReference { get; set; }
+
+        public string? RefundDueDetail { get; set; }
 
         public ProviderOperationOutcome? ResidualOutcome { get; set; }
 

@@ -1,4 +1,4 @@
-# P3-G3 — EMD-A Exchange / Reissue To A New EMD
+﻿# P3-G3 — EMD-A Exchange / Reissue To A New EMD
 
 Closing report for P3-G3, the third slice of P3-G ancillary servicing: making
 `AncillaryExchangeDisposition.ExchangeToNewEmd` fully executable.
@@ -559,14 +559,327 @@ lifecycle.
 
 ---
 
-## 21. Freeze Verdict
+## 21. Freeze Verdict (superseded by §22 — see the consolidated correction below)
 
-```text
-P3-G3 READY TO FREEZE: YES
-```
+The first delivery reported `YES`. That verdict is **withdrawn**: a consolidated review found ten production
+blockers, listed and fixed in §22. The binding verdict is §23.
 
 `ExchangeToNewEmd` is fully executable for every supported shape. No Ordering-owned defect and no placeholder
 remains. Every supported shape is replay-safe and proven from persisted state. No provider document number is
 locally invented. No confirmed EMD exchange can be double-dispatched. Predecessor/successor lineage is durable
 and queryable in both directions. Mixed G1/G2/G3 ancillary dispositions are deterministic. A coupled residual
 cannot be fulfilled twice. Every frozen ticket and EMD truth survives downstream money failure.
+
+---
+
+## 22. Final Consolidated Freeze Correction
+
+```text
+Correction baseline    9f0cb7b68d6f79b61a523fe970da36c8aaae7038  P3-G3-EMD Exchange
+Delta to the brief     none — HEAD matched exactly
+Working tree at start  clean
+```
+
+Ten production blockers were found in the first G3 delivery and fixed in this single correction pass. Every
+G1, G2 and P3-F semantic is unchanged.
+
+### 22.1 RefundDue is now executed, not merely accepted
+
+The first delivery persisted `RefundDueAmount/Currency/Disposition` on the group and never called a value
+rail — a source-approved refund obligation was silently dropped. `IRefundValuePort` is now reused with a
+group-scoped stable key:
+
+```text
+emd-exchange-refund:{ExchangeGroupRef}
+```
+
+`SettleAncillaryExchangeRefundDueAsync` is recover-first, persists `RefundDueOutcome/Reference/Detail`, and the
+group exposes `RequiresRefundDue`, `IsRefundDueSettled`, `IsRefundDueRejected`. `IsSettled` now requires
+`(!RequiresRefundDue || IsRefundDueSettled)`, and `IsRejected` includes a refused refund.
+
+```text
+RefundDue only:            EMD exchange -> local EMD truth + lineage + PriceChangeSet -> RefundValue -> complete
+AddCollect + RefundDue:    guarantee -> EMD exchange -> local truth -> capture -> RefundValue -> complete
+```
+
+`AncillaryExchangeEvidencePolicy.RefundDueContradiction` requires a value movement reference, an exact amount,
+an exact currency, and an exact disposition when echoed. `Pending`/`Unknown` hold the operation at
+`AwaitingExternal`; `Rejected` or contradictory evidence reconciles. Nothing confirmed is ever rolled back.
+
+### 22.2 The supported monetary shapes are frozen
+
+`EnsureMonetaryShapeIsSupported` refuses, before any irreversible work, with
+`AncillaryExchangeGroupMalformed` (20312, 422):
+
+| Shape | Verdict |
+| --- | --- |
+| `Even`, `AddCollect`, `RefundDue`, `Residual` | supported |
+| `AddCollect + RefundDue`, `AddCollect + Residual` | supported |
+| `RefundDue + Residual` | refused |
+| `AddCollect + RefundDue + Residual` | refused |
+| non-positive collection, refund or residual amount | refused |
+| a leg currency that is not the group currency | refused |
+| a blank refund or residual disposition | refused |
+
+Duplicate legs are structurally impossible: `AncillaryEmdExchangeTerms` holds at most one `AcceptedAddCollect`,
+one `AcceptedRefundDue` and one `AcceptedResidual`, so a second leg of a kind cannot be expressed. Nothing is
+collapsed into a signed delta — each leg keeps its own accepted value object, its own operation key and its own
+durable outcome. `RefundDue` keeps its original-refundable-source semantics and a residual is never
+reinterpreted as a refund.
+
+### 22.3 A document-coupled residual is EMD only
+
+The first delivery accepted `DocumentCoupled` with any instrument and then fed the EMD-S materializer, which
+would have minted an EMD for an accepted MCO. Frozen for this slice:
+
+```text
+ResidualFulfillment.DocumentCoupled  =>  ExpectedInstrument == ResidualInstrumentKind.Emd
+```
+
+Anything else — `Mco`, `Voucher`, `TravelCredit`, `Other`, `Unknown` — is refused at acceptance with 20312,
+before the ticket document exchange. No MCO was built, no MCO is mapped to an EMD, and no unsupported
+instrument is silently downgraded to `ExternalValue`.
+
+### 22.4 Residual evidence fails closed on both rails
+
+**Coupled.** `ResidualContradiction` now additionally requires the reason-for-issuance code and sub code to be
+present and the returned instrument to equal the accepted `ExpectedInstrument`, on top of the existing
+presence, amount and currency checks. A residual returned when none is owed, or missing/contradictory evidence
+when one is required, reconciles with no EMD-exchange re-dispatch and no downstream residual or value dispatch.
+
+**External.** The first delivery accepted a confirmed external residual with no checking at all. The new
+`ExternalResidualContradiction` requires a provider reference, an instrument reference, an instrument, an exact
+amount, an exact currency, and an instrument matching `ExpectedInstrument` whenever that is not `Unknown`.
+Wrong evidence reconciles while already-confirmed EMD truth stays durable.
+
+### 22.5 Provider successor coupon numbers are authoritative
+
+`SuccessorEmdCouponIdentity.CouponNumber` was ignored because the generic `ElectronicMiscDocument.Issue`
+renumbers coupons `1..N`. A narrow provider-confirmed factory was added:
+
+```csharp
+ElectronicMiscDocument.IssueProviderConfirmed(..., IReadOnlyList<int> providerCouponNumbers, ...)
+```
+
+Both factories delegate to one private `Create`, so ordinary issuance semantics are untouched: `Issue` still
+numbers `1..N`. `IssueProviderConfirmed` persists the exact provider numbers and refuses a non-positive or
+repeated number with `ElectronicMiscDocumentCouponNumbersMalformed` (20315, 422). The evidence policy rejects
+the same shapes earlier, so a malformed echo reconciles rather than throwing.
+
+Normalized result order is defined as **corresponding to the request successor-coupon order**, which is the
+accepted successor-coupon order. `ExchangeRecord.SuccessorCouponNumber` and the successor coupon's
+`Predecessor*` now both carry the actual provider number. `DeterministicEmdExchangeAdapter` can simulate
+non-default numbers via `SuccessorCouponNumbersOverride`.
+
+### 22.6 Source ↔ successor mapping is explicit
+
+The positional fallbacks — "first source coupon", "minimum successor coupon" — are removed. The mapping is now
+a single explicit index chain, and the cardinality is a frozen representation limit:
+
+```text
+SourceCouponNumbers.Count == SuccessorCoupons.Count
+
+sorted source coupon order  <->  accepted successor-coupon order  <->  normalized provider result order
+```
+
+Any other cardinality is refused at acceptance with 20312, before the ticket exchange.
+
+**This is not an industry restriction.** Merge (N:1) and split (1:M) EMD exchanges are industry-valid. They
+require an explicit authoritative mapping in the accepted terms, which this contract does not carry, and
+Ordering must not infer one. Recorded as a representation limit in `ICC-P3-EMD-EXCHANGE`.
+
+### 22.7 An existing successor number is exact replay identity
+
+The first delivery compared `existing.OperationId != group.SourceElectronicMiscDocumentId` — a servicing
+operation id against an EMD id, two different identity domains, so the check was meaningless.
+
+`ElectronicMiscDocumentIdentityPolicy.Conflict` now takes the operation id and the beneficiary explicitly and
+compares: origin servicing `OperationId`, beneficiary binding, type, currency, issuer carrier, issuing office,
+authority, RFIC, coupon count, and per returned coupon number the purpose, RFISC, value, currency, the
+predecessor EMD id/document/coupon mapping, the ticket association (exact accepted successor coupon for
+`Associated`, absent for `Standalone`), the `OrderServiceId` when the source approved one, and the
+`ExternalValueReference` when the source approved one.
+
+Any mismatch reconciles: it is not accepted as a replay, no other document number is generated, and the
+already-confirmed EMD exchange is not re-dispatched.
+
+### 22.8 Association and beneficiary evidence is complete
+
+For an `Associated` successor the returned ticket **document** is now required and must be exact — previously
+it was only checked when present. Every returned coupon association must be present and exact. For a
+`Standalone` successor both the document-level and coupon-level ticket associations must be absent.
+
+`SuccessorEmdIdentity` gained `BeneficiaryTravellerId`, so a confirmed wrong beneficiary is now detectable and
+is treated as a contradiction. The adapter owns provider-to-domain normalization.
+
+### 22.9 Deterministic request identity is complete
+
+The intent fingerprint omitted `SourcePricingReference` and `Residual.ExpectedInstrument`, so a changed
+immutable intent could reuse a known key. Both are now fingerprinted alongside source scope, beneficiary,
+successor semantics and targets, ticket document, decision and source references, and every coupled-residual
+field.
+
+### 22.10 Every confirmed group owns exactly one PriceChangeSet
+
+```text
+one confirmed EMD exchange group
+  => exactly one dependent PriceChangeSet
+  => exactly one OrderPricingChanged
+  => exactly one CommercialVersion advance
+```
+
+The service previously skipped the consequence when `PricingLines.Count == 0`, so an even exchange could
+confirm with no commercial consequence at all. The skip is removed. Every executable `ExchangeToNewEmd` group
+must now carry source-approved pricing lines — including an even exchange, which a line-grain ledger expresses
+as an authoritative zero-net withdrawal/grant pair. A group with no pricing evidence is refused at acceptance
+with `AncillaryExchangeTermsMissing` (20311, 422), before the ticket exchange.
+
+Ordering invents no zero-value lines. Replay uses the persisted `PriceChangeSetId` and appends nothing.
+
+### 22.11 Correction exception codes
+
+| Code | Factory | HTTP | Meaning |
+| --- | --- | --- | --- |
+| 20315 | `ElectronicMiscDocumentCouponNumbersMalformed` | 422 | a provider-returned coupon number is non-positive or repeated |
+
+Reused for the new rules: 20311 `AncillaryExchangeTermsMissing` (missing pricing evidence), 20312
+`AncillaryExchangeGroupMalformed` (monetary shape, coupled-residual instrument, mapping cardinality). Highest
+allocated code is now **20315**; 20001–20315 contiguous, no duplicates.
+
+### 22.12 Correction migration
+
+One additive migration, `P3G3AncillaryExchangeRefundDue`:
+
+| Operation kind in `Up` | Count |
+| --- | --- |
+| `AddColumn` | 3 — `RefundDueOutcome`, `RefundDueReference`, `RefundDueDetail` on `Order.AcceptedExchangePlanAncillaryExchangeGroups` |
+| destructive operations | **0** |
+
+No historical migration edited, no enum renumbered, no index changed.
+
+### 22.13 Correction test coverage
+
+`EmdExchangeFreezeGateCorrectionTests` — 41 cases mapped to the brief's §11:
+
+| Brief case | Test |
+| --- | --- |
+| 1 RefundDue confirmed → one value act → complete | `C1` |
+| 2 RefundDue `Pending`/`Unknown` → AwaitingExternal, EMD truth retained | `C2` (2 shapes) |
+| 3 RefundDue rejected / wrong amount, currency, disposition, missing reference | `C3` (5 shapes) |
+| 4 AddCollect + RefundDue sequence | `C4` |
+| 5 valid `AddCollect+Residual`; reject `RefundDue+Residual` and all three | `C5a`, `C5b` (6 shapes) |
+| 6 DocumentCoupled MCO/unsupported instrument fails first, no fake EMD | `C6` (5 instruments) |
+| 7 coupled residual wrong instrument/amount/currency/missing RFIC | `C7` (4 shapes) |
+| 8 external residual missing/wrong reference, instrument, amount, currency | `C8` (5 shapes) |
+| 9 non-default provider coupon numbers persisted exactly, both directions | `C9` |
+| 10 duplicate / non-positive returned coupon numbers reconcile | `C10` (2 shapes) |
+| 11 source/successor cardinality mismatch fails before ticket exchange | `C11` |
+| 12 existing successor number from another operation is never a replay | `C12` |
+| 13 associated without ticket document; standalone claiming one; wrong beneficiary | `C13` (3 shapes) |
+| 14 same key + changed source pricing ref / residual instrument | `C14` (2 shapes) |
+| 15 even exchange without pricing evidence fails first; one consequence per group | `C15`, `C15b` |
+| 16 exact replay of a full monetary group moves nothing twice | `C16` |
+
+`ElectronicMiscDocumentIdentityPolicyTests` (Domain, 16 cases) covers each identity facet of §22.7 directly,
+because the deeper facets are not reachable through the servicing flow: the only path that reaches the policy
+is a fresh dispatch against a pre-existing document, which by construction came from a different operation, so
+the origin-operation check always fires first. `C12` proves the reachable flow case; the unit tests prove the
+rest. One facet — a standalone coupon carrying a ticket association — is unconstructible, because
+`EnsureCouponIsWellFormed` already refuses it at the aggregate; the policy branch stays as defence and the test
+asserts the reachable standalone replay instead.
+
+### 22.14 Correction files changed
+
+**New (2)**
+
+| File | Purpose |
+| --- | --- |
+| `tests/.../P3/EmdExchangeFreezeGateCorrectionTests.cs` | the 41-case correction suite |
+| `tests/AeroTech.Ordering.Domain.Tests/P3/ElectronicMiscDocumentIdentityPolicyTests.cs` | the 16-case identity-facet unit suite |
+| `src/AeroTech.Ordering.Persistence/Migrations/*_P3G3AncillaryExchangeRefundDue.cs` | three additive nullable columns |
+
+**Modified (12)**
+
+| File | Change |
+| --- | --- |
+| `Domain/ElectronicMiscDocumentAggregate/ElectronicMiscDocument.cs` | `IssueProviderConfirmed` + shared `Create`; coupon-number validation |
+| `Domain/Ports/EmdExchange/SuccessorEmdIdentity.cs` | `BeneficiaryTravellerId` |
+| `Domain/Servicing/Plans/AcceptedExchangeAncillaryExchangeGroup.cs` | refund-due rail, leg identity, `IsSettled`/`IsRejected` |
+| `Domain/Servicing/Plans/Policies/AncillaryExchangeEvidencePolicy.cs` | coupon-number, beneficiary and association checks; coupled-residual instrument and RFIC; `ExternalResidualContradiction`; `RefundDueContradiction` |
+| `Domain/Servicing/Plans/Policies/ElectronicMiscDocumentIdentityPolicy.cs` | rewritten: correct identity domains and the full facet set |
+| `Domain/Servicing/Plans/Contracts/IAcceptedExchangePlanStore.cs` | `RecordAncillaryExchangeRefundDueOutcomeAsync` |
+| `Domain/_Shared/Resources/ExceptionFactory.cs`, `ExceptionMessages.cs` | code 20315 |
+| `Application/.../Exchange/ExchangeAncillaryPlanner.cs` | monetary-shape freeze, EMD-only coupled residual, 1:1 cardinality, mandatory pricing evidence |
+| `Application/.../Exchange/ExchangeOperationKeys.cs` | `AncillaryExchangeRefundDue` |
+| `Application/.../Exchange/ExchangeService.AncillaryExchange.cs` | refund-due stage in the order; beneficiary and operation id into the checks |
+| `Application/.../Exchange/ExchangeService.AncillaryExchangeMaterialization.cs` | exact provider coupon numbers; positional fallbacks removed; unconditional consequence |
+| `Application/.../Exchange/ExchangeService.AncillaryExchangeMonetary.cs` | `SettleAncillaryExchangeRefundDueAsync`; external residual contradiction |
+| `Persistence/Servicing/AcceptedExchangePlanAncillaryExchangeGroupRow.cs` + configuration + `AcceptedExchangePlanStore.cs` | the three refund-due columns and their round trip |
+| `Providers.Deterministic/DeterministicEmdExchangeAdapter.cs` | complete intent fingerprint; beneficiary echo; coupon-number, ticket-document and residual simulation knobs |
+| `Providers.Deterministic/DeterministicAncillaryDispositionAdapter.cs` | refund-due currency/disposition, residual instrument and merge-group knobs |
+
+### 22.15 Correction regression results
+
+Every figure is from an actual run on the final build of this working tree.
+
+| Suite | Result |
+| --- | --- |
+| **`EmdExchangeFreezeGateCorrectionTests` (new)** | **43 passed, 0 failed, 0 skipped** |
+| **`ElectronicMiscDocumentIdentityPolicyTests` (new, Domain)** | **16 passed, 0 failed, 0 skipped** |
+| `EmdExchangeToNewEmdFlowTests` | 48 passed, 0 failed, 0 skipped |
+| `Contracts/EmdExchange/` | 18 passed, 0 failed, 0 skipped |
+| `AncillaryRefundFlowTests` (G2) | 35 passed, 0 failed, 0 skipped |
+| `EmdReassociationFlowTests` (G1) | 29 passed, 0 failed, 0 skipped |
+| `AncillaryDispositionGateTests` | 22 passed, 0 failed, 0 skipped |
+| `PostDocumentTruthFreezeGateTests` | 11 passed, 0 failed, 0 skipped |
+| `ResidualDocumentCouplingTests` (P3-F) | 15 passed, 0 failed, 0 skipped |
+| `ResidualEvidenceFreezeGateTests` (P3-F) | 12 passed, 0 failed, 0 skipped |
+| `MixedExchangeFlowTests` (P3-F) | 53 passed, 0 failed, 0 skipped |
+| `ExchangeFlowTests` (P3-F) | 32 passed, 0 failed, 0 skipped |
+| `RefundDueExchangeFlowTests` (P3-D/F) | 25 passed, 0 failed, 0 skipped |
+| `AddCollectFundingRecoveryTests` | 22 passed, 0 failed, 0 skipped |
+| `Contracts/ExchangeFunding/` | 24 passed, 0 failed, 0 skipped |
+| `Contracts/ExchangeResidual/` | 12 passed, 0 failed, 0 skipped |
+| `Contracts/RefundValue/` | 11 passed, 0 failed, 0 skipped |
+| `Contracts/DocumentExchange/` | 7 passed, 0 failed, 0 skipped |
+| `Contracts/DocumentRefund/` | 17 passed, 0 failed, 0 skipped |
+| `Contracts/EmdAssociation/` | 15 passed, 0 failed, 0 skipped |
+| `Contracts/AncillaryDisposition/` | 20 passed, 0 failed, 0 skipped |
+| **`AeroTech.Ordering.Domain.Tests` (full)** | **527 passed, 0 failed, 0 skipped** |
+| **`AeroTech.Ordering.Persistence.Tests` (full)** | **1156 passed, 0 failed, 0 skipped** |
+| `dotnet build AeroTech.Ordering.sln` | Build succeeded, 0 errors |
+| `dotnet ef migrations has-pending-model-changes` | "No changes have been made to the model since the last migration." |
+
+### 22.16 Self-review beyond the tests
+
+Source was re-read after the suites went green, not instead of it. Verified by inspection:
+
+* no positional fallback remains anywhere in the G3 stages — `grep` for `SourceCouponNumbers[0]`,
+  `Min(coupon => coupon.CouponNumber)`, `ElementAt(index)` and `SuccessorCouponNumberFor` returns nothing;
+* the only surviving `PricingLines.Count == 0` checks are the two **acceptance refusals** in the planner, which
+  is what §10 requires; the service-side skip is gone;
+* the invalid `OperationId != SourceElectronicMiscDocumentId` comparison no longer exists in the repository;
+* the stage order in `ExchangeAncillaryToNewEmdAsync` reads guarantee → exchange → capture → refund-due →
+  external residual, matching §1 exactly for both `RefundDue`-only and `AddCollect + RefundDue`;
+* the refund request's `DispositionReference` carries the **decision** reference and `SourcePricingReference`
+  the source pricing reference — a precision fix made during self-review, not surfaced by any test;
+* exception codes 20001–20315 are contiguous with no duplicates and all inside 20000–29999.
+
+---
+
+## 23. Freeze Verdict
+
+```text
+P3-G3 READY TO FREEZE: YES
+```
+
+All ten production blockers are fixed and covered. No known Ordering-owned defect and no placeholder remains.
+A source-approved refund obligation is executed, not dropped. The supported monetary shapes are frozen and
+every unsupported one fails before irreversible work. A document-coupled residual can only be an EMD, and both
+residual rails fail closed on contradictory evidence. Provider coupon numbers are persisted exactly and drive
+both lineage directions. The source-to-successor mapping is explicit, with its 1:1 limit recorded as a
+representation limit rather than an industry rule. An existing successor number is compared on real identity
+domains and is never accepted as another operation's replay. Deterministic request identity covers every
+materially binding field. Every confirmed group owns exactly one `PriceChangeSet`, one `OrderPricingChanged`
+and one `CommercialVersion` advance, and replay appends none of them twice. Every frozen ticket, EMD and
+commercial truth survives downstream money failure.

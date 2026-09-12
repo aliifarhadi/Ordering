@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 
@@ -33,6 +33,9 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         ProviderOperationOutcome? FundingCaptureOutcome = null,
         string? FundingCaptureReference = null,
         string? FundingCaptureDetail = null,
+        ProviderOperationOutcome? RefundDueOutcome = null,
+        string? RefundDueReference = null,
+        string? RefundDueDetail = null,
         ProviderOperationOutcome? ResidualOutcome = null,
         string? ResidualProviderReference = null,
         string? ResidualInstrumentReference = null,
@@ -45,6 +48,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public const string FundingCaptureLegPrefix = "emd-exchange-capture";
 
+        public const string RefundDueLegPrefix = "emd-exchange-refund";
+
         public const string ResidualLegPrefix = "emd-exchange-residual";
 
         public string LegIdentity => $"{LegPrefix}:{ExchangeGroupRef}";
@@ -53,11 +58,19 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public string FundingCaptureLegIdentity => $"{FundingCaptureLegPrefix}:{ExchangeGroupRef}";
 
+        public string RefundDueLegIdentity => $"{RefundDueLegPrefix}:{ExchangeGroupRef}";
+
         public string ResidualLegIdentity => $"{ResidualLegPrefix}:{ExchangeGroupRef}";
 
         public bool IsAssociatedSuccessor => SuccessorType == ElectronicMiscDocumentType.Associated;
 
         public bool RequiresFunding => AddCollect is not null;
+
+        public bool RequiresRefundDue => RefundDue is not null;
+
+        public bool IsRefundDueSettled => RefundDueOutcome == ProviderOperationOutcome.Confirmed;
+
+        public bool IsRefundDueRejected => RefundDueOutcome == ProviderOperationOutcome.Rejected;
 
         public bool RequiresExternalResidual => Residual is { IsDocumentCoupled: false };
 
@@ -80,11 +93,13 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool IsSettled => IsExchangeConfirmed
                                  && IsMaterialized
                                  && (!RequiresFunding || IsFundingCaptured)
+                                 && (!RequiresRefundDue || IsRefundDueSettled)
                                  && (!RequiresExternalResidual || IsResidualSettled);
 
         public bool IsRejected => IsExchangeRejected
                                   || FundingGuaranteeOutcome == ProviderOperationOutcome.Rejected
                                   || FundingCaptureOutcome == ProviderOperationOutcome.Rejected
+                                  || IsRefundDueRejected
                                   || ResidualOutcome == ProviderOperationOutcome.Rejected;
 
         public ExchangeAncillaryState State => ExchangeOutcome switch

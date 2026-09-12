@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Ports.EmdExchange;
 using AeroTech.Ordering.Domain._Shared.Documents;
@@ -47,6 +47,22 @@ namespace AeroTech.Ordering.Providers.Deterministic
         public bool OmitCoupledResidual { get; set; }
 
         public bool ReportUnexpectedResidual { get; set; }
+
+        public long? BeneficiaryOverride { get; set; }
+
+        public IReadOnlyList<int>? SuccessorCouponNumbersOverride { get; set; }
+
+        public bool OmitSuccessorTicketDocument { get; set; }
+
+        public bool ForceSuccessorTicketDocument { get; set; }
+
+        public ResidualInstrumentKind? ResidualInstrumentOverride { get; set; }
+
+        public decimal? ResidualAmountOverride { get; set; }
+
+        public int? ResidualCurrencyOverride { get; set; }
+
+        public bool OmitResidualReasonForIssuance { get; set; }
 
         public string ResidualReasonForIssuanceCode { get; set; } = "D";
 
@@ -156,8 +172,10 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 request.SuccessorReasonForIssuanceCode,
                 SuccessorCurrencyOverride ?? request.CurrencyId,
                 request.SuccessorCoupons
-                    .Select(coupon => new SuccessorEmdCouponIdentity(
-                        couponNumber++,
+                    .Select((coupon, index) => new SuccessorEmdCouponIdentity(
+                        SuccessorCouponNumbersOverride is { } overridden && overridden.Count > index
+                            ? overridden[index]
+                            : couponNumber++,
                         coupon.Purpose,
                         SuccessorSubCodeOverride ?? coupon.ReasonForIssuanceSubCode,
                         SuccessorValueOverride ?? coupon.Value,
@@ -166,9 +184,14 @@ namespace AeroTech.Ordering.Providers.Deterministic
                             ? SuccessorAssociatedCouponOverride ?? coupon.TargetSuccessorTicketCouponNumber
                             : null))
                     .ToList(),
-                type == ElectronicMiscDocumentType.Associated && !OmitSuccessorAssociation
-                    ? request.SuccessorTicketDocumentNumber
-                    : null);
+                BeneficiaryOverride ?? request.BeneficiaryTravellerId,
+                ForceSuccessorTicketDocument
+                    ? request.SuccessorTicketDocumentNumber ?? "T-FORCED"
+                    : type == ElectronicMiscDocumentType.Associated
+                      && !OmitSuccessorAssociation
+                      && !OmitSuccessorTicketDocument
+                        ? request.SuccessorTicketDocumentNumber
+                        : null);
         }
 
         private ResidualDocumentIdentity? Residual(EmdExchangeRequest request)
@@ -190,14 +213,14 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
             return new ResidualDocumentIdentity(
                 $"{NextDocumentNumber(request)}R",
-                residual.ExpectedInstrument,
-                residual.Amount,
-                residual.CurrencyId,
+                ResidualInstrumentOverride ?? residual.ExpectedInstrument,
+                ResidualAmountOverride ?? residual.Amount,
+                ResidualCurrencyOverride ?? residual.CurrencyId,
                 IssuerCarrierId,
                 IssuingOfficeId,
                 Authority,
-                ResidualReasonForIssuanceCode,
-                ResidualReasonForIssuanceSubCode);
+                OmitResidualReasonForIssuance ? string.Empty : ResidualReasonForIssuanceCode,
+                OmitResidualReasonForIssuance ? string.Empty : ResidualReasonForIssuanceSubCode);
         }
 
         private static string NextDocumentNumber(EmdExchangeRequest request)
@@ -225,8 +248,10 @@ namespace AeroTech.Ordering.Providers.Deterministic
                         coupon.ReasonForIssuanceSubCode,
                         coupon.Value,
                         coupon.TargetSuccessorTicketCouponNumber))),
+                request.SourcePricingReference,
                 request.Residual?.Amount,
                 request.Residual?.CurrencyId,
-                request.Residual?.Disposition);
+                request.Residual?.Disposition,
+                (int?)request.Residual?.ExpectedInstrument);
     }
 }

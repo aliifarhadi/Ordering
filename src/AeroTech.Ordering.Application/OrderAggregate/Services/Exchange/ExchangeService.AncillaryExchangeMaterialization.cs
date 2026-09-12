@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Arguments;
@@ -50,11 +50,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             source.ExchangeCoupons(
                 settled.SourceCouponNumbers
-                    .Select(couponNumber => new EmdCouponExchange(
+                    .Select((couponNumber, index) => new EmdCouponExchange(
                         couponNumber,
                         materialized.Id,
                         materialized.DocumentNumber,
-                        SuccessorCouponNumberFor(settled, materialized, couponNumber),
+                        successor.Coupons[index].CouponNumber,
                         operation.OperationId,
                         settled.DecisionReference,
                         result.ProviderReference))
@@ -87,21 +87,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             return settled;
         }
 
-        private static int SuccessorCouponNumberFor(
-            AcceptedExchangeAncillaryExchangeGroup group,
-            ElectronicMiscDocument successor,
-            int sourceCouponNumber)
-        {
-            var index = group.SourceCouponNumbers
-                .Select((couponNumber, position) => (couponNumber, position))
-                .First(entry => entry.couponNumber == sourceCouponNumber)
-                .position;
-
-            return successor.Coupons.Count > index
-                ? successor.Coupons.OrderBy(coupon => coupon.CouponNumber).ElementAt(index).CouponNumber
-                : successor.Coupons.Min(coupon => coupon.CouponNumber);
-        }
-
         private async Task<ElectronicMiscDocument> MaterializeSuccessorEmdAsync(
             Order order,
             OrderOperation operation,
@@ -122,7 +107,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     .FirstOrDefault()
                 : null;
 
-            var issued = ElectronicMiscDocument.Issue(
+            var issued = ElectronicMiscDocument.IssueProviderConfirmed(
                 _idGenerator.NewId(),
                 order.Id,
                 predecessor.TravelerId,
@@ -135,6 +120,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 successor.Authority,
                 successor.CurrencyId,
                 SuccessorCoupons(source, group, feePricingLineId),
+                successor.Coupons.Select(coupon => coupon.CouponNumber).ToList(),
                 _idGenerator,
                 _clock);
 
@@ -152,9 +138,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             => group.SuccessorCoupons
                 .Select((coupon, index) =>
                 {
-                    var replaced = group.SourceCouponNumbers.Count > index
-                        ? group.SourceCouponNumbers[index]
-                        : group.SourceCouponNumbers[0];
+                    var replaced = group.SourceCouponNumbers[index];
 
                     return new EmdCouponIssuance(
                         coupon.Purpose,
@@ -179,7 +163,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             AcceptedExchangeAncillaryExchangeGroup group,
             CancellationToken cancellationToken)
         {
-            if (group.IsConsequenceCommitted || group.PricingLines.Count == 0)
+            if (group.IsConsequenceCommitted)
                 return null;
 
             var consequence = order.CommitDependentPriceChange(

@@ -373,6 +373,7 @@
         public const string ElectronicMiscDocumentExchangeConflict = "Coupon {1} of miscellaneous document {0} was already exchanged to {2} and cannot name a different successor.";
         public const string AncillaryExchangeTermsMissing = "The exchange disposition for coupon {1} of miscellaneous document {0} carries no source-approved {2}.";
         public const string AncillaryExchangeGroupMalformed = "Ancillary exchange group {0} is malformed: {1}.";
+        public const string ElectronicMiscDocumentCouponNumbersMalformed = "Miscellaneous document {0} cannot be created: {1}.";
         public const string AncillaryExchangeAmountDoesNotReconcile = "The approved ancillary exchange lines net {1} to the customer against an approved {0}.";
         public const string EmdExchangeSourceNotConfigured = "No miscellaneous document exchange authority is configured.";
         public const string DependentPriceChangeHostNotResolvable = "Servicing operation {0} has no single {1} change on order {2} to carry a dependent price consequence.";
