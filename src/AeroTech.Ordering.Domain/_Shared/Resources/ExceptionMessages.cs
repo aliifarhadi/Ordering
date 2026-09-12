@@ -369,6 +369,7 @@
         public const string AncillaryDispositionContextMismatch = "The ancillary disposition decision for exchange {0} was generated for a different servicing context ({1}).";
         public const string ElectronicMiscDocumentCouponIsNotRefundable = "Coupon {1} of miscellaneous document {0} is {2} and cannot be refunded.";
         public const string AncillaryRefundEconomicsMissing = "The refund disposition for coupon {1} of miscellaneous document {0} carries no source-approved {2}.";
+        public const string DependentPriceChangeHostNotResolvable = "Servicing operation {0} has no single {1} change on order {2} to carry a dependent price consequence.";
         public const string ElectronicMiscDocumentNotFound = "Miscellaneous document {0} was not found.";
         public const string ElectronicMiscDocumentAssociationMoved = "Coupon {1} of miscellaneous document {0} is no longer associated with document {2}.";
         public const string IdempotencyKeyRequired = "The '{0}' header is required for this operation.";

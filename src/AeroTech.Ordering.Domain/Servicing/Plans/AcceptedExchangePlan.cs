@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 
@@ -134,9 +134,6 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool RequiresAncillaryReassociation => ExecutableAncillaries.Count > 0;
 
         public bool RequiresAncillaryRefund => AncillaryRefunds.Count > 0;
-
-        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> SettledAncillaryRefunds
-            => AncillaryRefunds.Where(disposition => disposition.IsRefundSettled).ToList();
 
         public bool IsAncillarySettled => ExecutableAncillaries.All(disposition => disposition.IsSettled);
 

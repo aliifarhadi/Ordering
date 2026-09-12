@@ -46,6 +46,8 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public string RefundSourceReference { get; set; } = "ANC-REFUND-SOURCE";
 
+        public PricingSource RefundPricingSource { get; set; } = PricingSource.Supplier;
+
         public bool OmitRefundTerms { get; set; }
 
         public decimal? RefundAmountOverride { get; set; }
@@ -57,6 +59,10 @@ namespace AeroTech.Ordering.Providers.Deterministic
         public bool OmitRefundSourceReference { get; set; }
 
         public bool OmitRefundPricingLines { get; set; }
+
+        public bool ReportSelfDerivedRefundPricing { get; set; }
+
+        public long? RefundReversesPricingLineId { get; set; }
 
         private IReadOnlyList<AcceptedRefundPricingLine> RefundLines() =>
         [
@@ -71,6 +77,7 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 RefundCurrencyOverride ?? RefundCurrencyId,
                 PricingBasisType.OrderService,
                 RefundabilityRule.Refundable,
+                ReversesPricingLineId: RefundReversesPricingLineId,
                 Code: "ANCILLARY-REFUND",
                 Description: "Ancillary refund approved by the pricing source")
         ];
@@ -140,6 +147,7 @@ namespace AeroTech.Ordering.Providers.Deterministic
                     RefundCurrencyOverride ?? RefundCurrencyId,
                     OmitRefundDisposition ? string.Empty : RefundDisposition,
                     OmitRefundSourceReference ? string.Empty : RefundSourceReference,
+                    ReportSelfDerivedRefundPricing ? PricingSource.OrderingDerived : RefundPricingSource,
                     OmitRefundPricingLines ? [] : RefundLines())
                 : null;
 

@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.FulfillmentReservationAggregate;
@@ -352,7 +352,7 @@ namespace AeroTech.Ordering.Synchronizer.OrderAggregate
                         .Where(link => link.LinkedByChangeId == change.Id)
                         .Select(link => link.OrderServiceId)
                         .ToList(),
-                    order.PriceChangeSets.FirstOrDefault(set => set.ChangeId == change.Id)?.Id))
+                    order.OriginatingPriceConsequenceOf(change.Id)?.Id))
                 .ToList();
 
         private static IReadOnlyList<OrderViewPriceChangeSet> BuildPricingHistory(Order order)

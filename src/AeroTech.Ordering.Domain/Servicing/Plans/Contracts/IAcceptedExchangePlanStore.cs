@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 
 namespace AeroTech.Ordering.Domain.Servicing.Plans.Contracts
@@ -64,6 +64,12 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Contracts
             ProviderOperationOutcome outcome,
             string? providerReference,
             string? detail,
+            CancellationToken cancellationToken = default);
+
+        Task RecordAncillaryRefundConsequenceAsync(
+            long operationId,
+            long emdCouponId,
+            long priceChangeSetId,
             CancellationToken cancellationToken = default);
 
         Task RecordAncillaryAssociationOutcomeAsync(

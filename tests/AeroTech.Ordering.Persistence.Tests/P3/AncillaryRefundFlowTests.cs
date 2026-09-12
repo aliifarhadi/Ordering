@@ -4,6 +4,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Services.Exchange;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
+using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 using AeroTech.Ordering.Persistence.Tests._Shared;
@@ -52,7 +53,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Assert.Equal(ElectronicTicketStatus.Exchanged, predecessor.StatusSummary);
             Assert.NotNull(outcome.SuccessorElectronicTicketId);
-            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Refund);
+            Assert.Single(after.Changes, change => change.OperationId == outcome.OperationId);
             Assert.Single(after.PriceChangeSets, set => set.Reason == PriceChangeReason.Refund);
 
             Assert.Single(harness.DocumentRefunds.ObservedRefundRequests);
@@ -145,11 +146,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.All(
                 await AncillariesAsync(_fixture, scenario.OrderId),
                 document => Assert.Equal(EmdCouponStatus.Refunded, document.Coupons.Single().Status));
-            Assert.Single(after.PriceChangeSets, set => set.Reason == PriceChangeReason.Refund);
+            Assert.Equal(2, after.PriceChangeSets.Count(set => set.Reason == PriceChangeReason.Refund));
         }
 
         [Fact]
-        public async Task G2H5_a_refunded_service_ancillary_is_no_longer_deliverable()
+        public async Task G2H5_an_ancillary_refund_never_restatuses_the_exchanged_air_service()
         {
             await using var setup = NewHarness();
             await using var harness = NewHarness();
@@ -169,7 +170,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var service = after.OrderServices.Single(candidate => candidate.Id == coupon.CurrentOrderServiceId);
 
             Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
-            Assert.Equal(OrderServiceFinancialStatus.Refunded, service.FinancialStatus);
+            Assert.Equal(OrderServiceDocumentStatus.Exchanged, service.DocumentStatus);
+            Assert.NotEqual(OrderServiceFinancialStatus.Refunded, service.FinancialStatus);
             Assert.Single(after.PriceChangeSets, set => set.Reason == PriceChangeReason.Refund);
         }
 
@@ -182,6 +184,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         [InlineData("no-disposition")]
         [InlineData("no-source-reference")]
         [InlineData("no-pricing-lines")]
+        [InlineData("ordering-derived-pricing")]
         public async Task G2S1_a_refund_without_source_approved_economics_fails_before_any_exchange_work(string shape)
         {
             await using var harness = NewHarness();
@@ -207,6 +210,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 case "no-source-reference":
                     harness.AncillaryDispositions.OmitRefundSourceReference = true;
                     break;
+                case "ordering-derived-pricing":
+                    harness.AncillaryDispositions.ReportSelfDerivedRefundPricing = true;
+                    break;
                 default:
                     harness.AncillaryDispositions.OmitRefundPricingLines = true;
                     break;
@@ -225,6 +231,27 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Empty(harness.DocumentRefunds.ObservedRefundRequests);
             Assert.Empty(harness.RefundValues.ObservedRequests);
             Assert.Empty(ticket.Exchanges);
+            Assert.Equal(EmdCouponStatus.OpenForUse, coupon.Status);
+        }
+
+        [Fact]
+        public async Task G2S2_a_refund_that_reverses_value_the_document_does_not_carry_is_refused()
+        {
+            await using var harness = NewHarness();
+            var scenario = await RefundScenarioAsync(harness);
+
+            harness.AncillaryDispositions.RefundReversesPricingLineId = scenario.CouponId;
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(
+                () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
+
+            var coupon = (await AncillaryAsync(_fixture, scenario.OrderId, _document)).Coupons.Single();
+
+            Assert.Equal(20227, refusal.Code);
+            Assert.Equal(422, refusal.HttpStatus);
+            Assert.Empty(harness.DocumentExchanges.ObservedRequests);
+            Assert.Empty(harness.DocumentRefunds.ObservedRefundRequests);
+            Assert.Empty(harness.RefundValues.ObservedRequests);
             Assert.Equal(EmdCouponStatus.OpenForUse, coupon.Status);
         }
 
@@ -275,8 +302,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(EmdCouponStatus.OpenForUse, coupon.Status);
             Assert.Empty(harness.RefundValues.ObservedRequests);
             Assert.DoesNotContain(
-                (await ReloadAsync(_fixture, scenario.OrderId)).Changes,
-                change => change.ChangeType == OrderChangeType.Refund);
+                (await ReloadAsync(_fixture, scenario.OrderId)).PriceChangeSets,
+                set => set.Reason == PriceChangeReason.Refund);
         }
 
         [Fact]
@@ -446,9 +473,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             Assert.Equal(ServicingOperationStatus.NeedsReconciliation, outcome.OperationStatus);
             Assert.Equal(EmdCouponStatus.Refunded, coupon.Status);
-            Assert.DoesNotContain(
-                (await ReloadAsync(_fixture, scenario.OrderId)).Changes,
-                change => change.ChangeType == OrderChangeType.Refund);
+            Assert.Single(
+                (await ReloadAsync(_fixture, scenario.OrderId)).PriceChangeSets,
+                set => set.Reason == PriceChangeReason.Refund);
         }
 
         // ---------------------------------------------- frozen invariants
@@ -470,7 +497,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(first.SuccessorElectronicTicketId, replay.SuccessorElectronicTicketId);
             Assert.Single(harness.DocumentRefunds.ObservedRefundRequests);
             Assert.Single(harness.RefundValues.ObservedRequests);
-            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Refund);
+            Assert.Single(after.Changes, change => change.OperationId == replay.OperationId);
             Assert.Single(after.PriceChangeSets, set => set.Reason == PriceChangeReason.Refund);
             Assert.Single(
                 ancillary.Coupons.Single().AssociationChanges,
@@ -496,6 +523,191 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.False(ancillary.PermitsRefund(coupon.CouponNumber, 999L));
             Assert.Empty(ancillary.CouponsAssociatedWith([coupon.AssociatedTicketCouponId ?? 0L]));
         }
+
+        // ---------------------------------------------- commercial consequence
+
+        [Fact]
+        public async Task G2C1_a_confirmed_refund_appends_one_price_change_set_to_the_exchange_change()
+        {
+            await using var harness = NewHarness();
+            var scenario = await RefundScenarioAsync(harness);
+
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var after = await ReloadAsync(_fixture, scenario.OrderId);
+
+            var change = Assert.Single(after.Changes, candidate => candidate.OperationId == outcome.OperationId);
+            var consequences = after.PriceConsequencesOf(change.Id);
+            var refundSet = Assert.Single(consequences, set => set.Reason == PriceChangeReason.Refund);
+            var refundEvent = Assert.Single(
+                harness.Events.Dispatched.OfType<OrderPricingChanged>(),
+                raised => raised.Reason == PriceChangeReason.Refund);
+
+            Assert.Equal(OrderChangeType.Exchange, change.ChangeType);
+            Assert.Equal(2, consequences.Count);
+            Assert.Equal(PriceChangeReason.Exchange, consequences[0].Reason);
+            Assert.Same(refundSet, consequences[1]);
+
+            Assert.Equal(change.Id, refundEvent.OrderChangeId);
+            Assert.Equal(refundSet.Id, refundEvent.PriceChangeSetId);
+            Assert.Equal(outcome.OperationId, refundEvent.OperationId);
+
+            Assert.Equal(consequences[0].ExpectedCommercialVersion + 1, refundSet.ExpectedCommercialVersion);
+            Assert.Equal(refundSet.ExpectedCommercialVersion + 1, after.CommercialVersion);
+            Assert.Equal(after.CommercialVersion, refundEvent.CommercialVersion);
+            Assert.Equal(PricingSource.Supplier, refundSet.Source);
+            Assert.Equal(-RefundAmount, RefundImpact(after, refundSet.Id));
+        }
+
+        [Fact]
+        public async Task G2C2_a_replay_appends_no_second_commercial_consequence()
+        {
+            await using var harness = NewHarness();
+            var scenario = await RefundScenarioAsync(harness);
+            var key = NewKey();
+
+            var first = await harness.Exchange.ExchangeAsync(scenario.Execution(key));
+            var before = await ReloadAsync(_fixture, scenario.OrderId);
+
+            await harness.Exchange.ExchangeAsync(scenario.Execution(key));
+
+            var after = await ReloadAsync(_fixture, scenario.OrderId);
+            var change = Assert.Single(after.Changes, candidate => candidate.OperationId == first.OperationId);
+
+            Assert.Equal(before.Changes.Count, after.Changes.Count);
+            Assert.Equal(before.PriceChangeSets.Count, after.PriceChangeSets.Count);
+            Assert.Equal(before.PricingLines.Count, after.PricingLines.Count);
+            Assert.Equal(before.CommercialVersion, after.CommercialVersion);
+            Assert.Equal(2, after.PriceConsequencesOf(change.Id).Count);
+            Assert.Single(
+                harness.Events.Dispatched.OfType<OrderPricingChanged>(),
+                raised => raised.Reason == PriceChangeReason.Refund);
+        }
+
+        [Fact]
+        public async Task G2C3_two_refunded_coupons_own_one_financial_sequence_each()
+        {
+            await using var harness = NewHarness();
+            var scenario = await TicketedAsync(_fixture, harness);
+
+            await AttachAncillaryAsync(_fixture, harness, scenario.OrderId, _document, [scenario.CouponId]);
+            await AttachAncillaryAsync(_fixture, harness, scenario.OrderId, _secondDocument, [scenario.CouponId]);
+            harness.AncillaryDispositions.DefaultDisposition = AncillaryExchangeDisposition.Refund;
+
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var after = await ReloadAsync(_fixture, scenario.OrderId);
+
+            var change = Assert.Single(after.Changes, candidate => candidate.OperationId == outcome.OperationId);
+            var consequences = after.PriceConsequencesOf(change.Id);
+            var refunds = consequences.Where(set => set.Reason == PriceChangeReason.Refund).ToList();
+
+            Assert.Equal(OrderChangeType.Exchange, change.ChangeType);
+            Assert.Equal(3, consequences.Count);
+            Assert.Equal(2, refunds.Count);
+            Assert.Equal(refunds.Count, refunds.Select(set => set.FinancialSequence).Distinct().Count());
+            Assert.Equal(
+                refunds.Count,
+                refunds.Select(set => set.ExpectedCommercialVersion).Distinct().Count());
+            Assert.Equal(
+                2,
+                harness.Events.Dispatched
+                    .OfType<OrderPricingChanged>()
+                    .Count(raised => raised.Reason == PriceChangeReason.Refund));
+        }
+
+        [Fact]
+        public async Task G2C4_a_reassociation_alongside_a_refund_creates_no_consequence_of_its_own()
+        {
+            await using var harness = NewHarness();
+            var scenario = await TicketedAsync(_fixture, harness);
+
+            await AttachAncillaryAsync(_fixture, harness, scenario.OrderId, _document, [scenario.CouponId]);
+            await AttachAncillaryAsync(_fixture, harness, scenario.OrderId, _secondDocument, [scenario.CouponId]);
+
+            var refundTarget = new[] { _document, _secondDocument }.Order(StringComparer.Ordinal).First();
+            harness.AncillaryDispositions.DispositionByCoupon[refundTarget + ":1"] =
+                AncillaryExchangeDisposition.Refund;
+
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var after = await ReloadAsync(_fixture, scenario.OrderId);
+
+            var change = Assert.Single(after.Changes, candidate => candidate.OperationId == outcome.OperationId);
+            var consequences = after.PriceConsequencesOf(change.Id);
+
+            Assert.Equal(2, consequences.Count);
+            Assert.Single(consequences, set => set.Reason == PriceChangeReason.Exchange);
+            Assert.Single(consequences, set => set.Reason == PriceChangeReason.Refund);
+            Assert.Single(harness.EmdAssociations.ObservedRequests);
+        }
+
+        [Fact]
+        public async Task G2C5_an_unsettled_value_movement_leaves_the_committed_consequence_standing()
+        {
+            await using var harness = NewHarness();
+            var scenario = await RefundScenarioAsync(harness);
+            var key = NewKey();
+
+            harness.RefundValues.RequestOutcome = ProviderOperationOutcome.Pending;
+            harness.RefundValues.RecoveryOutcome = ProviderOperationOutcome.Pending;
+
+            var held = await harness.Exchange.ExchangeAsync(scenario.Execution(key));
+            await harness.Exchange.ExchangeAsync(scenario.Execution(key));
+
+            var after = await ReloadAsync(_fixture, scenario.OrderId);
+            var change = Assert.Single(after.Changes, candidate => candidate.OperationId == held.OperationId);
+            var ancillary = await AncillaryAsync(_fixture, scenario.OrderId, _document);
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, held.OperationStatus);
+            Assert.Equal(EmdCouponStatus.Refunded, ancillary.Coupons.Single().Status);
+            Assert.Equal(
+                ElectronicTicketStatus.Exchanged,
+                (await TicketAsync(_fixture, scenario.OrderId, scenario.TicketId)).StatusSummary);
+            Assert.Equal(2, after.PriceConsequencesOf(change.Id).Count);
+            Assert.Single(
+                harness.Events.Dispatched.OfType<OrderPricingChanged>(),
+                raised => raised.Reason == PriceChangeReason.Refund);
+        }
+
+        [Fact]
+        public async Task G2C6_a_document_refund_recovered_after_a_crash_commits_the_consequence_once()
+        {
+            var caller = Caller();
+            var refunds = new DeterministicDocumentRefundAdapter { ThrowAfterDispatch = true };
+
+            await using var crashed = new OrderSliceHarness(_fixture, caller, documentRefunds: refunds);
+            var scenario = await RefundScenarioAsync(crashed);
+            var key = NewKey();
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => crashed.Exchange.ExchangeAsync(scenario.Execution(key)));
+
+            Assert.DoesNotContain(
+                (await ReloadAsync(_fixture, scenario.OrderId)).PriceChangeSets,
+                set => set.Reason == PriceChangeReason.Refund);
+
+            refunds.ThrowAfterDispatch = false;
+            refunds.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+            await using var resumed = new OrderSliceHarness(_fixture, caller, documentRefunds: refunds);
+            Register(resumed, scenario);
+
+            var finalized = await resumed.Exchange.ExchangeAsync(scenario.Execution(key));
+            await resumed.Exchange.ExchangeAsync(scenario.Execution(key));
+
+            var after = await ReloadAsync(_fixture, scenario.OrderId);
+            var change = Assert.Single(after.Changes, candidate => candidate.OperationId == finalized.OperationId);
+
+            Assert.Equal(ServicingOperationStatus.Completed, finalized.OperationStatus);
+            Assert.Single(refunds.DispatchedKeys);
+            Assert.Equal(2, after.PriceConsequencesOf(change.Id).Count);
+            Assert.Single(
+                resumed.Events.Dispatched.OfType<OrderPricingChanged>(),
+                raised => raised.Reason == PriceChangeReason.Refund);
+        }
+
+        private static decimal RefundImpact(Order order, long priceChangeSetId)
+            => order.PricingLines
+                .Where(line => line.PriceChangeSetId == priceChangeSetId && line.AffectsCustomerBalance)
+                .Sum(line => line.SignedSaleAmount);
 
         private async Task<ExchangeScenario> RefundScenarioAsync(OrderSliceHarness harness)
         {

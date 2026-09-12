@@ -142,6 +142,12 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                    || candidate.IsDisassociatedByReissue(operationId)
                    || candidate.IsReassociatedBy(operationId));
 
+        public bool IsDisassociationSettledBy(int emdCouponNumber, long operationId)
+            => _coupons.SingleOrDefault(coupon => coupon.CouponNumber == emdCouponNumber) is { } candidate
+               && (candidate.IsDisassociatedByReissue(operationId)
+                   || candidate.IsReassociatedBy(operationId)
+                   || candidate.IsRefundedBy(operationId));
+
         public bool PermitsReassociation(int emdCouponNumber, long operationId, long successorTicketCouponId)
             => Associable(emdCouponNumber) is { } candidate
                && (candidate.IsDisassociatedByReissue(operationId)
@@ -166,13 +172,12 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
 
             var coupon = RequireCoupon(disassociation.EmdCouponNumber);
 
+            if (IsDisassociationSettledBy(disassociation.EmdCouponNumber, disassociation.OperationId))
+                return;
+
             if (!coupon.IsOpenForUse)
                 throw ExceptionFactory.ElectronicMiscDocumentCouponIsNotAssociable(
                     DocumentNumber, coupon.CouponNumber, coupon.Status);
-
-            if (coupon.IsDisassociatedByReissue(disassociation.OperationId)
-                || coupon.IsReassociatedBy(disassociation.OperationId))
-                return;
 
             if (!coupon.IsAssociatedWith(disassociation.PredecessorTicketCouponId))
                 throw ExceptionFactory.ElectronicMiscDocumentAssociationMoved(

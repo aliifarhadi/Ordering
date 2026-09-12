@@ -1043,7 +1043,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     ?? throw ExceptionFactory.AccountableDocumentNotFound(
                         plan.SuccessorElectronicTicketId, order.Id),
                     committed.Id,
-                    order.PriceChangeSets.Single(set => set.ChangeId == committed.Id).Id)
+                    order.OriginatingPriceConsequenceOf(committed.Id)!.Id)
                 : null;
 
         private async Task<string?> ResidualDocumentConflictAsync(
@@ -1113,11 +1113,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             AcceptedExchangePlan plan,
             CancellationToken cancellationToken)
         {
-            foreach (var disposition in plan.Reassociations)
+            foreach (var disposition in plan.ExecutableAncillaries)
             {
                 var document = await _miscDocuments.GetAsync(disposition.ElectronicMiscDocumentId, cancellationToken)
                                ?? throw ExceptionFactory.ElectronicMiscDocumentNotFound(
                                    disposition.ElectronicMiscDocumentId);
+
+                if (document.IsDisassociationSettledBy(disposition.EmdCouponNumber, operation.OperationId))
+                    continue;
 
                 if (!document.PermitsDisassociation(
                         disposition.EmdCouponNumber,
@@ -1151,8 +1154,6 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             bool isReplay,
             CancellationToken cancellationToken)
         {
-            CommitAncillaryRefundConsequence(order, operation, plan);
-
             await _operationStore.TransitionAsync(
                 operation.OperationId,
                 ServicingOperationStatus.Completed,
@@ -1604,7 +1605,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 contradiction ?? result.Detail,
                 cancellationToken);
 
+            long? consequenceId = null;
+
             if (contradiction is null && result.Outcome == ProviderOperationOutcome.Confirmed)
+            {
                 document.RefundCoupon(
                     new EmdCouponRefund(
                         pending.EmdCouponNumber,
@@ -1616,11 +1620,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                         result.ProviderReference),
                     _clock);
 
+                consequenceId = CommitAncillaryRefundConsequence(order, operation, pending);
+
+                if (consequenceId is { } committed)
+                    await _plans.RecordAncillaryRefundConsequenceAsync(
+                        operation.OperationId, pending.EmdCouponId, committed, cancellationToken);
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var settled = WithAncillaryRefund(
                 plan, pending, valueMovement: false, result.Outcome, result.ProviderReference,
-                contradiction ?? result.Detail);
+                contradiction ?? result.Detail, consequenceId);
 
             if (contradiction is not null || result.Outcome == ProviderOperationOutcome.Rejected)
                 return await ReconcileAsync(
@@ -1749,7 +1760,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             bool valueMovement,
             ProviderOperationOutcome outcome,
             string? providerReference,
-            string? detail)
+            string? detail,
+            long? priceChangeSetId = null)
             => plan with
             {
                 AncillaryDispositions = plan.Ancillaries
@@ -1766,56 +1778,40 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                             {
                                 RefundDocumentOutcome = outcome,
                                 RefundDocumentReference = providerReference ?? disposition.RefundDocumentReference,
-                                RefundDocumentDetail = detail ?? disposition.RefundDocumentDetail
+                                RefundDocumentDetail = detail ?? disposition.RefundDocumentDetail,
+                                RefundPriceChangeSetId =
+                                    priceChangeSetId ?? disposition.RefundPriceChangeSetId
                             })
                     .ToList()
             };
 
-        private void CommitAncillaryRefundConsequence(
+        private long? CommitAncillaryRefundConsequence(
             Order order,
             OrderOperation operation,
-            AcceptedExchangePlan plan)
+            AcceptedExchangeAncillaryDisposition refunded)
         {
-            var refunded = plan.SettledAncillaryRefunds;
+            if (refunded.IsRefundConsequenceCommitted)
+                return null;
 
-            if (refunded.Count == 0 || CommittedAncillaryRefund(order, operation.OperationId))
-                return;
-
-            var lines = refunded
-                .SelectMany(disposition => disposition.RefundPricingLines ?? [])
-                .Select(AncillaryRefundPricingLine)
-                .ToList();
-
-            if (lines.Count == 0)
-                return;
-
-            order.CommitPriceChange(
-                new AcceptedPriceChangeArgs(
-                    OrderChangeType.Refund,
+            var consequence = order.CommitDependentPriceChange(
+                new AcceptedDependentPriceChangeArgs(
+                    operation.OperationId,
+                    OrderChangeType.Exchange,
                     PriceChangeReason.Refund,
-                    plan.PricingSource,
-                    lines,
-                    SourcePricingRef: plan.SourcePricingReference,
-                    ChangeReason: plan.QuotedExchangeId,
-                    ExternalReference: refunded[0].RefundSourceReference,
-                    ActorScope: CallerScope.For(_callerContext),
-                    ActorId: _callerContext.ActorId,
-                    OperationId: operation.OperationId),
+                    refunded.RefundPricingSource!.Value,
+                    (refunded.RefundPricingLines ?? [])
+                        .Select(AncillaryRefundPricingLine)
+                        .ToList(),
+                    SourcePricingRef: refunded.RefundSourceReference),
                 _idGenerator,
                 _clock);
 
             order.ApplyDocumentRefund(
-                refunded
-                    .Select(disposition => disposition.RefundedOrderServiceId)
-                    .OfType<long>()
-                    .Distinct()
-                    .ToList(),
+                refunded.RefundedOrderServiceId is { } orderServiceId ? [orderServiceId] : [],
                 _clock);
-        }
 
-        private static bool CommittedAncillaryRefund(Order order, long operationId)
-            => order.Changes.Any(change =>
-                change.OperationId == operationId && change.ChangeType == OrderChangeType.Refund);
+            return consequence.Id;
+        }
 
         private static AcceptedPricingLineArgs AncillaryRefundPricingLine(AcceptedRefundPricingLine line)
             => new(
@@ -1836,7 +1832,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 ApplicationLevel: line.ApplicationLevel,
                 BasisReferenceId: line.BasisReferenceId,
                 SourceLineRef: line.SourceLineRef,
-                OccurrenceKey: line.OccurrenceKey);
+                OccurrenceKey: line.OccurrenceKey,
+                OriginalPricingLineId: line.ReversesPricingLineId,
+                SettlementPartyRef: line.SettlementPartyRef,
+                SettlementCategory: line.SettlementCategory);
 
         private async Task<EmdAssociationResult> DispatchReassociationAsync(
             Order order,
@@ -2273,7 +2272,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             var successor = await _tickets.GetAsync(plan.SuccessorElectronicTicketId, cancellationToken);
 
-            var changeSet = order.PriceChangeSets.Single(set => set.ChangeId == committed.Id);
+            var changeSet = order.OriginatingPriceConsequenceOf(committed.Id)!;
 
             return ExchangeOutcomeFactory.Create(
                 order, operation, predecessor, plan, successor, committed.Id, changeSet.Id,

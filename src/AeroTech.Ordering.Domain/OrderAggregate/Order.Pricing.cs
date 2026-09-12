@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.ServiceContracts;
+﻿using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.DomainEvents;
@@ -75,9 +75,15 @@ namespace AeroTech.Ordering.Domain.OrderAggregate
 
         private OrderPriceChangeSet AttachPriceChange(StagedPriceChange staged, DateTimeOffset now)
         {
+            _changes.Add(staged.Change);
+
+            return AttachPriceConsequence(staged, now);
+        }
+
+        private OrderPriceChangeSet AttachPriceConsequence(StagedPriceChange staged, DateTimeOffset now)
+        {
             var totalBefore = CustomerTotal;
 
-            _changes.Add(staged.Change);
             _priceChangeSets.Add(staged.ChangeSet);
             _pricingLines.AddRange(staged.Lines);
 

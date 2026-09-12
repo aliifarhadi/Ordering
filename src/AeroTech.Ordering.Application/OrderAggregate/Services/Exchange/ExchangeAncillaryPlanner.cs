@@ -2,6 +2,7 @@
 using System.Text;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain._Shared.Resources;
@@ -187,7 +188,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 decided.Refund?.CurrencyId,
                 decided.Refund?.ApprovedDisposition,
                 decided.Refund?.SourceReference,
+                decided.Refund?.PricingSource,
                 decided.Refund?.PricingLines,
+                RefundPriceChangeSetId: null,
                 decided.Disposition == AncillaryExchangeDisposition.Refund
                     ? association.Coupon.OrderServiceId
                     : null);
@@ -219,10 +222,31 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 throw ExceptionFactory.AncillaryRefundEconomicsMissing(
                     document, coupon, $"currency matching the document ({association.Coupon.CurrencyId})");
 
+            if (refund.PricingSource is PricingSource.OrderingDerived or 0)
+                throw ExceptionFactory.AncillaryRefundEconomicsMissing(
+                    document, coupon, "an external pricing source");
+
             if (refund.PricingLines.Count == 0)
                 throw ExceptionFactory.AncillaryRefundEconomicsMissing(document, coupon, "pricing evidence");
 
             RefundConservationPolicy.EnsureReconciles(refund.PricingLines, refund.ApprovedAmount);
+
+            EnsureReversalsStayWithinTheDocument(association, refund.PricingLines);
+        }
+
+        private static void EnsureReversalsStayWithinTheDocument(
+            AffectedAncillaryAssociation association,
+            IReadOnlyList<AcceptedRefundPricingLine> lines)
+        {
+            if (association.Coupon.PricingLineId is not { } carried)
+                return;
+
+            foreach (var line in lines)
+            {
+                if (line.ReversesPricingLineId is { } reversed && reversed != carried)
+                    throw ExceptionFactory.RefundReversalOutsideDocumentScope(
+                        reversed, association.Document.DocumentNumber);
+            }
         }
 
         public static void EnsureExecutable(IReadOnlyList<AcceptedExchangeAncillaryDisposition> dispositions)

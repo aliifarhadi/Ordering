@@ -127,10 +127,12 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         ancillary.RefundCurrencyId,
                         ancillary.RefundDisposition,
                         ancillary.RefundSourceReference,
+                        ancillary.RefundPricingSource,
                         ancillary.RefundPricingLines is null
                             ? null
                             : JsonSerializer.Deserialize<IReadOnlyList<AcceptedRefundPricingLine>>(
                                 ancillary.RefundPricingLines, PlanOptions),
+                        ancillary.RefundPriceChangeSetId,
                         ancillary.RefundedOrderServiceId,
                         ancillary.AssociationOutcome,
                         ancillary.AssociationProviderReference,
@@ -244,9 +246,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         RefundCurrencyId = ancillary.RefundCurrencyId,
                         RefundDisposition = ancillary.RefundDisposition,
                         RefundSourceReference = ancillary.RefundSourceReference,
+                        RefundPricingSource = ancillary.RefundPricingSource,
                         RefundPricingLines = ancillary.RefundPricingLines is null
                             ? null
                             : JsonSerializer.Serialize(ancillary.RefundPricingLines, PlanOptions),
+                        RefundPriceChangeSetId = ancillary.RefundPriceChangeSetId,
                         RefundedOrderServiceId = ancillary.RefundedOrderServiceId,
                         RefundDocumentOutcome = ancillary.RefundDocumentOutcome,
                         RefundDocumentReference = ancillary.RefundDocumentReference,
@@ -397,6 +401,26 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 row.RefundDocumentReference = providerReference ?? row.RefundDocumentReference;
                 row.RefundDocumentDetail = detail ?? row.RefundDocumentDetail;
             }
+
+            var plan = await RequireAsync(operationId, cancellationToken);
+
+            plan.UpdatedAt = _clock.GetDateTime();
+        }
+
+        public async Task RecordAncillaryRefundConsequenceAsync(
+            long operationId,
+            long emdCouponId,
+            long priceChangeSetId,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await _dbContext.Set<AcceptedExchangePlanAncillaryRow>()
+                          .FirstOrDefaultAsync(
+                              ancillary => ancillary.OperationId == operationId
+                                           && ancillary.EmdCouponId == emdCouponId,
+                              cancellationToken)
+                      ?? throw ExceptionFactory.AcceptedExchangePlanNotFound(operationId);
+
+            row.RefundPriceChangeSetId ??= priceChangeSetId;
 
             var plan = await RequireAsync(operationId, cancellationToken);
 

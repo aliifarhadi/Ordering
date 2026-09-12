@@ -21,7 +21,9 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         int? RefundCurrencyId = null,
         string? RefundDisposition = null,
         string? RefundSourceReference = null,
+        PricingSource? RefundPricingSource = null,
         IReadOnlyList<AcceptedRefundPricingLine>? RefundPricingLines = null,
+        long? RefundPriceChangeSetId = null,
         long? RefundedOrderServiceId = null,
         ProviderOperationOutcome? AssociationOutcome = null,
         string? AssociationProviderReference = null,
@@ -58,6 +60,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool IsRefundValueRejected => RefundValueOutcome == ProviderOperationOutcome.Rejected;
 
         public bool IsRefundSettled => IsRefundDocumentSettled && IsRefundValueSettled;
+
+        public bool IsRefundConsequenceCommitted => RefundPriceChangeSetId is not null;
 
         public ExchangeAncillaryState RefundState => RefundDocumentOutcome switch
         {

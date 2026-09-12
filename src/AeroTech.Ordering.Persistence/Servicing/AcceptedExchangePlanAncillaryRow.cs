@@ -40,7 +40,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public string? RefundSourceReference { get; set; }
 
+        public PricingSource? RefundPricingSource { get; set; }
+
         public string? RefundPricingLines { get; set; }
+
+        public long? RefundPriceChangeSetId { get; set; }
 
         public long? RefundedOrderServiceId { get; set; }
 

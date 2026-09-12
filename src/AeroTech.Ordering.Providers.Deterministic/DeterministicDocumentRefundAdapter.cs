@@ -1,11 +1,12 @@
-﻿using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.DocumentRefund;
 
 namespace AeroTech.Ordering.Providers.Deterministic
 {
     public sealed class DeterministicDocumentRefundAdapter : IDocumentRefundPort
     {
-        private readonly Dictionary<string, IReadOnlyList<int>> _dispatched = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, DeterministicDocumentRefundOperation> _dispatched =
+            new(StringComparer.Ordinal);
 
         public EligibilityOutcome Eligibility { get; set; } = EligibilityOutcome.Allowed;
 
@@ -39,6 +40,8 @@ namespace AeroTech.Ordering.Providers.Deterministic
             DocumentRefundEligibilityRequest request,
             CancellationToken cancellationToken = default)
         {
+            ArgumentNullException.ThrowIfNull(request);
+
             ObservedEligibilityKeys.Add(request.OperationKey);
 
             return Task.FromResult(new DocumentRefundEligibility(Eligibility));
@@ -48,31 +51,33 @@ namespace AeroTech.Ordering.Providers.Deterministic
             DocumentRefundRequest request,
             CancellationToken cancellationToken = default)
         {
+            ArgumentNullException.ThrowIfNull(request);
+
             ObservedRefundKeys.Add(request.OperationKey);
             ObservedRefundRequests.Add(request);
 
             if (ThrowBeforeDispatch)
                 throw new InvalidOperationException("The document refund request never left Ordering.");
 
-            _dispatched[request.OperationKey] = request.CouponNumbers;
+            var recorded = Remember(request);
 
             if (ThrowAfterDispatch)
                 throw new InvalidOperationException("The document refund response never reached Ordering.");
 
             return Task.FromResult(new DocumentRefundResult(
-                RefundOutcome,
-                RefundOutcome == ProviderOperationOutcome.Rejected || OmitProviderReference
-                    ? null
-                    : $"RFND-{request.DocumentNumber}",
+                recorded.Outcome,
+                recorded.ProviderReference,
                 null,
-                ReportedDocumentNumber ?? request.DocumentNumber,
-                ReportedCouponNumbers ?? request.CouponNumbers));
+                recorded.DocumentNumber,
+                recorded.CouponNumbers));
         }
 
         public Task<DocumentRefundRecovery> RecoverAsync(
             DocumentRefundRecoveryRequest request,
             CancellationToken cancellationToken = default)
         {
+            ArgumentNullException.ThrowIfNull(request);
+
             ObservedRecoveryKeys.Add(request.OperationKey);
 
             if (ThrowOnRecover)
@@ -82,12 +87,49 @@ namespace AeroTech.Ordering.Providers.Deterministic
                 return Task.FromResult(new DocumentRefundRecovery(
                     false, ProviderOperationOutcome.Unknown, Detail: "no such document refund operation"));
 
+            var resolved = dispatched.Resolved(RecoveryOutcome);
+
+            _dispatched[request.OperationKey] = resolved;
+
             return Task.FromResult(new DocumentRefundRecovery(
                 true,
-                RecoveryOutcome,
-                RecoveryOutcome == ProviderOperationOutcome.Rejected ? null : $"RFND-{request.DocumentNumber}",
-                DocumentNumber: request.DocumentNumber,
-                CouponNumbers: dispatched));
+                resolved.Outcome,
+                resolved.ProviderReference,
+                null,
+                resolved.DocumentNumber,
+                resolved.CouponNumbers));
         }
+
+        private DeterministicDocumentRefundOperation Remember(DocumentRefundRequest request)
+        {
+            var intent = Intent(request);
+
+            if (_dispatched.TryGetValue(request.OperationKey, out var existing))
+                return string.Equals(existing.Intent, intent, StringComparison.Ordinal)
+                    ? existing
+                    : throw new InvalidOperationException(
+                        $"A different document refund intent already owns operation key {request.OperationKey}.");
+
+            var recorded = new DeterministicDocumentRefundOperation(
+                intent,
+                RefundOutcome,
+                RefundOutcome == ProviderOperationOutcome.Rejected || OmitProviderReference
+                    ? null
+                    : $"RFND-{request.DocumentNumber}",
+                ReportedDocumentNumber ?? request.DocumentNumber,
+                ReportedCouponNumbers ?? request.CouponNumbers);
+
+            _dispatched[request.OperationKey] = recorded;
+
+            return recorded;
+        }
+
+        private static string Intent(DocumentRefundRequest request)
+            => string.Join(
+                '|',
+                request.OrderId,
+                request.OperationId,
+                request.DocumentNumber,
+                string.Join(',', request.CouponNumbers.Order()));
     }
 }

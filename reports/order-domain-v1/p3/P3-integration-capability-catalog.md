@@ -17,7 +17,7 @@ Status vocabulary:
 Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
 `ICC-P3-EXCHANGE-REFUND-VALUE`, `ICC-P3-EXCHANGE-RESIDUAL`, `ICC-P3-EXCHANGE-INVENTORY`,
 `ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`, `ICC-P3-ANCILLARY-EXCHANGE-DISPOSITION`,
-`ICC-P3-EMD-ASSOCIATION`.
+`ICC-P3-EMD-ASSOCIATION`, `ICC-P3-EMD-REFUND`.
 
 Capability scope of this revision: **even, add-collect, refund-due, residual and mixed reissue**, each over
 both supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. This closes
@@ -1740,3 +1740,193 @@ unresolved, refused and contradictory ancillary outcome; G1-C6 to G1-C10 cover t
 
 Ordering does not revalue an ancillary, does not reprice it, does not decide which successor coupon it belongs
 on, does not void or reissue an EMD as part of an exchange, and does not reconcile a refused move on its own.
+
+---
+
+## ICC-P3-EMD-REFUND
+
+### Capability
+
+Refunding one or more coupons of an associated electronic miscellaneous document in the authoritative
+accountable-document record, after the ticket coupon the ancillary documented has been reissued, and moving
+the approved value back to the passenger.
+
+### Authoritative Owner
+
+Two distinct authorities, never conflated:
+
+| Authority | Owns |
+| --- | --- |
+| the ancillary disposition source | whether the coupon is refunded at all, the approved amount, currency, disposition and the pricing lines that justify it |
+| the accountable-document authority | the `Refunded` (`'R'`) coupon status in the authoritative EMD record |
+| the return-of-value authority | the movement of money back to the original form of payment |
+
+Ordering adjudicates none of the three. It carries identity, evidence, sequencing and recovery.
+
+### Ordering Semantic Requirement
+
+```text
+one Exchange servicing operation
+    -> one OrderChange
+    -> one initial Exchange PriceChangeSet
+    -> zero..N later ancillary-refund PriceChangeSets
+```
+
+A confirmed ancillary refund is a **dependent commercial consequence of the same Exchange operation**, not a
+second servicing operation. `OrderChange` is the servicing-operation envelope; `OrderPriceChangeSet` is the
+independently committed financial consequence. The persistence model already expresses exactly this:
+
+```text
+OrderChange            UNIQUE (OrderId, OperationId)
+OrderPriceChangeSet    ChangeId is NOT unique;  UNIQUE (OrderId, FinancialSequence)
+```
+
+so one Exchange operation may own several price change sets without owning several order changes.
+
+The commit rail follows the already-frozen Refund pattern:
+
+```text
+document authority confirms
+ -> EMD coupon/document refund truth + ancillary refund PriceChangeSet + commercial consequence
+    become durable in ONE local checkpoint
+ -> value movement follows
+```
+
+If the value movement is later `Pending`, `Unknown`, `Rejected` or contradictory:
+
+```text
+EMD stays Refunded
+the ancillary refund PriceChangeSet stays committed
+the ticket stays Exchanged
+the successor stays authoritative
+the operation is AwaitingExternal or NeedsReconciliation
+```
+
+There is no rollback of any of it.
+
+**Disassociation precedes refund.** Every executable affected ancillary — refund and reassociation alike — is
+`DisassociatedByReissue` inside the materializing transaction, before any downstream stage. A refund therefore
+always acts on a coupon that is already detached from the exchanged predecessor coupon, which is both the
+truthful state and the benchmarked precondition of EMD-A refund.
+
+### Ordering Port / Dependency Boundary
+
+No new port. Two existing, document-neutral rails are reused:
+
+| Act | Port |
+| --- | --- |
+| document refund | `src/AeroTech.Ordering.Domain/Ports/DocumentRefund/IDocumentRefundPort.cs` |
+| value movement | `src/AeroTech.Ordering.Domain/Ports/RefundValue/IRefundValuePort.cs` |
+
+`IDocumentRefundPort` addresses a document by **document number plus coupon numbers**, which is aggregate-neutral
+— an EMD is not a different capability from a ticket at this boundary, only a different document. No
+`IEmdRefundPort` was created: the aggregate type differing is not a reason for a second port.
+
+### Request Evidence
+
+Operation key, order id, servicing operation id, EMD document number and the EMD coupon numbers being refunded
+for the document act; operation key, order id, servicing operation id, EMD document number, approved amount,
+approved currency, approved disposition, source reference, successor document number and the source pricing
+reference for the value act.
+
+Operation keys are server-derived and stable per coupon:
+
+```text
+emd-refund:{EmdDocumentNumber}:{EmdCouponNumber}
+emd-refund-value:{EmdDocumentNumber}:{EmdCouponNumber}
+```
+
+### Response Evidence
+
+The document act must echo the document number and the coupon numbers it acted on, and carry a provider
+reference on a `Confirmed` outcome. The value act must echo amount, currency and disposition. Every echoed
+field is optional, and every field that is present is verified against the accepted decision. A `Confirmed`
+outcome that contradicts the accepted decision is treated as contradictory evidence, not as a business
+rejection: it is persisted, the operation becomes `NeedsReconciliation`, and neither the document nor the
+money is mutated locally.
+
+### Recovery
+
+Recover-first on both rails. `IDocumentRefundPort.RecoverAsync` returns
+`DocumentRefundRecovery(WasDispatched, ...)`; a refund is dispatched fresh only when the prerequisite was
+confirmed in the same attempt, otherwise the key is recovered first and dispatched only when the authority
+reports it never received it. The same discipline already governs `IRefundValuePort`.
+
+### Idempotency Proof From Persisted State
+
+The accepted plan's ancillary row is keyed by `(OperationId, EmdCouponId)` and carries the accepted refund
+decision plus `RefundPriceChangeSetId`. That is the durable correlation: the specific *exchange operation +
+EMD document + EMD coupon + accepted refund decision* provably already owns its price change set. No
+in-memory flag participates.
+
+### Deterministic Verification
+
+`DeterministicDocumentRefundAdapter` and `DeterministicRefundValueAdapter` in
+`AeroTech.Ordering.Providers.Deterministic`; the ancillary decision comes from
+`DeterministicAncillaryDispositionAdapter`, which now also declares the **pricing source** of the approved
+refund. `PricingSource.OrderingDerived` is refused at acceptance — Ordering never authors ancillary refund
+economics. A line naming a reversed pricing line other than the EMD coupon's own declared `PricingLineId` is
+refused with `RefundReversalOutsideDocumentScope` (20227, 422).
+
+Contract coverage: `tests/AeroTech.Ordering.Persistence.Tests/Contracts/DocumentRefund/` — added in this
+revision, because `IDocumentRefundPort` had no contract kit and `UnconfiguredDocumentRefundProvider` had no
+test. The kit asserts the same nine invariants the other P3 rails already assert: a defined eligibility
+answer, a confirmed refund naming the document and coupons it acted on, a never-dispatched key answering
+`WasDispatched = false`, a dispatched key recoverable under its own key only, a repeated key never refunding
+twice, a conflicting intent on a known key failing closed, one key never consuming another operation's
+refund, a read-back never rewriting resolved evidence, and no local Ordering identity ever reported back.
+`DeterministicDocumentRefundAdapter` was upgraded to the durable-key shape the other deterministic adapters
+already use, so a key that already owns a different refund intent now fails closed instead of silently
+overwriting an irreversible act. Value coverage stays `.../Contracts/RefundValue/`.
+
+Flow coverage: `AncillaryRefundFlowTests` — G2H1–H5 (happy paths and coupon-level partial refund), G2S1
+(seven source-validation shapes), G2S2 (out-of-document reversal), G2D1–D5 (document act recovery and contradiction), G2V1–V3 (value act
+recovery and contradiction), G2C1–C6 (the commercial consequence, replay, multi-coupon, mixed disposition,
+unsettled value and crash recovery), G2F1–F2 (frozen invariants).
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. No real ancillary disposition source is wired, so no real carrier ever adjudicates a `Refund`.
+   `UnconfiguredAncillaryProvider` fails closed with 501.
+2. No real document-refund host is wired for miscellaneous documents. Whether the host accepts a **partial
+   coupon refund** of a multi-coupon EMD is provider-specific: IATA's own guidance permits it, Travelport
+   forbids it, Sabre lets the validating carrier choose. Ordering implements per-coupon refund and will
+   accept a host that refuses it only by having that host reject the act, which reconciles rather than
+   corrupts.
+3. Whether the real host echoes the document number and coupon numbers it refunded. Ordering verifies each
+   echoed field that is present and treats absence as unverified, not as agreement.
+4. Whether a document refund is idempotent under Ordering's operation key on the real host.
+5. Whether the real return-of-value authority settles an ancillary refund on the original form of payment
+   without a separate instrument.
+
+### Known Semantic Gaps
+
+* **Refund Cancel is not implemented.** A `Refunded` (`'R'`) EMD coupon has a documented carrier-side
+  *Refund Cancel* before the revenue lift. Ordering does not model it and never un-refunds a coupon. This is
+  deliberately deferred, not approximated.
+* **"A refunded coupon cannot be reassociated" is inferential.** No consulted primary source states it
+  literally. Ordering enforces it because `'R'` is a final coupon status and a final coupon cannot carry a
+  live association. It is recorded as inference, not as a quoted rule.
+* **Service-level refund marking is effectively unreachable in this revision.** `ApplyDocumentRefund` is
+  invoked with the refunded EMD coupon's delivering `OrderServiceId`, and `MarkDocumentRefunded` correctly
+  no-ops unless that service's `DocumentStatus` is still `Issued`. Every genuinely EMD-documented ancillary
+  service in the current model *covers* the air service it is associated with, and
+  `EnsureNoActiveServiceDependsOn` already refuses the reissue outright (20258) while such a service is
+  active. So the reachable G2 shapes are coupons with no delivering service, or coupons naming a service the
+  exchange itself supersedes — where the no-op is the correct answer, because that service was **exchanged,
+  not refunded**. G2H5 asserts exactly that. A positive service-level refund marking needs an ancillary that
+  survives the reissue, which no current shape produces.
+* `ExchangeToNewEmd`, `RetainAsResidual`, `Cancel` and `ManualReview` remain unexecuted and are refused
+  explicitly with `AncillaryDispositionNotExecutable` (20298).
+* A `NeedsReconciliation` ancillary refund still has no automated operator remediation command. Every piece
+  of evidence one would need is persisted.
+
+### Explicit Non-Responsibilities
+
+Ordering does not decide whether an ancillary is refundable, does not compute the refund amount, does not
+derive it from the EMD issue value, the order service price or any pricing allocation, does not choose the
+disposition, does not un-refund a coupon and does not reconcile a refused or contradicted act on its own.

@@ -1,3 +1,4 @@
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 
 namespace AeroTech.Ordering.Domain.Ports.AncillaryDisposition
@@ -7,5 +8,6 @@ namespace AeroTech.Ordering.Domain.Ports.AncillaryDisposition
         int CurrencyId,
         string ApprovedDisposition,
         string SourceReference,
+        PricingSource PricingSource,
         IReadOnlyList<AcceptedRefundPricingLine> PricingLines);
 }
