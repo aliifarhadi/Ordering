@@ -632,24 +632,77 @@ committed Exchange PriceChangeSet before any fresh provider issuance.
 
 Based on executed green results, not arithmetic:
 
+All executed, none inferred:
+
 ```text
-build                                       0 errors
+build                                                   0 errors
 focused Domain    ServicingFeeDocumentPolicyTests        41 /   41
 focused Persist.  ServicingFeeDocumentFlowTests          26 /   26
 focused Persist.  ServicingFeeDocumentFreezeGuardTests   10 /   10
 full Domain                                            585 /  585
+full Persistence                                      1276 / 1276   (6 m 28 s)
 EF                                          no pending model changes
-full Persistence                            pending the operator's approval to run
+exception codes                             327, 20001-20327, contiguous, no duplicates
 ```
 
-The full Persistence suite is held pending approval: it takes 7-10 minutes and the standing instruction is
-not to run it without the operator saying so. Expected total is `1266 + 10 = 1276`, but this report does not
-claim a freeze from arithmetic.
+`1266 + 10 = 1276` and the executed total is 1276. No frozen test was deleted, skipped or weakened.
 
 ```text
-P3-G6 READY TO FREEZE: NO   — blocked only on the full Persistence run
-P3-G  READY TO FREEZE: NO   — blocked on the same run
+P3-G6 READY TO FREEZE: YES
+P3-G  READY TO FREEZE: YES
 ```
+
+P3-G is complete: `ReassociateExisting`, `Refund`, `ExchangeToNewEmd`, `RetainAsResidual`, `Cancel`,
+`ManualReview` and source-instructed EMD-S fee/penalty documentation are all executable, with frozen G1-G5
+semantics unchanged.
+
+## 21. Suite runtime measurement
+
+Measured because the operator asked whether the Persistence gate can be made faster.
+
+```text
+wall clock                    7 m 24 s (with the trx logger) / 6 m 28 s (without)
+sum of test durations         437.7 s over 1276 tests
+framework overhead            ~6 s
+mean per test                 0.34 s
+slowest single test           9.35 s
+slowest 12 tests combined     38 s  (8.7% of the total)
+```
+
+**There is no hotspot to optimise.** The wall clock equals the sum of the work, so there is no framework or
+fixture overhead to reclaim, and the cost is spread flat across 1276 tests that each do real SQL Server work.
+Eliminating the twelve slowest tests entirely would save under 9%.
+
+The only lever that reaches the operator's 3-4 minute target is **running test classes in parallel** —
+437 s / 4 threads is roughly 2 minutes. All 65 classes currently share one xUnit collection, so they run
+strictly sequentially. Three concrete things block splitting them, each verified rather than assumed:
+
+1. **The fixture constructor deletes global document state.** `ResetIssuedDocumentState` issues unscoped
+   `DELETE FROM` against `EmdPriceLinks`, `EmdCoupons`, `ElectronicMiscDocuments`, `DocumentPriceLinks`,
+   `TicketCoupons`, `ElectronicTickets`, `DocumentStockAllocations` and `DocumentStocks`. More than one
+   collection means more than one fixture instance, so one collection's reset would wipe another
+   collection's live documents mid-test. This is the hard blocker and must move to a one-time
+   assembly-level initialisation.
+2. **`DocumentStock` is a shared write-contention point by design.** `SeedPlatformAsync` seeds a single stock
+   per (airline, document type) and every test allocates from it. Concurrent `Allocate` on one aggregate
+   yields `RowVersion` conflicts and non-deterministic document numbers. Parallel classes need stock
+   isolation, for example a per-class airline id or number prefix.
+3. **`SequentialIdGenerator.Unique()` seeds from `DateTime.UtcNow.Ticks + Random(1, 1e9)`.** It is
+   `Interlocked` internally, so it is safe per instance, but two harnesses created in the same tick window
+   can receive overlapping ranges. That is the known intermittent `GeneratorId` collision, and concurrency
+   raises its probability.
+
+A scan for unscoped database reads in test helpers returned seven candidates; six are false positives (a
+fresh `Guid` key per test, or a query against `sys.foreign_keys` schema metadata). The one genuine case,
+`EmdIssuanceFlowTests.ReservedNumbersAsync`, was found and fixed by this slice's gate — see §13.2.
+
+Applied now: `OrderingDatabaseFixture` caches one `DbContextOptions` per context type instead of rebuilding
+the options for every context. That is a correctness-neutral cleanup with no measurable timing effect at this
+scale, and it is kept because it is simply better code.
+
+**Not applied:** enabling parallel collections. It changes the test architecture and needs the three items
+above done deliberately; doing it as a config flip would reintroduce exactly the intermittent failures this
+phase has been fighting. It is recorded here as a scoped proposal for the operator to schedule.
 
 P3-G is complete: `ReassociateExisting`, `Refund`, `ExchangeToNewEmd`, `RetainAsResidual`, `Cancel`,
 `ManualReview` and source-instructed EMD-S fee/penalty documentation are all executable, with the frozen

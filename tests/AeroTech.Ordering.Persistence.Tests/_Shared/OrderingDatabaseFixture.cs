@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using AeroTech.Framework.Core.Domain.Events;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Persistence;
@@ -13,6 +13,15 @@ namespace AeroTech.Ordering.Persistence.Tests._Shared
     {
         public const string ConnectionString =
             @"Server=localhost\SQLEXPRESS;Database=DotAirOrderNewP0Tests;Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False";
+
+        private static readonly DbContextOptions<OrderingDbContext> CommandOptions =
+            new DbContextOptionsBuilder<OrderingDbContext>().UseSqlServer(ConnectionString).Options;
+
+        private static readonly DbContextOptions<OrderQueryDbContext> QueryOptions =
+            new DbContextOptionsBuilder<OrderQueryDbContext>().UseSqlServer(ConnectionString).Options;
+
+        private static readonly DbContextOptions<ReferenceDbContext> ReferenceOptions =
+            new DbContextOptionsBuilder<ReferenceDbContext>().UseSqlServer(ConnectionString).Options;
 
         public OrderingDatabaseFixture()
         {
@@ -46,31 +55,11 @@ namespace AeroTech.Ordering.Persistence.Tests._Shared
         public OrderingDbContext NewCommandContext() => NewCommandContext(new NullDomainEventDispatcher());
 
         public OrderingDbContext NewCommandContext(IDomainEventDispatcher dispatcher)
-        {
-            var options = new DbContextOptionsBuilder<OrderingDbContext>()
-                .UseSqlServer(ConnectionString)
-                .Options;
+            => new(CommandOptions, new NullIdentityService(), new FixedClock(), dispatcher);
 
-            return new OrderingDbContext(options, new NullIdentityService(), new FixedClock(), dispatcher);
-        }
+        public OrderQueryDbContext NewQueryContext() => new(QueryOptions);
 
-        public OrderQueryDbContext NewQueryContext()
-        {
-            var options = new DbContextOptionsBuilder<OrderQueryDbContext>()
-                .UseSqlServer(ConnectionString)
-                .Options;
-
-            return new OrderQueryDbContext(options);
-        }
-
-        public ReferenceDbContext NewReferenceContext()
-        {
-            var options = new DbContextOptionsBuilder<ReferenceDbContext>()
-                .UseSqlServer(ConnectionString)
-                .Options;
-
-            return new ReferenceDbContext(options);
-        }
+        public ReferenceDbContext NewReferenceContext() => new(ReferenceOptions);
 
         public void Dispose()
         {
