@@ -46,7 +46,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             var scenario = await AddCollectAsync(_fixture, setup, harness, [1]);
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
 
@@ -71,7 +71,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var scenario = await AddCollectAsync(
                 _fixture, setup, harness, [1], shapeAccepted: AsServiceFeeComponent);
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
 
@@ -92,7 +92,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var scenario = await AddCollectAsync(_fixture, setup, harness, [1], shapeAccepted: WithPenaltyDocument);
 
             var before = await ReloadAsync(_fixture, scenario.OrderId);
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var after = await ReloadAsync(_fixture, scenario.OrderId);
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
@@ -165,7 +165,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 [1],
                 shapeAccepted: accepted => WithPenaltyDocument(AsServiceFeeComponent(accepted)));
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var document = Assert.Single(await AncillariesAsync(_fixture, scenario.OrderId));
 
@@ -183,7 +183,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var scenario = await AddCollectAsync(
                 _fixture, setup, harness, [1], shapeAccepted: WithPenaltyAndTaxDocument);
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var after = await ReloadAsync(_fixture, scenario.OrderId);
             var document = Assert.Single(await AncillariesAsync(_fixture, scenario.OrderId));
@@ -214,7 +214,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var scenario = await AddCollectAsync(
                 _fixture, setup, harness, [1], shapeAccepted: WithTwoDocuments);
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var documents = (await AncillariesAsync(_fixture, scenario.OrderId))
                 .OrderBy(document => document.DocumentNumber, StringComparer.Ordinal)
@@ -255,7 +255,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             harness.MiscDocuments.Outcome = ProviderOperationOutcome.Rejected;
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
             var accepted = plan!.FeeDocuments.Single();
@@ -283,7 +283,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             harness.MiscDocuments.ThrowBeforeIssue = true;
 
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => harness.Exchange.ExchangeAsync(scenario.Execution(key)));
+                () => harness.Exchange.ExchangeAsync(scenario.FundedExecution(key)));
 
             Assert.Empty(harness.MiscDocuments.Requests);
             Assert.Empty(await AncillariesAsync(_fixture, scenario.OrderId));
@@ -292,7 +292,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Register(resumed, scenario);
             resumed.MiscDocuments.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
 
-            var outcome = await resumed.Exchange.ExchangeAsync(scenario.Execution(key));
+            var outcome = await resumed.Exchange.ExchangeAsync(scenario.FundedExecution(key));
 
             var document = Assert.Single(await AncillariesAsync(_fixture, scenario.OrderId));
             var plan = await resumed.ExchangePlans.FindAsync(outcome.OperationId);
@@ -319,7 +319,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             harness.MiscDocuments.ThrowAfterIssue = true;
 
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => harness.Exchange.ExchangeAsync(scenario.Execution(key)));
+                () => harness.Exchange.ExchangeAsync(scenario.FundedExecution(key)));
 
             Assert.Single(harness.MiscDocuments.Requests);
             Assert.Empty(await AncillariesAsync(_fixture, scenario.OrderId));
@@ -328,7 +328,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Register(resumed, scenario);
             resumed.MiscDocuments.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
 
-            var outcome = await resumed.Exchange.ExchangeAsync(scenario.Execution(key));
+            var outcome = await resumed.Exchange.ExchangeAsync(scenario.FundedExecution(key));
 
             var document = Assert.Single(await AncillariesAsync(_fixture, scenario.OrderId));
 
@@ -349,14 +349,14 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var scenario = await AddCollectAsync(_fixture, setup, harness, [1], shapeAccepted: WithPenaltyDocument);
             var key = NewKey();
 
-            var first = await harness.Exchange.ExchangeAsync(scenario.Execution(key));
+            var first = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(key));
             var afterFirst = await ReloadAsync(_fixture, scenario.OrderId);
             var documentAfterFirst = Assert.Single(await AncillariesAsync(_fixture, scenario.OrderId));
 
             await using var replay = new OrderSliceHarness(_fixture, caller);
             Register(replay, scenario);
 
-            var second = await replay.Exchange.ExchangeAsync(scenario.Execution(key));
+            var second = await replay.Exchange.ExchangeAsync(scenario.FundedExecution(key));
 
             var afterSecond = await ReloadAsync(_fixture, scenario.OrderId);
             var documentAfterSecond = Assert.Single(await AncillariesAsync(_fixture, scenario.OrderId));
@@ -459,7 +459,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             harness.AncillaryDispositions.DefaultDisposition = AncillaryExchangeDisposition.Cancel;
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var after = await ReloadAsync(_fixture, scenario.OrderId);
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
@@ -495,7 +495,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await AttachAncillaryAsync(_fixture, setup, scenario.OrderId, _ancillary, [scenario.CouponId]);
             harness.AncillaryDispositions.DefaultDisposition = AncillaryExchangeDisposition.ManualReview;
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
             var feeDocuments = (await AncillariesAsync(_fixture, scenario.OrderId))
@@ -525,7 +525,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             harness.AncillaryDispositions.DefaultDisposition = AncillaryExchangeDisposition.ManualReview;
             harness.MiscDocuments.Outcome = ProviderOperationOutcome.Pending;
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
 
@@ -548,7 +548,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             var scenario = await AddCollectAsync(_fixture, setup, harness, [1], shapeAccepted: WithPenaltyDocument);
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
             var order = await ReloadAsync(_fixture, scenario.OrderId);
@@ -651,7 +651,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             harness.MiscDocuments.Outcome = unresolved;
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
             var accepted = plan!.FeeDocuments.Single();
@@ -679,7 +679,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await AttachAncillaryAsync(_fixture, setup, scenario.OrderId, _ancillary, [scenario.CouponId]);
             harness.AncillaryDispositions.DefaultDisposition = disposition;
 
-            var outcome = await harness.Exchange.ExchangeAsync(scenario.Execution(NewKey()));
+            var outcome = await harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey()));
 
             var plan = await harness.ExchangePlans.FindAsync(outcome.OperationId);
             var feeDocument = Assert.Single(
@@ -706,7 +706,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var scenario = await AddCollectAsync(_fixture, setup, harness, [1], shapeAccepted: malform);
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
-                () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
+                () => harness.Exchange.ExchangeAsync(scenario.FundedExecution(NewKey())));
 
             var predecessor = await TicketAsync(_fixture, scenario.OrderId, scenario.TicketId);
             var order = await ReloadAsync(_fixture, scenario.OrderId);

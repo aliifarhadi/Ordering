@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
@@ -366,7 +366,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             Assert.Equal(ServicingOperationStatus.AwaitingExternal, suspended.OperationStatus);
             Assert.Empty(await DocumentsAsync(order.Id));
 
-            var reserved = await ReservedNumbersAsync(OrderSliceHarness.EmdDocumentType);
+            var reserved = await ReservedNumbersAsync(OrderSliceHarness.EmdDocumentType, suspended.OperationId);
 
             Assert.Single(reserved);
 
@@ -479,7 +479,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
             Assert.Equal(ProviderOperationOutcome.Rejected, rejected.Outcome);
             Assert.Equal(ServicingOperationStatus.Rejected, rejected.OperationStatus);
             Assert.Empty(await DocumentsAsync(order.Id));
-            Assert.Empty(await ReservedNumbersAsync(OrderSliceHarness.EmdDocumentType));
+            Assert.Empty(await ReservedNumbersAsync(OrderSliceHarness.EmdDocumentType, rejected.OperationId));
         }
 
         [Fact]
@@ -572,14 +572,15 @@ namespace AeroTech.Ordering.Persistence.Tests.P2
                 .ToListAsync();
         }
 
-        private async Task<IReadOnlyList<string>> ReservedNumbersAsync(string documentType)
+        private async Task<IReadOnlyList<string>> ReservedNumbersAsync(string documentType, long operationId)
         {
             await using var context = _fixture.NewCommandContext();
 
             return await context.DocumentStocks
                 .Where(stock => stock.DocumentType == documentType)
                 .SelectMany(stock => stock.Allocations)
-                .Where(allocation => allocation.State == StockNumberState.Reserved)
+                .Where(allocation => allocation.State == StockNumberState.Reserved
+                                     && allocation.OperationId == operationId)
                 .Select(allocation => allocation.DocumentNumber)
                 .ToListAsync();
         }

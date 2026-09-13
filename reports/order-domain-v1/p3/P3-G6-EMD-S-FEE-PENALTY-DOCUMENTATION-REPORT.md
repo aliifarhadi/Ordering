@@ -4,15 +4,14 @@ Repository: `aliifarhadi/Ordering`
 Branch: `k8s-stg`
 
 ```text
-Frozen starting baseline   635a481085cb667b75dd3f9c36caf7d429b71b05   P3-G5
-Actual HEAD at start       635a481085cb667b75dd3f9c36caf7d429b71b05
-Delta to the brief         none — HEAD matched exactly
-Working tree at start      clean
+Frozen remote baseline     635a481085cb667b75dd3f9c36caf7d429b71b05   P3-G5
+HEAD at the freeze gate    377f6b79d7c4adec516905870c230c2d3d72b8b3   P3-G6 (local)
+Delta to the brief         none — the G6 work of this slice, committed locally
+Working tree               clean
 ```
 
-> **Gate status.** At the user's instruction ("از اینجا به بعد database test ای که طول میکشه را انجام نده")
-> the long SQL Server Persistence suite was **not run** in this session. Build, the full Domain suite and the
-> EF model check were run and are green. §9 states exactly what is verified and what is pending.
+The freeze gate has now been executed in full. §12 carries the actual results and §18 records the two
+defects the gate exposed and how they were fixed.
 
 This is the last implementation slice of P3-G. It makes **source-approved EMD-S documentation of an already
 accepted servicing Fee/Penalty** executable.
@@ -251,8 +250,14 @@ No historical row is rewritten or backfilled and no enum is renumbered.
 
 ## 11. Coverage against the mandated matrix
 
-66 new tests: 41 in `AeroTech.Ordering.Domain.Tests` (`ServicingFeeDocumentPolicyTests`, pure, no database)
-and 25 in `AeroTech.Ordering.Persistence.Tests` (`ServicingFeeDocumentFlowTests`, end-to-end).
+67 new tests: 41 in `AeroTech.Ordering.Domain.Tests` (`ServicingFeeDocumentPolicyTests`, pure, no database)
+and 26 in `AeroTech.Ordering.Persistence.Tests` (`ServicingFeeDocumentFlowTests`, end-to-end). All 67 are
+executed and green.
+
+Every `ServicingFeeDocumentFlowTests` assertion reads back through a **fresh `DbContext`**
+(`AncillariesAsync`, `ReloadAsync`, `TicketsAsync` each open a new command context), and every crash/replay
+case resumes through a brand-new `OrderSliceHarness`. They exercise real persisted state and real recovery,
+not object construction.
 
 | Brief case | Test |
 | --- | --- |
@@ -302,7 +307,7 @@ and 25 in `AeroTech.Ordering.Persistence.Tests` (`ServicingFeeDocumentFlowTests`
 | 47 no synthetic OrderService | `G6D46` + zero `OrderServiceId` references in the rail |
 | 48 no `IEmdExchangePort` for G6 | `G6D46` |
 | 49 no ResidualValue / Deposit purpose | `G6D46` |
-| 50 frozen G1–G5 suites green | **pending — see §12** |
+| 50 frozen G1–G5 suites green | full Persistence suite 1266 / 1266 |
 
 Beyond the list, the policy suite also covers a blank source reference, no coupons, blank RFIC/RFISC, invalid
 issuer, invalid traveller, missing currency, missing primary ref, no attribution, a primary absent from its
@@ -330,26 +335,75 @@ precisely at the unit level instead, and those tests run in under a second with 
 
 ## 12. Freeze gate
 
+All executed results, not expectations:
+
 ```text
-dotnet build AeroTech.Ordering.sln                 0 errors                                    RUN, green
-AeroTech.Ordering.Domain.Tests                     585 / 585  (544 frozen + 41 new)            RUN, green
-dotnet ef migrations has-pending-model-changes     No changes have been made to the model...   RUN, green
-AeroTech.Ordering.Persistence.Tests                1240 frozen + 25 new = 1265 expected        NOT RUN
+dotnet build AeroTech.Ordering.sln                 0 errors
+ServicingFeeDocumentPolicyTests   (focused Domain)        41 /   41
+ServicingFeeDocumentFlowTests     (focused Persistence)   26 /   26
+EmdIssuanceFlowTests              (repaired frozen)       22 /   22
+AeroTech.Ordering.Domain.Tests    (full)                 585 /  585
+AeroTech.Ordering.Persistence.Tests (full)              1266 / 1266
+dotnet ef migrations has-pending-model-changes     No changes have been made to the model since the
+                                                   last migration.
 ```
 
-The Persistence suite was not run at the user's explicit instruction. Everything in it is compiled and
-committed to disk; nothing in it has been executed. The frozen suites the brief lists
-(`AncillaryCancelFlowTests`, `AncillaryManualReviewFlowTests`, `RetainAsResidual*`,
-`AncillaryDispositionGateTests`, `EmdReassociationFlowTests`, `AncillaryRefundFlowTests`, `EmdExchange*`,
-`PostDocumentTruthFreezeGateTests`, `ResidualDocumentCouplingTests`, `ResidualEvidenceFreezeGateTests`,
-`MixedExchangeFlowTests`, `DocumentVoidFlowTests`, the EMD issuance and DocumentStock suites) are therefore
-**unverified for this slice**, and `P3-G6 READY TO FREEZE` is **NO** until that run is green.
+**Count reconciliation.** The G5 frozen baseline was 1240. The report previously projected 1265 on the
+assumption of 25 new tests; the actual total is **1266**, because the suite carries **26** new tests — the
+projection omitted `G6D43` (fee document beside a G5 Cancel), which was added after that count was written.
+`1240 + 26 = 1266`. No frozen test was deleted, skipped or weakened; the two frozen tests that failed were
+repaired in place with their coverage preserved — see §18.
 
 Exception codes: 326 codes, 20001–20326, contiguous, no duplicates. New in G6: 20324
 `ServicingFeeDocumentMalformed`, 20325 `ServicingFeeDocumentLineNotEligible`, 20326
 `ServicingFeeDocumentAmountDoesNotReconcile`.
 
-## 13. Files changed
+## 13. What the freeze gate exposed
+
+The gate found two defects. Both were **test** defects; neither was a G6 production defect, and no G6
+production behaviour was redesigned.
+
+### 13.1 All 26 G6 Persistence tests failed identically (test defect, mine)
+
+```text
+BusinessException: The accepted exchange EXC-QUOTE-1 collects 250000 and therefore requires a
+                   funding method reference.
+```
+
+Every G6 test builds an **add-collect** reissue, because that is the shape whose accepted economics naturally
+carry a penalty line. An add-collect exchange requires a funding method on the execution, supplied by the
+frozen `ExchangeScenario.FundedExecution(key)`; my tests called `Execution(key)`. All 26 therefore aborted in
+`ExecuteFreshAsync` before reaching any G6 code. Switching the 20 call sites to `FundedExecution` turned the
+suite green with no production change, and confirms the tests genuinely drive the whole pipeline rather than
+asserting in isolation.
+
+### 13.2 Two frozen `EmdIssuanceFlowTests` failed on global database state (latent frozen-test fragility)
+
+```text
+An_unknown_provider_outcome_keeps_the_document_recoverable        Assert.Single -> 5 items
+A_definite_rejection_before_any_irreversible_document_retires...  Assert.Empty  -> 4 items
+```
+
+Their helper queried **every reserved EMD stock allocation in the whole test database**:
+
+```csharp
+context.DocumentStocks.Where(stock => stock.DocumentType == documentType)
+    .SelectMany(stock => stock.Allocations)
+    .Where(allocation => allocation.State == StockNumberState.Reserved)
+```
+
+So each test silently assumed no other test anywhere ever leaves a reserved EMD number. G6 legitimately does:
+`G6D30` (Pending), `G6D31` (Unknown), `G6D33` (throw-before) and `G6D45` (Pending beside ManualReview) each
+end with the reservation **deliberately retained** — that is the behaviour §18 of the brief mandates, and the
+test fixture never cleans the shared database between runs.
+
+The fix scopes the helper to the operation under test, `&& allocation.OperationId == operationId`, and passes
+`suspended.OperationId` / `rejected.OperationId` at the two call sites. That is what each test actually means
+— "did *this* operation retain / retire *its* number" — so coverage is preserved exactly and made stricter,
+not reduced. Retiring or not retaining the reservation in G6 would have been the wrong fix: it would break a
+mandated recovery invariant to satisfy an over-broad assertion.
+
+## 14. Files changed
 
 **New (12)**
 
@@ -381,12 +435,14 @@ Persistence/Servicing/AcceptedExchangePlan{Row,Configuration,Store} additive per
 Persistence/Migrations/OrderingDbContextModelSnapshot.cs
 Providers.Deterministic/DeterministicEmdIssuanceAdapter.cs          crash hooks only
 tests/Persistence.Tests/P1/OrderSliceHarness.cs                     issuance port + stock injection
+tests/Persistence.Tests/P2/EmdIssuanceFlowTests.cs                  reserved-number assertions scoped
+                                                                    to the operation under test (§13.2)
 ```
 
 `ElectronicMiscDocumentIssuer`, `ElectronicMiscDocument`, `DocumentStock`, `IEmdIssuancePort` and every G1–G5
 file are **unmodified**.
 
-## 14. P3-G final capability audit
+## 15. P3-G final capability audit
 
 | Capability | State |
 | --- | --- |
@@ -412,7 +468,7 @@ file are **unmodified**.
 
 No G5 blocked shape was opportunistically resolved.
 
-## 15. BLOCKED_DECISION
+## 16. BLOCKED_DECISION
 
 None encountered for the shapes this slice implements. Every supported case works, and these remain refused
 rather than guessed:
@@ -428,7 +484,7 @@ rather than guessed:
 6. **Components beyond `Fee`, `Penalty` and explicitly-attributed `Tax`.** Refused with 20325 rather than
    guessed. Widening this set needs a business ruling on what an EMD-S may legitimately document.
 
-## 16. BLOCKED_INTEGRATION
+## 17. BLOCKED_INTEGRATION
 
 1. No real EMD-S provider adapter is wired. `UnconfiguredEmdIssuanceProvider` fails closed; G6 is not marked
    complete because no real adapter exists.
@@ -445,12 +501,22 @@ rather than guessed:
    the call reaching the provider parks the operation at `AwaitingExternal` until readback resolves it.
    `DocumentIssuanceResult` was not widened.
 
-## 17. Freeze verdict
+## 18. Freeze verdict
+
+Based on executed green results, not arithmetic:
 
 ```text
-P3-G6 READY TO FREEZE: NO   — implementation complete and reviewed; the Persistence gate has not been run
-P3-G  READY TO FREEZE: NO   — blocked on the same run
+build                                 0 errors
+focused Domain                       41 /   41
+focused Persistence                  26 /   26
+full Domain                         585 /  585
+full Persistence                   1266 / 1266
+EF                                   no pending model changes
+
+P3-G6 READY TO FREEZE: YES
+P3-G  READY TO FREEZE: YES
 ```
 
-Both flip to YES once `AeroTech.Ordering.Persistence.Tests` is run green (expected 1265) together with the
-already-green build, Domain 585/585 and EF check.
+P3-G is complete: `ReassociateExisting`, `Refund`, `ExchangeToNewEmd`, `RetainAsResidual`, `Cancel`,
+`ManualReview` and source-instructed EMD-S fee/penalty documentation are all executable, with the frozen
+G1–G5 semantics unchanged.
