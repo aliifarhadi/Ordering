@@ -719,3 +719,267 @@ P3 READY TO FREEZE:   YES
 ```
 
 P4 was not started and no P4 handoff was created.
+
+---
+
+## 28. CQRS / Clean Architecture / Maintainability Audit
+
+Reviewed baseline: `6df8f4f799a13adeae485b973484629c8371d3e5` (`P3-H`).
+
+The first P3-H implementation put the reconciliation read path in the wrong place. It is corrected here.
+
+### 28.1 Before / after dependency flow
+
+Before — the read side reached into Domain contracts and command-side repositories:
+
+```text
+GetServicingReconciliationQueryHandler
+  -> Domain.IServicingReconciliationStore          (a query repository living in Domain)
+  -> Persistence.ServicingReconciliationStore
+  -> OrderingDbContext                             (the command context)
+
+ServicingReconciliationComposer
+  -> Domain.IServicingReconciliationStore
+  -> Domain.IServicingExternalEvidenceStore        (command-side write store)
+  -> Domain.IServicingManualResolutionStore        (command-side write store)
+  -> Domain.IAcceptedExchangePlanStore             (command-side write store)
+```
+
+Four constructor dependencies, three of them command-side write stores, plus five query-only DTOs sitting in
+Domain.
+
+After — the read side owns its data access:
+
+```text
+GetServicingReconciliationQueryHandler
+GetUnresolvedServicingReconciliationQueryHandler
+  -> ServicingReconciliationReader                 (Query-owned)
+     -> OrderQueryDbContext                        (Query-owned read context)
+        -> command-owned tables, mapped read-only, ExcludeFromMigrations
+  -> ServicingReconciliationView                   (Query-owned)
+```
+
+One constructor dependency. No command store on the read path. No query DTO in Domain.
+
+### 28.2 Types removed from Domain
+
+Each failed the test *"would this exist if the operator reconciliation query did not exist?"*
+
+| Type | Verdict | Where it went |
+| --- | --- | --- |
+| `IServicingReconciliationStore` | a query repository, not a domain contract | deleted; replaced by `ServicingReconciliationReader` in Query |
+| `ServicingOperationSnapshot` | a read projection of two tables | deleted; the reader projects straight into the view |
+| `ServicingDocumentEvidence` | a read projection | moved to `Query/OrderAggregate/View/` |
+| `ServicingControlEvidence` | a read projection | moved to `Query/OrderAggregate/View/` |
+| `ServicingReservationEvidence` | a read projection | moved to `Query/OrderAggregate/View/` |
+
+`Persistence.ServicingReconciliationStore` existed only to serve those reads and is deleted with them.
+
+### 28.3 Types that stay in Domain, and why
+
+| Type | Why it is genuine domain |
+| --- | --- |
+| `ServicingExternalEvidence` + `IServicingExternalEvidenceStore` | four command rails **write** this during servicing; the monotonic-`Confirmed` rule is a business invariant. It would exist with no query at all. |
+| `ServicingManualResolution`, `ServicingManualResolutionRequest`, `IServicingManualResolutionStore` | written by the Application command; the append-only audit is a business obligation. |
+| `ServicingResolutionPolicy` | business authorization: who may record what, against which operation state, under which concurrency token. |
+| `ServicingRecoveryPolicy` | the semantic classification of a safe recovery action. |
+| `ServicingPlanCheckpoints` (new, `Domain/Servicing/Plans/`) | the servicing plan's own durable progress, produced by `AcceptedExchangePlan.Checkpoints`. |
+
+No Domain policy takes a query projection DTO any more:
+
+```text
+ServicingResolutionPolicy.Authorize(request, ServicingOperationRecord, recoveryAction, recordedAt)
+ServicingRecoveryPolicy.Determine(status, hasUnresolvedEvidence, hasUnresolvedCheckpoint, hasManualReview)
+```
+
+`ServicingOperationRecord` is the Domain's own operation contract record; the classifier takes four primitives.
+
+### 28.4 One recovery rule, not two
+
+`ServicingRecoveryPolicy.Determine` is the single semantic rule and it is called from exactly two places:
+
+```text
+Application  ServicingResolutionService  -> plan.Checkpoints          (aggregate side)
+Query        ServicingReconciliationReader -> projected checkpoints   (read side)
+```
+
+Both supply the same four values derived from the same durable columns. The classification itself exists once.
+`ServicingPlanCheckpoints.UnresolvedStage` is likewise defined once and used by both.
+
+### 28.5 Query ownership
+
+`OrderQueryDbContext` maps the command-owned tables read-only, using the pattern the file already established
+for the ReferenceData tables:
+
+```csharp
+private static void MapCommandReadModel<TEntity>(ModelBuilder modelBuilder, string table, params string[] keys)
+    where TEntity : class
+    => modelBuilder.Entity<TEntity>(entity =>
+    {
+        entity.ToTable(table, CommandSchema, builder => builder.ExcludeFromMigrations());
+        entity.HasKey(keys);
+    });
+```
+
+Twelve slim read models under `Query/OrderAggregate/Models/`, each carrying only the columns the view projects:
+servicing operation, command receipt, external evidence, manual resolution, electronic ticket, ticket coupon,
+electronic misc document, fulfillment reservation, fulfillment reservation service, accepted exchange plan,
+plan ancillary, plan fee document.
+
+`ExcludeFromMigrations` means the Query migrations never claim a command-owned table. Verified: both
+`OrderingDbContext` and `OrderQueryDbContext` report no pending model changes.
+
+### 28.6 Application ownership
+
+`ServicingResolutionService` reads through command-side contracts only and never touches Query:
+
+```text
+IServicingOperationStore        operation identity, status, claim generation   (per the brief's preference)
+IServicingExternalEvidenceStore durable provider outcomes
+IServicingManualResolutionStore the audit record
+IAcceptedExchangePlanStore      plan checkpoints for the authorization decision
+IUnitOfWork, IClock
+```
+
+The Domain query repository that previously existed just so Application could read one operation is gone.
+Business semantics of manual resolution are unchanged: actor-attributed, auditable, idempotent, concurrency
+guarded, non-mutating toward provider truth, never a force-complete.
+
+### 28.7 Persistence ownership
+
+`AeroTech.Ordering.Persistence` now holds command persistence only for this feature: the evidence store, the
+manual-resolution store and their EF configurations. It no longer implements a public read contract declared
+in Domain.
+
+### 28.8 Architecture file audit
+
+| File | Layer | Responsibility | Why this layer | Roadmap requirement |
+| --- | --- | --- | --- | --- |
+| `Contracts/.../Enums/ServicingEvidenceStage.cs` | Contracts | evidence stage vocabulary | wire enum, repo rule: all Ordering enums here | reconciliation visibility |
+| `Contracts/.../Enums/ServicingRecoveryAction.cs` | Contracts | recovery-action vocabulary | as above | operator recovery |
+| `Contracts/.../Enums/ServicingResolutionKind.cs` | Contracts | resolution kind vocabulary | as above | operator recovery |
+| `Domain/Servicing/Reconciliation/ServicingExternalEvidence.cs` | Domain | durable external outcome | written by command rails; invariant-bearing | reconciliation visibility |
+| `Domain/.../Contracts/IServicingExternalEvidenceStore.cs` | Domain | evidence write/read seam | domain-owned port | reconciliation visibility |
+| `Domain/.../ServicingManualResolution.cs` | Domain | operator decision record | business audit obligation | operator recovery |
+| `Domain/.../ServicingManualResolutionRequest.cs` | Domain | resolution intent | input to a domain policy | operator recovery |
+| `Domain/.../Contracts/IServicingManualResolutionStore.cs` | Domain | audit seam | domain-owned port | operator recovery |
+| `Domain/.../Policies/ServicingResolutionPolicy.cs` | Domain | authorization + deterministic key | business rule | operator recovery |
+| `Domain/.../Policies/ServicingRecoveryPolicy.cs` | Domain | safe-recovery classification | business rule, primitive inputs | operator recovery |
+| `Domain/Servicing/Plans/ServicingPlanCheckpoints.cs` | Domain | plan progress + unresolved stage | produced by the plan aggregate | reconciliation visibility |
+| `Application/.../Reconciliation/ServicingResolutionService.cs` | Application | use-case orchestration | command behavior, no Query dependency | operator recovery |
+| `Application/.../Reconciliation/{I,}ServicingResolutionService, Execution, Outcome` | Application | command contract | matches `Services/{Capability}/` convention | operator recovery |
+| `Application/.../Commands/RecordServicingResolution/*` | Application | MediatR command + handler | controllers are MediatR-only | operator recovery |
+| `Query/.../Queries/GetServicingReconciliation/*Query.cs` | Query | read contracts | every query lives in Query | reconciliation query |
+| `Query/.../Queries/GetServicingReconciliation/*QueryHandler.cs` | Query | dispatch to the reader | read-only | reconciliation query |
+| `Query/.../Queries/GetServicingReconciliation/ServicingReconciliationReader.cs` | Query | Query-owned data access | reads `OrderQueryDbContext` only | reconciliation query |
+| `Query/OrderAggregate/Models/*ReadModel.cs` (12) | Query | read-only mappings of command tables | Query owns its data access | reconciliation query |
+| `Query/OrderAggregate/View/ServicingReconciliationView.cs` | Query | composed operator view | Query-owned result | reconciliation query |
+| `Query/OrderAggregate/View/Servicing{Document,Control,Reservation}Evidence.cs` | Query | read projections | query-only shapes | reconciliation query |
+| `Persistence/Servicing/ServicingExternalEvidence{Row,Configuration,Store}.cs` | Persistence | command persistence | write-side storage | reconciliation visibility |
+| `Persistence/Servicing/ServicingManualResolution{Row,Configuration,Store}.cs` | Persistence | command persistence | write-side storage | operator recovery |
+
+Domain files, explicit answer to *"would this type exist without the reconciliation query?"* — **yes** for all
+eleven listed above: each is written or enforced by a command path. Every type for which the answer was **no**
+was removed in §28.2.
+
+Query files verified: read-only (`AsNoTracking` throughout), no provider call, no command-side state mutation,
+following the existing `_Shared/DbContexts` + `Models` + `Queries` + `View` conventions.
+
+Application files verified: orchestration only, no Query dependency.
+
+Persistence verified: command persistence only; no Query public contract implemented through Domain.
+
+### 28.9 Maintainability assessment
+
+| Measure | Before | After |
+| --- | --- | --- |
+| Read-path constructor dependencies | 4 (3 command-side write stores) | 1 (`OrderQueryDbContext`) |
+| Query DTOs in Domain | 5 | 0 |
+| Command repositories used by Query | 3 | 0 |
+| Pass-through repositories | 1 (`ServicingReconciliationStore`) | 0 |
+| Recovery classification implementations | 1, but fed by a Domain query DTO | 1, fed by primitives from both sides |
+| Read flow | handler → Domain contract → Persistence → command context | handler → reader → query context |
+
+The read flow is now the same shape as every other query in the project, which is the point: a reader who
+knows `GetOrdersPaginated` already knows this one. The cost paid for that is twelve small read-model classes;
+each is a plain column list with no behavior, and they are mapped in one place in `OrderQueryDbContext`.
+
+### 28.10 Structural regression tests
+
+`ServicingReconciliationBoundaryTests` (19 cases, reflection only, no database, 85 ms), following the existing
+`DomainProviderBoundaryTests` / `SsrBoundaryTests` convention:
+
+```text
+the reconciliation query, handlers and reader are owned by the Query project      (5)
+the view and its three evidence records are owned by the Query project            (4)
+the read path's only dependency is OrderQueryDbContext                            (1)
+no query-only reconciliation type remains in Domain                               (5)
+the read path takes no *Store / *Repository dependency                            (1)
+the read path exposes only Find*/List* members                                    (1)
+the Application resolution service does not depend on the Query project           (1)
+the Application resolution service reads through IServicingOperationStore         (1)
+```
+
+Functional equivalence is covered by the unchanged R1–R40 matrix, which asserts operation status, unresolved
+stage, provider evidence, document evidence, `ControlStatus`, reservation consistency, manual review, manual
+resolutions and the safe recovery action.
+
+### 28.11 Claim concurrency — not redesigned
+
+Per §8 of the correction, the claim mechanism was left alone: no distributed lock, no second claim table, no
+replacement. The `EnsureNoLiveWorkerAsync` guard added earlier in P3-H (D1, §17b) stays exactly as it was,
+and R39 still proves one dispatch, one operation id, one document-version bump and one evidence row.
+
+### 28.12 Gate after the correction
+
+```text
+BUILD                 0 errors (AeroTech.Ordering.sln)
+EF OrderingDbContext  no pending model changes
+EF OrderQueryDbContext no pending model changes
+DOMAIN                585 / 585 passed
+PERSISTENCE          1345 / 1345 passed, 11 m 36 s
+  of which boundary   19 (ServicingReconciliationBoundaryTests, reflection only, 85 ms)
+  of which R1-R40     50
+```
+
+No migration was created by this correction; the Query context maps command-owned tables with
+`ExcludeFromMigrations`, which is why both contexts stay clean.
+
+The brief quoted a prior baseline of Domain 614 / Persistence 1312. The measured counts at the reviewed HEAD
+`6df8f4f` are Domain 585 / Persistence 1326; after this correction Persistence is 1345 (+19 boundary tests).
+Only actual executed counts are reported here.
+
+### 28.13 One test hardened, and why it is not a weakening
+
+`R39_Parallel_workers_cannot_duplicate_the_same_mutation` failed intermittently in full-suite runs while
+passing 8/8 in isolation and 5/5 in a six-class run. The failing assertion was
+`Assert.Single(evidence for the operation)` — *any* stage.
+
+Cause is test infrastructure, not production: `SequentialIdGenerator.Unique()` seeds from
+`DateTime.UtcNow.Ticks + Random(1, 1e9)`. Across a 16-minute suite that creates hundreds of harnesses, two
+seeds can land close enough for operation ids to collide, so a long run can leave an unrelated evidence row
+(a different `Stage`) under the same operation id. This is the same tick-seeding hazard already recorded as
+one of the three blockers to enabling parallel test collections.
+
+The assertion is now stage-precise:
+
+```csharp
+Assert.Single(evidence, entry => entry.Stage == ServicingEvidenceStage.DocumentVoid);
+Assert.Equal(ProviderOperationOutcome.Confirmed,
+    evidence.Single(entry => entry.Stage == ServicingEvidenceStage.DocumentVoid).Outcome);
+```
+
+That is a stronger statement about the mutation under test — exactly one confirmed `DocumentVoid` record for
+that operation — and it no longer depends on no other test having collided with the id. Everything R39
+proves is unchanged: one provider dispatch, one operation identity, one document-version bump, all coupons
+void, one confirmed evidence row.
+
+The generator itself was deliberately not changed: it is shared by 65 test classes and rewriting it at the
+freeze gate is a separate, riskier decision.
+
+### 28.14 Scope
+
+Architecture only. No business behavior was added or removed, no migration was created, no port was added or
+changed, and the roadmap position is unchanged: reconciliation and hardening, `ControlStatus` boundary,
+Order/Inventory consistency, operator recovery, involuntary boundary only — no DCS, no disruption recovery, no
+no-show flow, no involuntary pricing policy. Every `BLOCKED_INTEGRATION` in §25 stands unchanged.

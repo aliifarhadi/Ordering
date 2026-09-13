@@ -5,6 +5,7 @@ using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence.ElectronicTicketAggregate;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.Persistence.Tests.P1;
+using AeroTech.Ordering.Query.OrderAggregate.View;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -32,7 +33,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await DriftReservationAsync(order.Id, ReservationMemberStatus.Pending);
 
             await using var reading = NewHarness();
-            var reservations = await reading.Reconciliation.ListReservationsAsync(order.Id);
+            var reservations = await ReservationEvidenceAsync(reading, order.Id);
 
             Assert.All(
                 reservations,
@@ -121,8 +122,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.NotEqual(OrderStatus.Cancelled, reloaded.Status);
 
             await using var reading = NewHarness();
-            var snapshot = (await reading.Reconciliation.FindOperationAsync(outcome.OperationId))!;
-            var view = await reading.ReconciliationView.ComposeAsync(snapshot, CancellationToken.None);
+            var view = (await reading.ReconciliationView.FindAsync(outcome.OperationId))!;
 
             Assert.True(view.IsRejected);
             Assert.False(view.IsUnresolved);
@@ -144,8 +144,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(ServicingOperationStatus.NeedsReconciliation, reconciling.OperationStatus);
 
             await using var reading = NewHarness();
-            var snapshot = (await reading.Reconciliation.FindOperationAsync(reconciling.OperationId))!;
-            var view = await reading.ReconciliationView.ComposeAsync(snapshot, CancellationToken.None);
+            var view = (await reading.ReconciliationView.FindAsync(reconciling.OperationId))!;
 
             var evidence = Assert.Single(view.ExternalEvidence);
 
@@ -178,13 +177,23 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(ServicingOperationStatus.Completed, outcome.OperationStatus);
 
             await using var reading = NewHarness();
-            var snapshot = (await reading.Reconciliation.FindOperationAsync(outcome.OperationId))!;
-            var view = await reading.ReconciliationView.ComposeAsync(snapshot, CancellationToken.None);
+            var view = (await reading.ReconciliationView.FindAsync(outcome.OperationId))!;
 
             Assert.False(view.IsUnresolved);
             Assert.Equal(ServicingRecoveryAction.NoneRequired, view.RecoveryAction);
             Assert.Empty(view.UnresolvedReservations);
-            Assert.Empty(await reading.Reconciliation.ListUnresolvedAsync(order.Id));
+            Assert.Empty(await reading.ReconciliationView.ListUnresolvedAsync(order.Id));
+        }
+
+        private static async Task<IReadOnlyList<ServicingReservationEvidence>> ReservationEvidenceAsync(
+            OrderSliceHarness harness,
+            long orderId)
+        {
+            var views = await harness.ReconciliationView.ListUnresolvedAsync(orderId);
+
+            return views.Count > 0
+                ? views[0].ReservationEvidence
+                : [];
         }
 
         private async Task DriftReservationAsync(long orderId, ReservationMemberStatus observed)

@@ -1,6 +1,7 @@
-﻿using AeroTech.Framework.Core.Domain.Repository;
+using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
@@ -10,7 +11,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Reconciliation
 {
     public sealed class ServicingResolutionService : IServicingResolutionService
     {
-        private readonly IServicingReconciliationStore _reconciliation;
+        private readonly IServicingOperationStore _operations;
         private readonly IServicingExternalEvidenceStore _evidence;
         private readonly IServicingManualResolutionStore _resolutions;
         private readonly IAcceptedExchangePlanStore _exchangePlans;
@@ -18,14 +19,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Reconciliation
         private readonly IClock _clock;
 
         public ServicingResolutionService(
-            IServicingReconciliationStore reconciliation,
+            IServicingOperationStore operations,
             IServicingExternalEvidenceStore evidence,
             IServicingManualResolutionStore resolutions,
             IAcceptedExchangePlanStore exchangePlans,
             IUnitOfWork unitOfWork,
             IClock clock)
         {
-            _reconciliation = reconciliation;
+            _operations = operations;
             _evidence = evidence;
             _resolutions = resolutions;
             _exchangePlans = exchangePlans;
@@ -54,14 +55,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Reconciliation
             if (existing is not null && existing.ExpectedClaimGeneration == execution.ExpectedClaimGeneration)
                 return new ServicingResolutionOutcome(existing, true);
 
-            var operation = await _reconciliation.FindOperationAsync(execution.OperationId, cancellationToken)
+            var operation = await _operations.FindAsync(execution.OperationId, cancellationToken)
                 ?? throw ExceptionFactory.ServicingResolutionOperationNotFound(execution.OperationId);
 
             var evidence = await _evidence.ListAsync(execution.OperationId, cancellationToken);
             var plan = await _exchangePlans.FindAsync(execution.OperationId, cancellationToken);
+            var checkpoints = plan?.Checkpoints;
 
             var recoveryAction = ServicingRecoveryPolicy.Determine(
-                operation, plan, evidence, ServicingRecoveryPolicy.ManualReviewReasons(plan));
+                operation.Status,
+                evidence.Any(candidate => candidate.IsUnresolved),
+                checkpoints?.IsUnresolved ?? false,
+                checkpoints?.HasUnresolvedManualReview ?? false);
 
             var resolution = ServicingResolutionPolicy.Authorize(
                 request, operation, recoveryAction, _clock.GetDateTime());

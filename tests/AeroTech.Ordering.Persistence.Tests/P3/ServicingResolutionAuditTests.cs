@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reconciliation;
 using AeroTech.Ordering.Domain._Shared.Contracts;
@@ -72,7 +72,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Empty(await reading.ManualResolutions.ListAsync(operationId));
             Assert.Equal(
                 ServicingOperationStatus.NeedsReconciliation,
-                (await reading.Reconciliation.FindOperationAsync(operationId))!.Status);
+                (await reading.ReconciliationView.FindAsync(operationId))!.Status);
         }
 
         [Fact]
@@ -124,9 +124,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(generation, audit.ExpectedClaimGeneration);
             Assert.NotEqual(default, audit.RecordedAt);
 
-            var view = await reading.ReconciliationView.ComposeAsync(
-                (await reading.Reconciliation.FindOperationAsync(operationId))!,
-                CancellationToken.None);
+            var view = (await reading.ReconciliationView.FindAsync(operationId))!;
 
             Assert.Equal([audit.ResolutionId], view.ManualResolutions.Select(entry => entry.ResolutionId));
         }
@@ -141,13 +139,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await harness.Resolutions.RecordAsync(Resume(operationId, generation, "operator-1"));
 
             await using var reading = NewHarness();
-            var snapshot = (await reading.Reconciliation.FindOperationAsync(operationId))!;
+            var view = (await reading.ReconciliationView.FindAsync(operationId))!;
 
-            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, snapshot.Status);
-            Assert.Equal(generation, snapshot.ClaimGeneration);
-
-            var view = await reading.ReconciliationView.ComposeAsync(snapshot, CancellationToken.None);
-
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, view.Status);
+            Assert.Equal(generation, view.ClaimGeneration);
             Assert.True(view.IsUnresolved);
             Assert.Equal(ServicingRecoveryAction.ReplayCommand, view.RecoveryAction);
         }
@@ -231,10 +226,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.False(outcome.IsReplay);
 
             await using var reading = NewHarness();
-            var snapshot = (await reading.Reconciliation.FindOperationAsync(operationId))!;
-            var view = await reading.ReconciliationView.ComposeAsync(snapshot, CancellationToken.None);
+            var view = (await reading.ReconciliationView.FindAsync(operationId))!;
 
-            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, snapshot.Status);
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, view.Status);
             Assert.Equal(ServicingRecoveryAction.ManualResolutionRequired, view.RecoveryAction);
             Assert.NotEmpty(view.ManualReviewReasons);
             Assert.Single(view.ManualResolutions);
@@ -320,11 +314,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
         private static async Task<long> GenerationAsync(OrderSliceHarness harness, long operationId)
         {
-            var snapshot = await harness.Reconciliation.FindOperationAsync(operationId);
+            var view = await harness.ReconciliationView.FindAsync(operationId);
 
-            Assert.NotNull(snapshot);
+            Assert.NotNull(view);
 
-            return snapshot!.ClaimGeneration;
+            return view!.ClaimGeneration;
         }
 
         private async Task<IReadOnlyList<Domain.ElectronicTicketAggregate.ElectronicTicket>> TicketsAsync(long orderId)

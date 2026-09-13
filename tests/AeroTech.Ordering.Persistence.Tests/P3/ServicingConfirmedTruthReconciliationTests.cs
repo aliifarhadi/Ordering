@@ -42,8 +42,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             await using var reading = NewHarness();
 
-            await reading.Reconciliation.ListDocumentsAsync(issued.OrderId);
-            await reading.Reconciliation.ListControlAsync(issued.OrderId);
+            await reading.ReconciliationView.ListUnresolvedAsync(issued.OrderId);
 
             var after = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
 
@@ -86,10 +85,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(ElectronicTicketStatus.Voided, ticket.StatusSummary);
 
             await using var reading = NewHarness();
-            var snapshot = (await reading.Reconciliation.FindOperationAsync(confirmed.OperationId))!;
+            var view = (await reading.ReconciliationView.FindAsync(confirmed.OperationId))!;
             var evidence = Assert.Single(await reading.ServicingEvidence.ListAsync(confirmed.OperationId));
 
-            Assert.Equal(ServicingOperationStatus.Completed, snapshot.Status);
+            Assert.Equal(ServicingOperationStatus.Completed, view.Status);
             Assert.Equal(ProviderOperationOutcome.Confirmed, evidence.Outcome);
             Assert.True(evidence.IsConfirmed);
         }
@@ -189,7 +188,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             await using var reading = NewHarness(caller);
 
-            Assert.Single(await reading.ServicingEvidence.ListAsync(operationIds.Single()));
+            var evidence = await reading.ServicingEvidence.ListAsync(operationIds.Single());
+
+            Assert.Single(evidence, entry => entry.Stage == ServicingEvidenceStage.DocumentVoid);
+            Assert.Equal(
+                ProviderOperationOutcome.Confirmed,
+                evidence.Single(entry => entry.Stage == ServicingEvidenceStage.DocumentVoid).Outcome);
         }
 
         [Fact]
@@ -202,8 +206,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 issued.OrderId, issued.TicketId, Reason, Detail, Actor, NewKey());
 
             await using var reading = NewHarness();
-            var snapshot = (await reading.Reconciliation.FindOperationAsync(completed.OperationId))!;
-            var view = await reading.ReconciliationView.ComposeAsync(snapshot, CancellationToken.None);
+            var view = (await reading.ReconciliationView.FindAsync(completed.OperationId))!;
 
             Assert.Equal(ServicingOperationStatus.Completed, view.Status);
             Assert.Null(view.UnresolvedStage);
@@ -212,7 +215,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Empty(view.ManualResolutions);
             Assert.Equal(ServicingRecoveryAction.NoneRequired, view.RecoveryAction);
             Assert.All(view.ExternalEvidence, evidence => Assert.True(evidence.IsConfirmed));
-            Assert.Empty(await reading.Reconciliation.ListUnresolvedAsync(issued.OrderId));
+            Assert.Empty(await reading.ReconciliationView.ListUnresolvedAsync(issued.OrderId));
         }
 
         private static async Task<Application.OrderAggregate.Services.DocumentVoid.DocumentVoidOutcome?>

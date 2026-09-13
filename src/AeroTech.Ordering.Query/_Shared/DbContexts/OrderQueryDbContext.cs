@@ -1,4 +1,4 @@
-using AeroTech.Ordering.Query.OrderAggregate.Models;
+﻿using AeroTech.Ordering.Query.OrderAggregate.Models;
 using AeroTech.Ordering.ReferenceData.Persistence;
 using AeroTech.Ordering.ReferenceData.ReadModels;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +10,8 @@ namespace AeroTech.Ordering.Query._Shared.DbContexts
         public const string ReadModelSchema = "ReadModel";
         public const string MigrationsHistorySchema = "dbo";
         public const string MigrationsHistoryTable = "__QueriesMigrationHistory";
+
+        public const string CommandSchema = "Order";
 
         public OrderQueryDbContext(DbContextOptions<OrderQueryDbContext> options) : base(options)
         {
@@ -31,6 +33,38 @@ namespace AeroTech.Ordering.Query._Shared.DbContexts
 
         public DbSet<AirlineReadModel> Airlines => Set<AirlineReadModel>();
 
+        public DbSet<ServicingOperationReadModel> ServicingOperations => Set<ServicingOperationReadModel>();
+
+        public DbSet<CommandReceiptReadModel> CommandReceipts => Set<CommandReceiptReadModel>();
+
+        public DbSet<ServicingExternalEvidenceReadModel> ServicingExternalEvidences
+            => Set<ServicingExternalEvidenceReadModel>();
+
+        public DbSet<ServicingManualResolutionReadModel> ServicingManualResolutions
+            => Set<ServicingManualResolutionReadModel>();
+
+        public DbSet<ElectronicTicketReadModel> ElectronicTickets => Set<ElectronicTicketReadModel>();
+
+        public DbSet<TicketCouponReadModel> TicketCoupons => Set<TicketCouponReadModel>();
+
+        public DbSet<ElectronicMiscDocumentReadModel> ElectronicMiscDocuments
+            => Set<ElectronicMiscDocumentReadModel>();
+
+        public DbSet<FulfillmentReservationReadModel> FulfillmentReservations
+            => Set<FulfillmentReservationReadModel>();
+
+        public DbSet<FulfillmentReservationServiceReadModel> FulfillmentReservationServices
+            => Set<FulfillmentReservationServiceReadModel>();
+
+        public DbSet<AcceptedExchangePlanReadModel> AcceptedExchangePlans
+            => Set<AcceptedExchangePlanReadModel>();
+
+        public DbSet<AcceptedExchangePlanAncillaryReadModel> AcceptedExchangePlanAncillaries
+            => Set<AcceptedExchangePlanAncillaryReadModel>();
+
+        public DbSet<AcceptedExchangePlanFeeDocumentReadModel> AcceptedExchangePlanFeeDocuments
+            => Set<AcceptedExchangePlanFeeDocumentReadModel>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.HasDefaultSchema(ReadModelSchema);
@@ -43,7 +77,37 @@ namespace AeroTech.Ordering.Query._Shared.DbContexts
             MapReferenceReadModel<CurrencyReadModel>(modelBuilder, "Currencies");
             MapReferenceReadModel<AirportReadModel>(modelBuilder, "Airports");
             MapReferenceReadModel<AirlineReadModel>(modelBuilder, "Airlines");
+
+            MapCommandReadModel<ServicingOperationReadModel>(modelBuilder, "ServicingOperations", "Id");
+            MapCommandReadModel<CommandReceiptReadModel>(modelBuilder, "CommandReceipts", "Id");
+            MapCommandReadModel<ServicingExternalEvidenceReadModel>(
+                modelBuilder, "ServicingExternalEvidences", "OperationId", "Stage");
+            MapCommandReadModel<ServicingManualResolutionReadModel>(
+                modelBuilder, "ServicingManualResolutions", "OperationId", "ResolutionId");
+            MapCommandReadModel<ElectronicTicketReadModel>(modelBuilder, "ElectronicTickets", "Id");
+            MapCommandReadModel<TicketCouponReadModel>(modelBuilder, "TicketCoupons", "Id");
+            MapCommandReadModel<ElectronicMiscDocumentReadModel>(modelBuilder, "ElectronicMiscDocuments", "Id");
+            MapCommandReadModel<FulfillmentReservationReadModel>(modelBuilder, "FulfillmentReservations", "Id");
+            MapCommandReadModel<FulfillmentReservationServiceReadModel>(
+                modelBuilder, "FulfillmentReservationServices", "Id");
+            MapCommandReadModel<AcceptedExchangePlanReadModel>(
+                modelBuilder, "AcceptedExchangePlans", "OperationId");
+            MapCommandReadModel<AcceptedExchangePlanAncillaryReadModel>(
+                modelBuilder, "AcceptedExchangePlanAncillaries", "OperationId", "EmdCouponId");
+            MapCommandReadModel<AcceptedExchangePlanFeeDocumentReadModel>(
+                modelBuilder, "AcceptedExchangePlanFeeDocuments", "OperationId", "DocumentReference");
         }
+
+        private static void MapCommandReadModel<TEntity>(
+            ModelBuilder modelBuilder,
+            string table,
+            params string[] keys)
+            where TEntity : class
+            => modelBuilder.Entity<TEntity>(entity =>
+            {
+                entity.ToTable(table, CommandSchema, builder => builder.ExcludeFromMigrations());
+                entity.HasKey(keys);
+            });
 
         private static void MapReferenceReadModel<TEntity>(ModelBuilder modelBuilder, string table)
             where TEntity : class

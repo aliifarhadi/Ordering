@@ -53,16 +53,15 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             harness.Clock.Advance(TimeSpan.FromDays(400));
 
-            await using var reading = NewHarness();
             var order = await ReloadAsync(_fixture, issued.OrderId);
-            var control = await reading.Reconciliation.ListControlAsync(issued.OrderId);
+            var ticket = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
 
             Assert.All(
-                control,
-                evidence =>
+                ticket.Coupons,
+                coupon =>
                 {
-                    Assert.Equal(TicketCouponControlStatus.Local, evidence.ControlStatus);
-                    Assert.Equal(TicketCouponFinancialStatus.Open, evidence.FinancialStatus);
+                    Assert.Equal(TicketCouponControlStatus.Local, coupon.ControlStatus);
+                    Assert.Equal(TicketCouponFinancialStatus.Open, coupon.FinancialStatus);
                 });
 
             Assert.All(

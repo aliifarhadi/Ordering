@@ -152,8 +152,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(orderBefore.CommercialVersion, orderAfter.CommercialVersion);
 
             await using var reading = NewHarness();
-            var snapshot = (await reading.Reconciliation.FindOperationAsync(outcome.OperationId))!;
-            var view = await reading.ReconciliationView.ComposeAsync(snapshot, CancellationToken.None);
+            var view = (await reading.ReconciliationView.FindAsync(outcome.OperationId))!;
 
             Assert.True(view.AwaitsExternal);
             Assert.Equal(ServicingRecoveryAction.ReplayCommand, view.RecoveryAction);

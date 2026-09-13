@@ -1,5 +1,6 @@
 ﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain._Shared.Resources;
+using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 
 namespace AeroTech.Ordering.Domain.Servicing.Reconciliation.Policies
 {
@@ -10,14 +11,14 @@ namespace AeroTech.Ordering.Domain.Servicing.Reconciliation.Policies
 
         public static ServicingManualResolution Authorize(
             ServicingManualResolutionRequest request,
-            ServicingOperationSnapshot operation,
+            ServicingOperationRecord operation,
             ServicingRecoveryAction recoveryAction,
             DateTimeOffset recordedAt)
         {
             if (string.IsNullOrWhiteSpace(request.Actor) || string.IsNullOrWhiteSpace(request.Reason))
                 throw ExceptionFactory.ServicingResolutionAttributionRequired(request.OperationId);
 
-            if (operation.Status is ServicingOperationStatus.Completed or ServicingOperationStatus.Rejected)
+            if (ServicingRecoveryPolicy.IsSettled(operation.Status))
                 throw ExceptionFactory.ServicingResolutionOperationIsSettled(
                     operation.OperationId, operation.Status);
 

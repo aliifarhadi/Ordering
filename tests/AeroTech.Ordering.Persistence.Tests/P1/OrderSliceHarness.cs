@@ -146,7 +146,6 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             CancellationQuotes = new DeterministicOrderCancellationQuoteAdapter();
             DocumentVoids = documentVoids ?? new DeterministicDocumentVoidAdapter();
             ServicingEvidence = new ServicingExternalEvidenceStore(_command, frameworkClock);
-            Reconciliation = new ServicingReconciliationStore(_command);
             ManualResolutions = new ServicingManualResolutionStore(_command);
             VoidDocument = new Application.OrderAggregate.Services.DocumentVoid.DocumentVoidService(
                 Orders, tickets, miscDocuments, DocumentVoids, ServicingEvidence, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
@@ -224,11 +223,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 frameworkClock,
                 projector);
 
-            ReconciliationView = new ServicingReconciliationComposer(
-                Reconciliation, ServicingEvidence, ManualResolutions, ExchangePlans);
+            ReconciliationView = new ServicingReconciliationReader(_query);
 
             Resolutions = new ServicingResolutionService(
-                Reconciliation, ServicingEvidence, ManualResolutions, ExchangePlans,
+                operationStore, ServicingEvidence, ManualResolutions, ExchangePlans,
                 unitOfWork, frameworkClock);
         }
 
@@ -280,11 +278,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
         public ServicingExternalEvidenceStore ServicingEvidence { get; } = default!;
 
-        public ServicingReconciliationStore Reconciliation { get; } = default!;
-
         public ServicingManualResolutionStore ManualResolutions { get; } = default!;
 
-        public ServicingReconciliationComposer ReconciliationView { get; } = default!;
+        public ServicingReconciliationReader ReconciliationView { get; } = default!;
 
         public IServicingResolutionService Resolutions { get; } = default!;
 

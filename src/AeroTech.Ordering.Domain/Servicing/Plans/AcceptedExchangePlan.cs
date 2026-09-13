@@ -205,6 +205,16 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool HasUnresolvedManualReview => AncillaryManualReviews.Count > 0;
 
+        public ServicingPlanCheckpoints Checkpoints
+            => new(
+                IsEligibilityEstablished,
+                ReservationOutcome,
+                DocumentExchangeOutcome,
+                RequiresMonetarySettlement && !IsMonetarySettled,
+                RequiresFeeDocumentation && !IsFeeDocumentationSettled,
+                RequiresAncillaryReassociation && !IsAncillarySettled,
+                HasUnresolvedManualReview);
+
         public IReadOnlyList<AcceptedExchangeAncillaryDisposition> ExecutableAncillaries
             => Ancillaries
                 .Where(disposition =>

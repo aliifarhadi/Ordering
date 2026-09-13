@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.Tests._Shared;
@@ -170,9 +170,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single(view.ConfirmedEvidence);
             Assert.Empty(view.UnresolvedEvidence);
 
-            var unresolved = await harness.Reconciliation.ListUnresolvedAsync(order.Id);
+            var unresolved = await harness.ReconciliationView.ListUnresolvedAsync(order.Id);
 
-            Assert.DoesNotContain(unresolved, snapshot => snapshot.OperationId == completed.OperationId);
+            Assert.DoesNotContain(unresolved, pending => pending.OperationId == completed.OperationId);
         }
 
         [Fact]
@@ -190,10 +190,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var suspended = await harness.VoidDocument.VoidAsync(
                 order.Id, tickets[1].Id, Reason, Detail, Actor, NewKey());
 
-            var unresolved = await harness.Reconciliation.ListUnresolvedAsync(order.Id);
+            var unresolved = await harness.ReconciliationView.ListUnresolvedAsync(order.Id);
 
-            Assert.Equal([suspended.OperationId], unresolved.Select(snapshot => snapshot.OperationId));
-            Assert.DoesNotContain(unresolved, snapshot => snapshot.OperationId == completed.OperationId);
+            Assert.Equal([suspended.OperationId], unresolved.Select(pending => pending.OperationId));
+            Assert.DoesNotContain(unresolved, pending => pending.OperationId == completed.OperationId);
         }
 
         [Fact]
@@ -250,13 +250,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             await using var reading = NewHarness();
 
-            await reading.ReconciliationView.ComposeAsync(
-                (await reading.Reconciliation.FindOperationAsync(operationId))!,
-                CancellationToken.None);
+            var view = await reading.ReconciliationView.FindAsync(operationId);
 
-            await reading.Reconciliation.ListControlAsync(order.Id);
-            await reading.Reconciliation.ListDocumentsAsync(order.Id);
-            await reading.Reconciliation.ListReservationsAsync(order.Id);
+            Assert.NotNull(view);
+            Assert.NotEmpty(view!.ControlEvidence);
+            Assert.NotEmpty(view.Documents);
 
             var after = (await TicketsAsync(order.Id)).Single(candidate => candidate.Id == ticket.Id);
 
@@ -274,7 +272,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await SetControlAsync(ticket.Id, TicketCouponControlStatus.External);
 
             await using var resolving = NewHarness();
-            var generation = (await resolving.Reconciliation.FindOperationAsync(operationId))!.ClaimGeneration;
+            var generation = (await resolving.ReconciliationView.FindAsync(operationId))!.ClaimGeneration;
 
             await resolving.Resolutions.RecordAsync(
                 new Application.OrderAggregate.Services.Reconciliation.ServicingResolutionExecution(
@@ -315,11 +313,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             OrderSliceHarness harness,
             long operationId)
         {
-            var snapshot = await harness.Reconciliation.FindOperationAsync(operationId);
+            var view = await harness.ReconciliationView.FindAsync(operationId);
 
-            Assert.NotNull(snapshot);
+            Assert.NotNull(view);
 
-            return await harness.ReconciliationView.ComposeAsync(snapshot!, CancellationToken.None);
+            return view!;
         }
 
         private async Task SetControlAsync(long ticketId, TicketCouponControlStatus control)

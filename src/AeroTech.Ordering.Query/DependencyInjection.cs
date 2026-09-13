@@ -19,7 +19,7 @@ namespace AeroTech.Ordering.Query
                 sql => sql.MigrationsHistoryTable(OrderQueryDbContext.MigrationsHistoryTable, OrderQueryDbContext.MigrationsHistorySchema)));
 
             services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly));
-            services.AddScoped<OrderAggregate.Queries.GetServicingReconciliation.ServicingReconciliationComposer>();
+            services.AddScoped<OrderAggregate.Queries.GetServicingReconciliation.ServicingReconciliationReader>();
 
             services.AddHealthChecks().AddDbContextReadinessCheck<OrderQueryDbContext>("sql-server-query");
 
