@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Entities;
 using AeroTech.Ordering.Domain.OrderAggregate;
@@ -26,6 +26,13 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             OrderSliceHarness harness,
             IssuedTicket issued,
             int couponNumber)
+            => (await ChangeAsync(fixture, harness, issued, couponNumber)).ReplacementOrderServiceId!.Value;
+
+        public static async Task<VoluntaryChangeOutcome> ChangeAsync(
+            OrderingDatabaseFixture fixture,
+            OrderSliceHarness harness,
+            IssuedTicket issued,
+            int couponNumber)
         {
             var order = await ReloadAsync(fixture, issued.OrderId);
             var ticket = await TicketAsync(fixture, issued.OrderId, issued.TicketId);
@@ -34,14 +41,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             harness.ChangeQuotes.Quote(quote, Accepted(quote));
 
-            var outcome = await harness.VoluntaryChange.ChangeAsync(new VoluntaryChangeExecution(
+            return await harness.VoluntaryChange.ChangeAsync(new VoluntaryChangeExecution(
                 order.Id,
                 coupon.CurrentOrderServiceId,
                 QuotedChangeId,
                 NewKey(),
                 order.CommercialVersion));
-
-            return outcome.ReplacementOrderServiceId!.Value;
         }
 
         private static ChangeQuote Quote(Order order, long ticketId, TicketCoupon coupon)

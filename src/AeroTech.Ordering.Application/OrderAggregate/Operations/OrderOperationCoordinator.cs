@@ -1,9 +1,10 @@
-using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
+﻿using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain._Shared.Resources;
 using Microsoft.Extensions.Options;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Operations
@@ -57,6 +58,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Operations
 
             var receipt = await _receipts.AcquireAsync(kind.ToString(), idempotencyKey, requestHash, cancellationToken);
 
+            await EnsureNoLiveWorkerAsync(orderId, receipt.OperationId, cancellationToken);
+
             var claim = await _claims.AcquireAsync(
                 orderId,
                 receipt.OperationId,
@@ -74,6 +77,25 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Operations
                 cancellationToken);
 
             return new OrderOperation(receipt.ReceiptId, receipt.OperationId, claim.Generation, receipt.IsReplay);
+        }
+
+        private async Task EnsureNoLiveWorkerAsync(
+            long orderId,
+            long operationId,
+            CancellationToken cancellationToken)
+        {
+            var blocking = await _claims.FindBlockingAsync(orderId, cancellationToken);
+
+            if (blocking is null
+                || blocking.OperationId != operationId
+                || blocking.RecoveryLeaseUntil <= _clock.GetDateTime())
+                return;
+
+            var prior = await _operations.FindAsync(operationId, cancellationToken);
+
+            if (prior is null
+                || prior.Status is ServicingOperationStatus.Prepared or ServicingOperationStatus.Executing)
+                throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
         }
 
         public async Task ResolveAsync(long orderId, OrderOperation operation, CancellationToken cancellationToken = default)

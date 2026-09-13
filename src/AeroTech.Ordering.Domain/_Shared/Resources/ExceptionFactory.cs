@@ -1012,6 +1012,21 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ExchangeRejectionReplayed(int code, int httpStatus, string message) =>
             new(code, message) { HttpStatus = httpStatus };
 
+        public static BusinessException ServicingResolutionOperationNotFound(params object?[] args) =>
+            new(20328, ExceptionMessages.ServicingResolutionOperationNotFound, args) { HttpStatus = 404 };
+
+        public static BusinessException ServicingResolutionOperationIsSettled(params object?[] args) =>
+            new(20329, ExceptionMessages.ServicingResolutionOperationIsSettled, args) { HttpStatus = 409 };
+
+        public static BusinessException ServicingResolutionClaimGenerationStale(params object?[] args) =>
+            new(20330, ExceptionMessages.ServicingResolutionClaimGenerationStale, args) { HttpStatus = 409 };
+
+        public static BusinessException ServicingResolutionKindNotApplicable(params object?[] args) =>
+            new(20331, ExceptionMessages.ServicingResolutionKindNotApplicable, args) { HttpStatus = 409 };
+
+        public static BusinessException ServicingResolutionAttributionRequired(params object?[] args) =>
+            new(20332, ExceptionMessages.ServicingResolutionAttributionRequired, args) { HttpStatus = 422 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

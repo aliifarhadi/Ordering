@@ -1,5 +1,6 @@
-using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
+﻿using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Ordering.Domain.Servicing.Plans.Contracts;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Framework.Infrastructure.HealthChecks;
@@ -57,6 +58,9 @@ namespace AeroTech.Ordering.Persistence
             services.AddScoped<IServicingOperationStore, ServicingOperationStore>();
             services.AddScoped<IAcceptedChangePlanStore, AcceptedChangePlanStore>();
             services.AddScoped<IAcceptedExchangePlanStore, AcceptedExchangePlanStore>();
+            services.AddScoped<IServicingExternalEvidenceStore, ServicingExternalEvidenceStore>();
+            services.AddScoped<IServicingReconciliationStore, ServicingReconciliationStore>();
+            services.AddScoped<IServicingManualResolutionStore, ServicingManualResolutionStore>();
 
             services.AddHealthChecks().AddDbContextReadinessCheck<OrderingDbContext>("sql-server-command");
 

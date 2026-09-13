@@ -98,6 +98,7 @@ namespace AeroTech.Ordering.Application
             services.AddScoped<OrderAggregate.Services.CancelRefund.ICancelRefundAuthorizer, OrderAggregate.Services.CancelRefund.CancelRefundAuthorizer>();
             services.AddScoped<OrderAggregate.Services.CancelRefund.IRefundValueCorrectionCoordinator, OrderAggregate.Services.CancelRefund.RefundValueCorrectionCoordinator>();
             services.AddScoped<OrderAggregate.Services.CancelRefund.ICancelRefundService, OrderAggregate.Services.CancelRefund.CancelRefundService>();
+            services.AddScoped<OrderAggregate.Services.Reconciliation.IServicingResolutionService, OrderAggregate.Services.Reconciliation.ServicingResolutionService>();
 
             return services;
         }

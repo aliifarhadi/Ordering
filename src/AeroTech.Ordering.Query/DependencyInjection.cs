@@ -1,4 +1,4 @@
-using AeroTech.Framework.Infrastructure.HealthChecks;
+﻿using AeroTech.Framework.Infrastructure.HealthChecks;
 using AeroTech.Ordering.Query._Shared.DbContexts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -19,6 +19,7 @@ namespace AeroTech.Ordering.Query
                 sql => sql.MigrationsHistoryTable(OrderQueryDbContext.MigrationsHistoryTable, OrderQueryDbContext.MigrationsHistorySchema)));
 
             services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly));
+            services.AddScoped<OrderAggregate.Queries.GetServicingReconciliation.ServicingReconciliationComposer>();
 
             services.AddHealthChecks().AddDbContextReadinessCheck<OrderQueryDbContext>("sql-server-query");
 

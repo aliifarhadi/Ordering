@@ -8,6 +8,7 @@ using AeroTech.Ordering.Application.OrderAggregate.Services.Creation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Exchange;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Issuance;
 using AeroTech.Ordering.Application.OrderAggregate.Services.OrderChange;
+using AeroTech.Ordering.Application.OrderAggregate.Services.Reconciliation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Reservation;
 using AeroTech.Ordering.Application.OrderAggregate.Services.VoluntaryChange;
@@ -30,6 +31,7 @@ using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Outbox;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.Providers.Deterministic;
+using AeroTech.Ordering.Query.OrderAggregate.Queries.GetServicingReconciliation;
 using AeroTech.Ordering.Query._Shared.DbContexts;
 using AeroTech.Ordering.ReferenceData.Persistence;
 using AeroTech.Ordering.ReferenceData.ReadModels;
@@ -143,9 +145,12 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
 
             CancellationQuotes = new DeterministicOrderCancellationQuoteAdapter();
             DocumentVoids = documentVoids ?? new DeterministicDocumentVoidAdapter();
+            ServicingEvidence = new ServicingExternalEvidenceStore(_command, frameworkClock);
+            Reconciliation = new ServicingReconciliationStore(_command);
+            ManualResolutions = new ServicingManualResolutionStore(_command);
             VoidDocument = new Application.OrderAggregate.Services.DocumentVoid.DocumentVoidService(
-                Orders, tickets, miscDocuments, DocumentVoids, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
-            Cancel = new OrderCancelService(Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
+                Orders, tickets, miscDocuments, DocumentVoids, ServicingEvidence, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
+            Cancel = new OrderCancelService(ServicingEvidence, Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
             ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
 
             RefundQuotes = new DeterministicRefundQuoteAdapter();
@@ -167,6 +172,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             RefundValueCorrections = new DeterministicRefundValueCorrectionAdapter();
             CancelRefundAuthorizations = new DeterministicCancelRefundAuthorizationAdapter();
             CancelRefund = new CancelRefundService(
+                ServicingEvidence,
                 Orders,
                 tickets,
                 DocumentRefundCorrections,
@@ -180,7 +186,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 Ids,
                 frameworkClock,
                 projector);
-            Refund = new RefundService(Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
+            Refund = new RefundService(ServicingEvidence, Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
             ExchangeQuotes = new DeterministicExchangeQuoteAdapter();
             DocumentExchanges = documentExchanges ?? new DeterministicDocumentExchangeAdapter();
             ExchangeFunding = exchangeFunding ?? new DeterministicExchangeFundingAdapter();
@@ -217,6 +223,13 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 Ids,
                 frameworkClock,
                 projector);
+
+            ReconciliationView = new ServicingReconciliationComposer(
+                Reconciliation, ServicingEvidence, ManualResolutions, ExchangePlans);
+
+            Resolutions = new ServicingResolutionService(
+                Reconciliation, ServicingEvidence, ManualResolutions, ExchangePlans,
+                unitOfWork, frameworkClock);
         }
 
         public SequentialIdGenerator Ids { get; }
@@ -264,6 +277,16 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public IOrderScopeCancellationService ScopeCancel { get; }
 
         public DeterministicOrderCancellationQuoteAdapter CancellationQuotes { get; }
+
+        public ServicingExternalEvidenceStore ServicingEvidence { get; } = default!;
+
+        public ServicingReconciliationStore Reconciliation { get; } = default!;
+
+        public ServicingManualResolutionStore ManualResolutions { get; } = default!;
+
+        public ServicingReconciliationComposer ReconciliationView { get; } = default!;
+
+        public IServicingResolutionService Resolutions { get; } = default!;
 
         public DeterministicDocumentVoidAdapter DocumentVoids { get; }
 

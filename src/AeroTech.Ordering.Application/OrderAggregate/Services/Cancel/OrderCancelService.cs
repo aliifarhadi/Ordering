@@ -2,6 +2,7 @@
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
@@ -20,6 +21,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
     {
         public const string ReleaseStep = "release";
 
+        private readonly IServicingExternalEvidenceStore _evidence;
         private readonly IOrderRepository _orders;
         private readonly IElectronicTicketRepository _tickets;
         private readonly IElectronicMiscDocumentRepository _miscDocuments;
@@ -33,6 +35,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
         private readonly IOrderProjector _projector;
 
         public OrderCancelService(
+            IServicingExternalEvidenceStore evidence,
             IOrderRepository orders,
             IElectronicTicketRepository tickets,
             IElectronicMiscDocumentRepository miscDocuments,
@@ -45,6 +48,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             IClock clock,
             IOrderProjector projector)
         {
+            _evidence = evidence;
             _orders = orders;
             _tickets = tickets;
             _miscDocuments = miscDocuments;
@@ -205,6 +209,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             ProviderOperationOutcome outcome,
             CancellationToken cancellationToken)
         {
+            await RecordReleaseEvidenceAsync(operation, outcome, cancellationToken);
+
             await _operationStore.TransitionAsync(
                 operation.OperationId,
                 ServicingOperationStatus.AwaitingExternal,
@@ -288,6 +294,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             ProviderOperationOutcome outcome,
             CancellationToken cancellationToken)
         {
+            await RecordReleaseEvidenceAsync(operation, outcome, cancellationToken);
+
             await _operationStore.TransitionAsync(
                 operation.OperationId,
                 ServicingOperationStatus.NeedsReconciliation,
@@ -309,6 +317,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 ServicingOperationStatus.NeedsReconciliation,
                 isReplay: true);
         }
+
+        private async Task RecordReleaseEvidenceAsync(
+            OrderOperation operation,
+            ProviderOperationOutcome outcome,
+            CancellationToken cancellationToken)
+            => await _evidence.RecordAsync(
+                operation.OperationId,
+                ServicingEvidenceStage.ReservationRelease,
+                outcome,
+                null,
+                null,
+                cancellationToken: cancellationToken);
 
         private static bool CanStillBeCancelled(Order order)
         {

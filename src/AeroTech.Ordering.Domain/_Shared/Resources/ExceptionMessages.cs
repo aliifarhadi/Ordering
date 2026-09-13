@@ -448,5 +448,15 @@
         public const string CouponIsNotExchangeable = "Coupon {0} of document {1} is {2}; only an unused coupon can be exchanged.";
 
         public const string RefundRequiresCouponScope = "A refund of an accountable document on order {0} requires an explicit coupon scope.";
+
+        public const string ServicingResolutionOperationNotFound = "Servicing operation {0} does not exist.";
+
+        public const string ServicingResolutionOperationIsSettled = "Servicing operation {0} is {1}; a manual resolution can only be recorded against an unresolved operation.";
+
+        public const string ServicingResolutionClaimGenerationStale = "Servicing operation {0} is at claim generation {1}; the manual resolution expected {2}.";
+
+        public const string ServicingResolutionKindNotApplicable = "Servicing operation {0} currently requires {1}; a {2} resolution is not applicable.";
+
+        public const string ServicingResolutionAttributionRequired = "A manual resolution of servicing operation {0} requires both an actor and a reason.";
     }
 }

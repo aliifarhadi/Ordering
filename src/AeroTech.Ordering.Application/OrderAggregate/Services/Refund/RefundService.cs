@@ -1,5 +1,6 @@
-using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Arguments;
+﻿using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Arguments;
 using AeroTech.Ordering.Domain.Servicing.Operations;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
 using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
@@ -29,6 +30,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
         public const string DocumentStep = "document-refund";
         public const string ManualSourceSystem = "Manual";
 
+        private readonly IServicingExternalEvidenceStore _evidence;
         private readonly IOrderRepository _orders;
         private readonly IElectronicTicketRepository _tickets;
         private readonly IRefundQuotePort _quotes;
@@ -45,6 +47,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
         private readonly IOrderProjector _projector;
 
         public RefundService(
+            IServicingExternalEvidenceStore evidence,
             IOrderRepository orders,
             IElectronicTicketRepository tickets,
             IRefundQuotePort quotes,
@@ -60,6 +63,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             IClock clock,
             IOrderProjector projector)
         {
+            _evidence = evidence;
             _orders = orders;
             _tickets = tickets;
             _quotes = quotes;
@@ -250,7 +254,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                     order, operation, ticket, accepted, staged, scope, authority,
                     providerReference, RefundValueDispatch.FirstAttempt, cancellationToken),
                 ProviderOperationOutcome.Rejected => await RejectAsync(order, operation, ticket, cancellationToken),
-                _ => await SuspendAsync(order, operation, ticket, outcome, cancellationToken)
+                _ => await SuspendAsync(
+                    order, operation, ticket, outcome, cancellationToken, providerReference)
             };
         }
 
@@ -405,7 +410,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             OrderOperation operation,
             ElectronicTicket ticket,
             ProviderOperationOutcome outcome,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? providerReference = null,
+            string? detail = null)
             => await SettleUnfinishedAsync(
                 order, operation, ticket,
                 ServicingOperationStatus.AwaitingExternal,
@@ -413,20 +420,24 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                     ? CommandReceiptStatus.Unknown
                     : CommandReceiptStatus.Pending,
                 outcome,
-                releaseClaim: false, refundNotAvailable: false, isReplay: false, cancellationToken);
+                releaseClaim: false, refundNotAvailable: false, isReplay: false, cancellationToken,
+                providerReference, detail);
 
         private async Task<RefundOutcome> ReconcileAsync(
             Order order,
             OrderOperation operation,
             ElectronicTicket ticket,
             ProviderOperationOutcome outcome,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? providerReference = null,
+            string? detail = null)
             => await SettleUnfinishedAsync(
                 order, operation, ticket,
                 ServicingOperationStatus.NeedsReconciliation,
                 CommandReceiptStatus.NeedsReconciliation,
                 outcome,
-                releaseClaim: false, refundNotAvailable: false, isReplay: true, cancellationToken);
+                releaseClaim: false, refundNotAvailable: false, isReplay: true, cancellationToken,
+                providerReference, detail);
 
         private async Task<RefundOutcome> SettleUnfinishedAsync(
             Order order,
@@ -438,8 +449,20 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             bool releaseClaim,
             bool refundNotAvailable,
             bool isReplay,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? providerReference = null,
+            string? detail = null)
         {
+            await _evidence.RecordAsync(
+                operation.OperationId,
+                ServicingEvidenceStage.DocumentRefund,
+                documentOutcome,
+                providerReference,
+                detail,
+                AccountableDocumentKind.ElectronicTicket,
+                ticket.DocumentNumber,
+                cancellationToken);
+
             await _operationStore.TransitionAsync(
                 operation.OperationId,
                 operationStatus,
@@ -496,7 +519,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 return await RejectAsync(order, operation, ticket, cancellationToken);
 
             if (recovery.Outcome != ProviderOperationOutcome.Confirmed)
-                return await ReconcileAsync(order, operation, ticket, recovery.Outcome, cancellationToken);
+                return await ReconcileAsync(
+                    order, operation, ticket, recovery.Outcome, cancellationToken,
+                    recovery.ProviderReference, recovery.Detail);
 
             AcceptedRefund accepted;
             StagedRefund staged;
@@ -508,7 +533,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             }
             catch
             {
-                return await ReconcileAsync(order, operation, ticket, ProviderOperationOutcome.Unknown, cancellationToken);
+                return await ReconcileAsync(
+                    order, operation, ticket, ProviderOperationOutcome.Unknown, cancellationToken,
+                    recovery.ProviderReference, recovery.Detail);
             }
 
             return await FinalizeAsync(

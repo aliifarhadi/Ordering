@@ -19,7 +19,9 @@ Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
 `ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`, `ICC-P3-ANCILLARY-EXCHANGE-DISPOSITION`,
 `ICC-P3-EMD-ASSOCIATION`, `ICC-P3-EMD-REFUND`, `ICC-P3-EMD-EXCHANGE`,
 `ICC-P3-ANCILLARY-RETENTION`, `ICC-P3-ANCILLARY-CANCEL`, `ICC-P3-ANCILLARY-MANUAL-REVIEW`,
-`ICC-P3-SERVICING-FEE-DOCUMENT`.
+`ICC-P3-SERVICING-FEE-DOCUMENT`, `ICC-P3-SERVICING-RECONCILIATION`, `ICC-P3-OPERATOR-RESOLUTION`,
+`ICC-P3-CONTROL-RETURN`, `ICC-P3-INVENTORY-CONSISTENCY`, `ICC-P3-INVOLUNTARY-BOUNDARY`,
+`ICC-P3-NO-SHOW-EVIDENCE`.
 
 Capability scope of this revision: **even, add-collect, refund-due, residual and mixed reissue**, each over
 both supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. This closes
@@ -2769,3 +2771,538 @@ Ordering does not decide whether an ancillary is retainable, does not compute or
 does not create or hold any voucher, wallet, travel-bank or credit-shell balance, does not convert the
 existing EMD into another document, does not refund or move value at retention time, does not redeem retained
 value, and does not reconcile a conflicting coupon state on its own.
+
+---
+
+## ICC-P3-SERVICING-RECONCILIATION
+
+### Capability
+
+Making the durable outcome of an already-dispatched external servicing mutation readable, per operation, so an
+operator can see what Ordering believes, what the authoritative external evidence said, and which stage is
+unresolved.
+
+### Authoritative Owner
+
+The external capability that produced each outcome remains the only authority for that outcome. Ordering owns
+only the durable **record** of what that authority said, keyed by the Ordering operation identity.
+
+### Ordering Semantic Requirement
+
+```text
+per (OperationId, Stage)
+  -> exactly one durable outcome row
+  -> Confirmed is monotonic: once written it is never overwritten or downgraded
+  -> Pending and Unknown stay distinct from each other and from Rejected
+  -> Rejected is never a synonym for not-dispatched
+  -> provider reference and detail are stored verbatim, never interpreted
+  -> AwaitingExternal, NeedsReconciliation, Rejected and Completed never collapse
+```
+
+No provider truth is synthesised, and no heuristic promotes an unresolved outcome.
+
+### Ordering Port / Dependency Boundary
+
+None. No integration port was added. The capability rides entirely on evidence the existing frozen P3 rails
+already produce:
+
+```text
+src/AeroTech.Ordering.Domain/Servicing/Reconciliation/Contracts/IServicingExternalEvidenceStore.cs
+src/AeroTech.Ordering.Domain/Servicing/Reconciliation/Contracts/IServicingReconciliationStore.cs
+```
+
+Both are Domain-owned read/record seams implemented in `AeroTech.Ordering.Persistence/Servicing/`. The read
+path is thin projection only — no write-side aggregate repository is loaded to answer a read.
+
+### Request / Response Evidence
+
+`RecordAsync(operationId, stage, outcome, providerReference, detail, documentKind, documentNumber)`. The stage
+vocabulary is `ServicingEvidenceStage` in `Contracts/AeroTech.Messages/Ordering/Enums/`:
+`DocumentVoid`, `DocumentRefund`, `RefundValue`, `RefundCorrection`, `RefundValueCorrection`,
+`ReservationRelease`. Full provider payloads are never copied.
+
+### Durable Evidence And Idempotency
+
+Table `Order.ServicingExternalEvidences`, primary key `(OperationId, Stage)`. The upsert returns early when
+the stored outcome is already `Confirmed`, so re-recording after a later uncertain recovery cannot downgrade
+confirmed truth. Repeated recording of the same stage is an update in place, never a second row, so replay
+cannot inflate the evidence history.
+
+### Ordering And Isolation
+
+The read path composes four independent thin reads — operation plus command receipt, accountable-document
+projection, coupon control projection and reservation observation projection — plus the accepted exchange
+plan. It mutates nothing. `ListUnresolvedAsync` returns only `AwaitingExternal` and `NeedsReconciliation`, so
+a settled operation is never reported as outstanding work.
+
+### Deterministic Verification
+
+`ServicingReconciliationQueryTests` (12), `ServicingInventoryConsistencyTests` (7),
+`ServicingConfirmedTruthReconciliationTests` (6).
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. No real provider is wired for any P3 rail, so every recorded outcome originates from a deterministic
+   adapter. Whether a real issuer's reference format fits the stored width is unverified.
+2. Whether a real provider distinguishes `Pending` from `Unknown` at all. Ordering stores whichever it is
+   told and never collapses the two.
+
+### Known Semantic Gaps
+
+* Document and control evidence are scoped by `CurrentServicingOrderId`, so a predecessor document whose
+  servicing order moved on (split) is not listed under the earlier order.
+* Evidence is per stage, not per attempt. The latest authoritative outcome for a stage is retained; the
+  sequence of uncertain intermediate readbacks is not a durable audit trail.
+
+### Explicit Non-Responsibilities
+
+Ordering does not decide the external outcome, does not retry from the read path, does not reconcile
+automatically, does not interpret provider detail text and does not mutate any aggregate while reading.
+
+---
+
+## ICC-P3-OPERATOR-RESOLUTION
+
+### Capability
+
+Recording a durable, attributed operator decision about an unresolved servicing operation, where automation is
+intentionally impossible or where the operator asserts that the frozen orchestration should be resumed.
+
+### Authoritative Owner
+
+The airline operator, and only for the **record**. No operator decision is an authority over accountable
+document truth, over provider outcome, or over coupon control.
+
+### Ordering Semantic Requirement
+
+```text
+a resolution is
+  -> operation-scoped
+  -> actor-attributed
+  -> reason-attributed
+  -> version-guarded on the operation claim generation
+  -> append-only
+  -> idempotent under exact replay
+  -> refused, with no mutation, when the expected version is stale
+  -> refused on a settled (Completed / Rejected) operation
+  -> never a status toggle: it does not settle, re-open or advance the operation
+```
+
+The allowed kinds are narrow and each is only admissible for the recovery action the durable evidence
+actually supports:
+
+```text
+ResumeFromCheckpoint    -> only when the evidence says a replay can still resolve it
+RecordManualDecision    -> only when manual resolution is the only remaining action
+EscalateExternalAction  -> only when manual resolution is the only remaining action
+```
+
+There is no `ForceComplete`, `MarkResolved`, `SetCompleted`, `AssumeConfirmed`, `IgnoreProvider`,
+`ResetToLocal` or `RetryEverything`, and no generic status toggle exists that could bypass a capability
+invariant.
+
+### Ordering Port / Dependency Boundary
+
+None — there is no external act to integrate. The seam is
+`src/AeroTech.Ordering.Domain/Servicing/Reconciliation/Contracts/IServicingManualResolutionStore.cs`, with the
+admissibility decision in `Servicing/Reconciliation/Policies/ServicingResolutionPolicy.cs` and the
+recovery-action derivation shared with the read path in `ServicingRecoveryPolicy.cs`.
+
+### Request / Response Evidence
+
+`OperationId`, `ServicingResolutionKind`, actor, reason, optional external reference, optional
+`ServicingEvidenceStage`, and the `ExpectedClaimGeneration` the caller read. No provider payload is copied.
+
+### Durable Evidence And Idempotency
+
+Table `Order.ServicingManualResolutions`, primary key `(OperationId, ResolutionId)`. `ResolutionId` is
+**server-derived and deterministic** — `{Kind}:{Reference}:{OperationId}` — consistent with the repository's
+no-client-idempotency-key rule for servicing operations. Consequences:
+
+```text
+same operator, same decision, twice   -> no-op, one row, original actor and timestamp retained
+second operator, same decision        -> no-op, cannot duplicate, first actor retained in the audit
+same decision, stale version          -> 20330 / 409, nothing written
+```
+
+No distributed lock is taken. The operation being resolved already holds the order claim, so claiming it again
+would be wrong; the primary key plus the claim-generation guard are the concurrency control.
+
+### Ordering And Isolation
+
+Recording a resolution changes no aggregate, no document, no coupon control and no operation status. A
+`NeedsReconciliation` operation with an open manual review stays `NeedsReconciliation` after an escalation is
+recorded, and the recovery action it reports is unchanged.
+
+### Deterministic Verification
+
+`ServicingResolutionAuditTests` (11).
+
+### Real-Service Verification Status
+
+`N/A — no external capability is involved.`
+
+### BLOCKED_INTEGRATION
+
+`N/A — the record is entirely Ordering-owned.`
+
+### Known Semantic Gaps
+
+* No API channel exposes the command yet; P3-H closes at Application plus Persistence plus executable tests,
+  matching the phase scope.
+* `Actor` is a free-text caller-supplied identity rather than a resolved operator aggregate, because Ordering
+  has no operator directory.
+* A resolution never *performs* the resume it authorises. Replaying the frozen command is still a separate,
+  explicit act.
+
+### Explicit Non-Responsibilities
+
+Ordering does not judge whether the operator's reason is correct, does not notify anyone, does not resolve a
+manual review's underlying supplier obligation and does not let a resolution overwrite confirmed
+accountable-document truth.
+
+---
+
+## ICC-P3-CONTROL-RETURN
+
+### Capability
+
+Authoritatively returning coupon control to the issuing carrier's own system, or reading back the current
+authoritative control state, so that a coupon under `External`, `ReleasePending` or `Unknown` control can
+legitimately become `Local` again.
+
+### Authoritative Owner
+
+The controlling carrier or issuer system. Ordering is never the authority for control state.
+
+### Ordering Semantic Requirement
+
+```text
+ControlStatus changes only from authoritative external evidence
+never derived from
+  coupon financial status
+  elapsed time
+  absence of usage
+  order status
+  free text / SSR-shaped remarks
+  servicing-operation state
+  reconciliation activity
+```
+
+Every frozen servicing capability that touches an accountable document already fails closed unless control is
+`Local`, and P3-H preserves that boundary exactly.
+
+### Ordering Port / Dependency Boundary
+
+**None exists, and none was invented.** `TicketCouponControlStatus` on `TicketCoupon` is the existing domain
+fact; P3-H only surfaces it as reconciliation evidence through `IServicingReconciliationStore.ListControlAsync`.
+
+### Request / Response Evidence
+
+`N/A — no contract exists to describe.`
+
+### Durable Evidence And Idempotency
+
+`N/A — no mutation capability exists, so there is no operation key, no Recover rail and no checkpoint.`
+
+### Ordering And Isolation
+
+Non-`Local` control is made operationally visible (`ServicingControlEvidence.IsLocallyControlled`, and the
+view's `NonLocalControl`) precisely so that a human can pursue control return outside Ordering.
+
+### Deterministic Verification
+
+`ServicingReconciliationQueryTests` R9 (fail-closed under `External`), R10/R11/R12 (each non-`Local` state is
+visible), R13 (reading reconciliation evidence never returns control to `Local`), R14 (no operator resolution
+returns control to `Local`).
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. **No authoritative control-return or control-readback capability exists in any current port.** Ordering
+   therefore cannot legitimately move a coupon out of `External`, `ReleasePending` or `Unknown`.
+2. The missing capability, precisely: given `(documentNumber, couponNumber)`, an authoritative statement of
+   the current controlling party and, where the contract allows it, a keyed request to return control — with
+   `Pending` distinct from `Unknown`, a stable operation key, and a `Recover`/readback that can be replayed
+   safely.
+3. Whether the real issuer expresses `ReleasePending` at all, or only a binary local/external state.
+
+### Known Semantic Gaps
+
+* A coupon can be stranded under non-`Local` control indefinitely. That is the intended fail-closed behaviour,
+  not a defect, but nothing inside Ordering can clear it.
+
+### Explicit Non-Responsibilities
+
+Ordering does not guess control state, does not time out of `ReleasePending`, does not treat `Unknown` as
+`Local`, and does not weaken any protected document action to work around missing control.
+
+---
+
+## ICC-P3-INVENTORY-CONSISTENCY
+
+### Capability
+
+Verifying Ordering's own truth against the allocated-inventory state held by the fulfilment provider, and
+repairing the inventory side where a frozen reservation capability already allows it.
+
+### Authoritative Owner
+
+Split. Ordering owns the order, the accepted servicing intent, ticket and EMD truth, and the durable repair
+intent. The provider owns allocated inventory, availability and external operational fulfilment facts.
+
+### Ordering Semantic Requirement
+
+```text
+must be able to report
+  Ordering and Inventory agree
+  order/ticket truth confirmed but Inventory stale or drifted
+  external repair Pending / Unknown
+  external repair Rejected
+  external repair Confirmed but the local checkpoint is missing
+  a contradiction that cannot be automated
+
+must never
+  roll back confirmed accountable-document truth to match stale Inventory
+  blindly redispatch after an uncertain mutation
+  fabricate local success after a Rejected mutation
+  duplicate a reservation mutation
+```
+
+### Ordering Port / Dependency Boundary
+
+Existing only. `IReservationPort` (`Reserve` / `Release` / `Recover`) and `IReservationChangePort` are reused
+unchanged; no `IInventoryConsistencyPort` was created. The Ordering-side observation Ordering already holds is
+`FulfillmentReservation.Services[].ObservedStatus` plus `ExternalReservationRef` / `ExternalServiceRef`, now
+surfaced as `ServicingReservationEvidence`.
+
+### Request / Response Evidence
+
+Release and recovery both key on the servicing operation identity through
+`OrderOperationCoordinator.ProviderOperationKey`, so the repair path reuses the same stable key as the
+original mutation.
+
+### Durable Evidence And Idempotency
+
+`ServicingEvidenceStage.ReservationRelease` rows carry the release outcome per operation. Replaying a cancel
+whose release was `Pending` or `Unknown` calls `Recover` under the original key and dispatches no second
+release.
+
+### Ordering And Isolation
+
+Reservation observation is read-only evidence. Drifting `ObservedStatus` directly in the database does not
+change any ticket status or document version.
+
+### Deterministic Verification
+
+`ServicingInventoryConsistencyTests` R15 (stale inventory never rolls back confirmed document truth), R16
+(stable operation key on repair), R17 (`Pending`/`Unknown` never blindly redispatched), R18 (`Rejected` never
+fabricates local success), R19 (contradiction produces actionable evidence), R19b (agreement reports no
+unresolved work).
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. **No "read current provider inventory state" capability exists.** `IReservationPort.RecoverAsync` answers
+   *what happened to my operation*, not *what does the provider hold right now*. Ordering can therefore detect
+   a drifted observation only from its own recorded evidence, never by interrogating the provider.
+2. The missing capability, precisely: given an `ExternalReservationRef`, the provider's current per-service
+   allocated state, with a stable read key and an explicit unknown, so that "Confirmed externally but missing
+   locally" can be distinguished from "never dispatched".
+3. Whether FlightFlow can express a per-service allocated state at all, as opposed to a whole-batch state.
+
+### Known Semantic Gaps
+
+* A stale `ObservedStatus` cannot be refreshed; it can only be reported.
+* No generic inventory reconciliation infrastructure was built, deliberately.
+
+### Explicit Non-Responsibilities
+
+Ordering does not repair inventory outside an existing frozen reservation capability, does not choose a side in
+a contradiction by heuristic, and does not build a fake local repair to make the two sides agree.
+
+---
+
+## ICC-P3-INVOLUNTARY-BOUNDARY
+
+### Capability
+
+Executing a servicing action that an authoritative upstream source has **already decided** as involuntary —
+reaccommodation or involuntary change — through the frozen voluntary rails, without Ordering deciding anything
+about the disruption.
+
+### Authoritative Owner
+
+The upstream disruption/reaccommodation authority, entirely. Ordering is an executor of a pre-decided result.
+
+### Ordering Semantic Requirement
+
+```text
+Ordering must never choose
+  whether disruption occurred
+  which alternative itinerary applies
+  revalidate vs reissue
+  fare difference / tax difference / penalty / waiver
+  refund entitlement / residual
+  compensation or right-to-care
+
+Ordering must preserve, verbatim
+  source authority
+  reason
+  decision reference and version
+  the exact target action
+  accepted economics, if any
+  accepted ancillary dispositions, if any
+
+no source-approved economics
+  -> no pricing consequence, no payment/refund/residual movement
+```
+
+### Ordering Port / Dependency Boundary
+
+No new port. The boundary metadata is already representable on the existing `OrderChange` entity —
+`ChangeType` (including the reserved `Reaccommodation` and `InvoluntaryChange` values), `Reason`, `Source`
+(`PricingSource`, the authority), `ExternalReference` (the decision reference), `ActorScope` / `ActorId` and
+`OperationId` — so **P3-H needed no schema change for the involuntary boundary**. The action routing already
+comes from an external authority: `IDocumentChangeEligibilityPort` returns `Revalidate`, `ReissueRequired`,
+`Denied` or `PendingEvidence`, and Ordering never infers it.
+
+### Request / Response Evidence
+
+`DocumentChangeEligibilityOutcome` selects the rail:
+
+```text
+Revalidate       -> frozen P3-E revalidation rail, same document
+ReissueRequired  -> frozen P3-F exchange/reissue rail, no new document engine
+PendingEvidence  -> fail closed, AwaitingExternal, no inference
+Denied           -> Rejected, honestly
+```
+
+### Durable Evidence And Idempotency
+
+The accepted source snapshot and its provenance are persisted by the frozen accepted-source machinery. The
+eligibility outcome is checkpointed on the accepted change plan before any document work.
+
+### Ordering And Isolation
+
+`Reaccommodation` and `InvoluntaryChange` remain **unreachable from production code**: no rail writes them.
+Every executed servicing change is recorded with its true voluntary type, and no involuntary reason is
+invented.
+
+### Deterministic Verification
+
+`InvoluntaryBoundaryTests` R25 (no invented involuntary reason), R25b (authority, reason and reference
+preserved verbatim), R26 (`Revalidate` routes to the frozen revalidation rail and touches no exchange port),
+R27 (`ReissueRequired` never revalidates and never mutates the document), R28 (no source economics moves no
+money), R29 (insufficient evidence fails closed), R29b (no rail produces an involuntary change type or an
+involuntary price-change reason).
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. **No authoritative accepted-involuntary source contract exists.** Nothing can currently deliver a
+   pre-decided involuntary result to Ordering, so the `Reaccommodation` / `InvoluntaryChange` values stay
+   reserved and unreachable.
+2. The missing capability, precisely: an accepted result carrying the source authority, the disruption reason,
+   a decision reference with a version, the exact target action (`Revalidate` or `Reissue`), the accepted
+   economics if any, and the accepted ancillary dispositions if any — in the same accepted-source shape the
+   frozen rails already consume.
+3. Whether the upstream authority supplies economics at all for a mandatory reaccommodation, or expects the
+   carrier to apply a zero-difference rule. Ordering applies no such local rule.
+
+### Known Semantic Gaps
+
+* Until that contract exists, an involuntary action can only be executed by an operator driving the voluntary
+  rails, which records it as voluntary. That is honest but loses the involuntary provenance.
+
+### Explicit Non-Responsibilities
+
+Ordering implements no disruption detection, no reaccommodation search, no alternative-itinerary selection, no
+compensation policy and no right-to-care policy. None of that is in P3.
+
+---
+
+## ICC-P3-NO-SHOW-EVIDENCE
+
+### Capability
+
+Authoritative evidence that a passenger did not travel, which is the only thing that could ever justify a
+no-show consequence.
+
+### Authoritative Owner
+
+A departure-control / usage authority. Ordering is not that authority.
+
+### Ordering Semantic Requirement
+
+```text
+Ordering infers NoShow from nothing:
+  not from elapsed departure time
+  not from a coupon still Open with no usage event
+  not from a missing check-in or boarding event
+  not from a missing SSR or remark
+  not from order status
+  not from inventory drift
+```
+
+`OrderServiceDeliveryStatus.NoShow` exists in the enum and is **never written by any production path**; only
+`NotReady` and `Unused` are ever set.
+
+### Ordering Port / Dependency Boundary
+
+**None exists, and none was invented.** No usage/DCS port is wired.
+
+### Request / Response Evidence
+
+`N/A — no contract exists to describe.`
+
+### Durable Evidence And Idempotency
+
+`N/A — no mutation capability exists.`
+
+### Ordering And Isolation
+
+Free-text evidence is isolated by construction: Ordering has no SSR type at all. The nearest carrier of
+SSR-shaped text is `OrderRemark`, which is never parsed, never an authority and never an input to servicing
+eligibility or to control status.
+
+### Deterministic Verification
+
+`NoShowAndRemarkNegativeGuaranteeTests` R30 (elapsed departure creates no no-show), R31 (open coupon with no
+usage evidence creates no no-show), R32/R33 (SSR-shaped free text creates no no-show and changes no servicing
+eligibility), R34 (free text never changes coupon control status).
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. **No authoritative usage or departure-control source is wired.** Any no-show consequence would be invented,
+   so none exists.
+2. The missing capability, precisely: per coupon, an authoritative flown / not-flown / not-yet-determined
+   statement with its own evidence reference, so usage is a received fact rather than an inference.
+3. Whether the DCS expresses no-show as a distinct state or only as an unflown coupon after departure.
+
+### Known Semantic Gaps
+
+* `NoShow` remains a reserved enum value with no writer. It is deliberately not deleted, per the frozen-enum
+  rule.
+
+### Explicit Non-Responsibilities
+
+Ordering implements no no-show flow, no no-show penalty, no automatic coupon expiry after departure, and no
+SSR interpretation. DCS integration is explicitly out of P3 scope.
