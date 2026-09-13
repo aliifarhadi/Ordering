@@ -48,6 +48,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 .WithOne()
                 .HasForeignKey(group => group.OperationId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasMany(plan => plan.AncillaryCancelGroups)
+                .WithOne()
+                .HasForeignKey(group => group.OperationId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

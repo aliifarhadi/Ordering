@@ -20,6 +20,7 @@ using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Ports.DocumentRefund;
+using AeroTech.Ordering.Domain.Ports.DocumentVoid;
 using AeroTech.Ordering.Domain.Ports.EmdExchange;
 using AeroTech.Ordering.Domain.Ports.EmdAssociation;
 using AeroTech.Ordering.Domain.Ports.ExchangeFunding;
@@ -51,6 +52,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         private readonly IRefundValuePort _refundValues;
         private readonly IExchangeResidualValuePort _residuals;
         private readonly IDocumentRefundPort _documentRefunds;
+        private readonly IDocumentVoidPort _documentVoids;
         private readonly IAncillaryExchangeDispositionPort _ancillaryDispositions;
         private readonly IEmdExchangePort _emdExchanges;
         private readonly IEmdAssociationPort _emdAssociations;
@@ -77,6 +79,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             IRefundValuePort refundValues,
             IExchangeResidualValuePort residuals,
             IDocumentRefundPort documentRefunds,
+            IDocumentVoidPort documentVoids,
             IAncillaryExchangeDispositionPort ancillaryDispositions,
             IEmdExchangePort emdExchanges,
             IEmdAssociationPort emdAssociations,
@@ -101,6 +104,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             _refundValues = refundValues;
             _residuals = residuals;
             _documentRefunds = documentRefunds;
+            _documentVoids = documentVoids;
             _emdExchanges = emdExchanges;
             _ancillaryDispositions = ancillaryDispositions;
             _emdAssociations = emdAssociations;
@@ -315,10 +319,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     {
                         AncillaryDispositions = acceptedAncillaries,
                         AncillaryExchangeGroups = ExchangeAncillaryPlanner.AcceptExchangeGroups(
-                            scope, plan.Coupons, ancillaryDecision, acceptedAncillaries)
+                            scope, plan.Coupons, ancillaryDecision, acceptedAncillaries),
+                        AncillaryCancelGroups = ExchangeAncillaryPlanner.AcceptCancelGroups(
+                            order, scope, acceptedAncillaries)
                     };
 
                     ExchangeAncillaryPlanner.EnsureExecutable(plan.Ancillaries);
+
+                    if (plan.RequiresAncillaryCancellation && _callerContext.ActorId is null)
+                        throw ExceptionFactory.AncillaryCancellationRequiresAuthority(
+                            plan.CancelGroups[0].EmdDocumentNumber);
                 }
 
                 order.PrepareExchange(ToArgs(plan, scope.PredecessorTicket), _idGenerator, _clock);
@@ -1055,7 +1065,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             AcceptedExchangePlan plan,
             CancellationToken cancellationToken)
         {
-            foreach (var disposition in plan.ExecutableAncillaries)
+            foreach (var disposition in plan.Ancillaries)
             {
                 var document = await _miscDocuments.GetAsync(disposition.ElectronicMiscDocumentId, cancellationToken)
                                ?? throw ExceptionFactory.ElectronicMiscDocumentNotFound(
@@ -1159,7 +1169,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             AcceptedExchangePlan plan,
             CancellationToken cancellationToken)
         {
-            foreach (var disposition in plan.ExecutableAncillaries)
+            foreach (var disposition in plan.Ancillaries)
             {
                 var document = await _miscDocuments.GetAsync(disposition.ElectronicMiscDocumentId, cancellationToken)
                                ?? throw ExceptionFactory.ElectronicMiscDocumentNotFound(
@@ -1200,6 +1210,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             bool isReplay,
             CancellationToken cancellationToken)
         {
+            if (plan.HasUnresolvedManualReview)
+                return await ReconcileAsync(
+                    order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
+
             await _operationStore.TransitionAsync(
                 operation.OperationId,
                 ServicingOperationStatus.Completed,
@@ -1447,6 +1461,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             if (pending.IsRetention)
                 return await RetainAncillaryResidualAsync(
+                    order, operation, predecessor, plan, successor, materialized, pending, isReplay,
+                    cancellationToken);
+
+            if (pending.IsCancel)
+                return await CancelAncillaryAsync(
                     order, operation, predecessor, plan, successor, materialized, pending, isReplay,
                     cancellationToken);
 

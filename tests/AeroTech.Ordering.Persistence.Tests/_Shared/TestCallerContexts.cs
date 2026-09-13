@@ -1,4 +1,4 @@
-using AeroTech.Messages.Aegis.Enums;
+﻿using AeroTech.Messages.Aegis.Enums;
 using AeroTech.Messages.Shared.Enums;
 using AeroTech.Ordering.Domain._Shared.Contracts;
 
@@ -38,14 +38,14 @@ namespace AeroTech.Ordering.Persistence.Tests._Shared
 
         public long? ActorId => AirlineUserId ?? TravelAgencyUserId ?? IndividualId ?? PartnerApiAccessProfileId;
 
-        public static TestCallerContexts AirlineUser(long officeId, string subject) => new()
+        public static TestCallerContexts AirlineUser(long officeId, string subject, long? airlineUserId = 900) => new()
         {
             Subject = subject,
             ContextType = BusinessContextType.Airline,
             PrincipalType = Messages.Aegis.Enums.PrincipalType.Human,
             AuthorizationSurface = Messages.Shared.Enums.AuthorizationSurface.Backoffice,
             AirlineOfficeId = officeId,
-            AirlineUserId = 900
+            AirlineUserId = airlineUserId
         };
 
         public static TestCallerContexts AgencyUser(long agencyId, string subject) => new()

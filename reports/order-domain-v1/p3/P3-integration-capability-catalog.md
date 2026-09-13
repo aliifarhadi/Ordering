@@ -18,7 +18,7 @@ Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
 `ICC-P3-EXCHANGE-REFUND-VALUE`, `ICC-P3-EXCHANGE-RESIDUAL`, `ICC-P3-EXCHANGE-INVENTORY`,
 `ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`, `ICC-P3-ANCILLARY-EXCHANGE-DISPOSITION`,
 `ICC-P3-EMD-ASSOCIATION`, `ICC-P3-EMD-REFUND`, `ICC-P3-EMD-EXCHANGE`,
-`ICC-P3-ANCILLARY-RETENTION`.
+`ICC-P3-ANCILLARY-RETENTION`, `ICC-P3-ANCILLARY-CANCEL`, `ICC-P3-ANCILLARY-MANUAL-REVIEW`.
 
 Capability scope of this revision: **even, add-collect, refund-due, residual and mixed reissue**, each over
 both supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. This closes
@@ -1423,11 +1423,13 @@ Nothing else makes an ancillary affected. A standalone EMD, a voided document, a
 ancillary attached to a `Used` coupon that is historical pricing context are all outside the scope by
 construction, and the disposition source is not consulted at all in those cases.
 
-This revision **executes exactly one disposition**: `ReassociateExisting`. Every other value of
-`AncillaryExchangeDisposition` — `Refund`, `ExchangeToNewEmd`, `RetainAsResidual`, `Cancel`, `ManualReview` —
-is a recognised, recorded, *not executable* decision in this capability. It stops the exchange before the
-first irreversible operation with `AncillaryDispositionNotExecutable` (20298). It is not a silent
-carry-forward, not a guess and not a downgrade to a different disposition.
+**Every value of `AncillaryExchangeDisposition` is now executable**, each through its own capability:
+`ReassociateExisting` here (G1), `Refund` in `ICC-P3-EMD-REFUND` (G2), `ExchangeToNewEmd` in
+`ICC-P3-EMD-EXCHANGE` (G3), `RetainAsResidual` in `ICC-P3-ANCILLARY-RETENTION` (G4), `Cancel` in
+`ICC-P3-ANCILLARY-CANCEL` and `ManualReview` in `ICC-P3-ANCILLARY-MANUAL-REVIEW` (both G5). A disposition
+value outside that set is still a recognised, recorded, *not executable* decision that stops the exchange
+before the first irreversible operation with `AncillaryDispositionNotExecutable` (20298). No disposition is
+ever silently carried forward, guessed at or downgraded to a different one.
 
 ### Ordering Port / Dependency Boundary
 
@@ -1473,7 +1475,7 @@ persisted and before the order is mutated, when:
 | the target is outside the accepted successor scope | 20297 |
 | the target is a `Used` coupon, i.e. historical context | 20297 |
 | the decision carries no reference of its own | 20297 |
-| the decision is not `ReassociateExisting` | `AncillaryDispositionNotExecutable` (20298, 422) |
+| the decision is not a defined disposition value | `AncillaryDispositionNotExecutable` (20298, 422) |
 
 All of these are durable rejections: the accepted plan is stored with `AcceptedExchangeDisposition.Rejected`
 and the same code and HTTP status replay terminally under the same command receipt.
@@ -1934,8 +1936,9 @@ unsettled value and crash recovery), G2F1–F2 (frozen invariants).
   exchange itself supersedes — where the no-op is the correct answer, because that service was **exchanged,
   not refunded**. G2H5 asserts exactly that. A positive service-level refund marking needs an ancillary that
   survives the reissue, which no current shape produces.
-* `ExchangeToNewEmd`, `RetainAsResidual`, `Cancel` and `ManualReview` remain unexecuted and are refused
-  explicitly with `AncillaryDispositionNotExecutable` (20298).
+* `ExchangeToNewEmd`, `RetainAsResidual`, `Cancel` and `ManualReview` are executed by their own
+  capabilities — `ICC-P3-EMD-EXCHANGE`, `ICC-P3-ANCILLARY-RETENTION`, `ICC-P3-ANCILLARY-CANCEL` and
+  `ICC-P3-ANCILLARY-MANUAL-REVIEW`. Refund never becomes any of them, and none of them becomes a refund.
 * A `NeedsReconciliation` ancillary refund still has no automated operator remediation command. Every piece
   of evidence one would need is persisted.
 
@@ -2195,8 +2198,8 @@ operation, so the origin-operation check always fires first.
 
 ### Known Semantic Gaps
 
-* `RetainAsResidual`, `Cancel` and `ManualReview` remain unexecuted and are refused explicitly with
-  `AncillaryDispositionNotExecutable` (20298).
+* `RetainAsResidual`, `Cancel` and `ManualReview` are executed by their own capabilities —
+  `ICC-P3-ANCILLARY-RETENTION`, `ICC-P3-ANCILLARY-CANCEL` and `ICC-P3-ANCILLARY-MANUAL-REVIEW`.
 * An exchange is never reversed. There is no EMD "exchange cancel", mirroring the G2 decision on Refund Cancel.
 * A `NeedsReconciliation` EMD exchange has no automated operator remediation command. Every piece of evidence
   one would need is persisted on the group row and on both documents.
@@ -2219,6 +2222,263 @@ Ordering does not decide whether an ancillary is exchangeable, does not choose t
 RFIC, RFISC, purpose or value, does not derive any successor term from the predecessor EMD, does not generate
 a provider document number, does not compose exchange groups, does not un-exchange a coupon, and does not
 reconcile a refused or contradicted act on its own.
+
+---
+
+## ICC-P3-ANCILLARY-CANCEL
+
+### Capability
+
+Terminating a dependent ancillary after a ticket reissue **without returning any value**, on the authority of
+the servicing source, by voiding the issued accountable document that carries it.
+
+### Authoritative Owner
+
+Two authorities, and neither may be substituted for the other.
+
+The **ancillary disposition source** decides that the ancillary is cancelled without refund, under what
+cancellation reference and with what document action. The **document void authority** — the issuer — decides
+whether that document may actually be voided, and whether a refund is required instead. Ordering adjudicates
+neither and derives neither.
+
+### Ordering Semantic Requirement
+
+```text
+Cancel
+  -> the issued EMD is voided as a whole document, and every coupon on it becomes Void
+  -> no value returns to the customer, to a wallet, to a voucher or to any instrument
+  -> no PriceChangeSet and no OrderPricingChanged
+  -> each cancel-group service coupon cancels its exact dependent ancillary OrderService
+  -> FinancialStatus and DeliveryStatus on that service are never rewritten
+  -> no air service is ever mutated
+  -> frozen ticket truth is never rolled back if the cancel later fails
+```
+
+**Cancel is not Refund.** Travelport states the distinction directly: `REFUND` voids the EMD and returns value
+to the original form of payment, `VOID` voids the EMD and forfeits residual value. If the issuer answers
+`RefundRequiredInstead`, Ordering does **not** run a refund — that is a new economic decision the source must
+make.
+
+**Cancel is not Retention.** Retention leaves the coupon `OpenForUse` and reusable; cancel voids it.
+
+**Cancel is not a coupon-level act.** The frozen EMD void is whole-document, so a cancel group is executable
+only when voiding the document cannot reach a coupon the source did not approve. Partial cancel-without-refund
+is `BLOCKED_DECISION`, not a widened void.
+
+### Ordering Port / Dependency Boundary
+
+`src/AeroTech.Ordering.Domain/Ports/DocumentVoid/IDocumentVoidPort.cs` — the **frozen P3-C port**, reused
+unchanged. No `IEmdCancelPort` was created and no service-specific void port exists.
+
+```text
+AccountableDocumentKind   ElectronicMiscDocument
+document number           the source EMD
+issuer                    the EMD's actual IssuerCarrierId
+operation key             ProviderOperationKey(operation, "emd-cancel:{documentNumber}")
+recovery                  frozen P3-C RecoverAsync semantics
+```
+
+G5 creates no child `ServicingOperationKind.VoidDocument` and no second `OrderChange`. The cancel group is a
+checkpoint inside the one Exchange servicing operation.
+
+### Request Evidence
+
+The accepted decision must carry `AncillaryCancellationTerms`: a cancellation reference, a source reference
+and a document action, alongside the binding decision reference, decision version and context fingerprint.
+Only `AncillaryCancellationDocumentAction.VoidWithoutRefund` is executable; a future action is expressible
+precisely so it can be **refused** — `AncillaryCancellationDocumentActionNotExecutable` (20319, 422).
+Incomplete terms are `AncillaryCancellationTermsMissing` (20318, 422).
+
+The target coupon must be an affected EMD-A coupon that is `OpenForUse`, carries `EmdCouponPurpose.Service`,
+names an `OrderServiceId` and resolves to a non-air service of the same order, else
+`AncillaryCancellationTargetNotEligible` (20320, 409). Voiding an accountable document is attributable, so a
+caller with no actor is refused with `AncillaryCancellationRequiresAuthority` (20323, 422). Every one of these
+fails before the reservation change and before the ticket document exchange.
+
+### Whole-Document Scope Rule
+
+Before any irreversible ticket work, for each EMD carrying `Cancel` dispositions, every `OpenForUse` coupon on
+that document must be represented in the accepted decision with disposition `Cancel` and coherent terms, and
+no coupon may already be terminal. Otherwise `AncillaryCancellationScopeWiderThanApproved` (20321, 409). The
+rule lives once, on the aggregate, as `ElectronicMiscDocument.WholeDocumentCancellationConflict`, so
+acceptance and execution cannot disagree.
+
+### Response Evidence
+
+| Provider answer | Ordering |
+| --- | --- |
+| eligibility `Allowed` | proceed to the void act |
+| eligibility `PendingEvidence` | `AwaitingExternal`, claim retained, nothing dispatched, nothing local |
+| eligibility `Denied` | `NeedsReconciliation`, ticket truth retained |
+| `RefundRequiredInstead` | `NeedsReconciliation`, **no refund port, no value movement, no local void** |
+| void `Confirmed` | local compatibility re-verified, then EMD `Voided`, coupons `Void`, one void record, one `DocumentVersion` move |
+| void `Pending` / `Unknown` | `AwaitingExternal`, readback only, never a blind redispatch |
+| void `Rejected` | `NeedsReconciliation`, EMD unvoided |
+
+A provider `Confirmed` against a local document that no longer matches the approved group retains both the
+ticket truth and the provider confirmation, reconciles, and never dispatches a second void or fabricates a
+local one.
+
+### Recovery
+
+`DocumentVoidResult` carries no `WasDispatched`, unlike `IEmdExchangePort`. Rather than widen a frozen
+contract, Ordering writes and commits its own dispatch claim, `VoidDispatchedAt`, **before** the provider call:
+a null claim means nothing was ever sent and the void may be dispatched; a set claim means a call may have
+reached the provider and only `RecoverAsync` may run. A duplicate provider void is therefore impossible.
+
+### Durable Evidence And Idempotency
+
+One additive table, `Order.AcceptedExchangePlanAncillaryCancelGroups`, keyed on
+`(OperationId, CancelGroupRef)` where the reference is derived as `emd-cancel:{documentNumber}` — the source
+cannot split or merge cancel scope. It carries the source references, the document action, the member coupon
+numbers, the exact order service ids, the eligibility evidence, the dispatch claim, the void evidence and
+`CancellationSettledAt`. Six additive columns on the accepted disposition carry the per-coupon terms.
+
+`CancellationSettledAt` is written with `??=` and is the only proof that a cancel actually settled. A
+pre-existing `Cancelled` service is a conflict, never proof. The EMD void, the service transitions and the
+settlement checkpoint commit in one `SaveChangesAsync`.
+
+**One `CommercialVersion` move per committed cancel group**, not one per service.
+
+### Deterministic Verification
+
+`AncillaryCancelFlowTests` (29). The deterministic and unconfigured `IDocumentVoidPort` adapters keep their
+frozen production contract; the deterministic one gained only test configuration.
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. No real ancillary disposition source is wired, so no real carrier ever returns `Cancel`.
+   `UnconfiguredAncillaryProvider` fails closed with 501.
+2. No real document-void authority is wired for miscellaneous documents.
+   `UnconfiguredDocumentVoidProvider` fails closed. Whether a real issuer distinguishes "void, forfeit
+   residual" from "void, refund to FOP" the way Travelport documents is unverified from inside Ordering.
+3. `RecoverAsync` cannot report whether a call was ever dispatched. Ordering's own pre-dispatch claim
+   guarantees no duplicate void, at the cost that a crash between writing the claim and the call reaching the
+   provider parks the operation at `AwaitingExternal` until the provider's readback resolves it. Adding
+   `WasDispatched` to the frozen P3-C result would remove that, and is a P3-C decision.
+4. Whether a real issuer's void is idempotent under the `emd-cancel:{documentNumber}` operation key.
+5. Whether a real issuer returns `RefundRequiredInstead` as `Denied` plus the flag or `Allowed` plus the flag.
+   Ordering honours the flag either way and refunds in neither.
+
+### Known Semantic Gaps
+
+* **Partial cancel-without-refund is `BLOCKED_DECISION`.** One coupon forfeited while its siblings survive
+  cannot be represented by a whole-document void, and the benchmark authorises no coupon-level forfeiture
+  state. The shape is refused, not approximated.
+* **`Fee`, `Deposit` and `ResidualValue` coupons cannot be cancelled by G5** — they carry no delivering
+  service, so there is no commercial consequence and no source answer to where the value went.
+* `VoidReason` has no member describing "cancelled without refund as a consequence of a reissue". The void is
+  recorded as `VoidReason.Other` with a reason detail naming the approved action and both source references.
+  Adding an enum member is a wire-contract change and was not made here.
+* Forfeiture accounting is **not** implemented. Ordering records that no value returned; it writes no
+  breakage, forfeiture or revenue-recognition entry.
+* A `NeedsReconciliation` cancel group has no automated operator remediation command. Every piece of evidence
+  one would need is persisted. That is P3-H.
+
+### Explicit Non-Responsibilities
+
+Ordering does not decide whether an ancillary may be cancelled, does not decide whether a document may be
+voided, does not convert a cancel into a refund, does not compute or account for forfeited value, does not
+issue any fee or penalty document, does not roll back ticket truth for a failed cancel, and does not reconcile
+a refused or contradicted void on its own.
+
+---
+
+## ICC-P3-ANCILLARY-MANUAL-REVIEW
+
+### Capability
+
+Recording that a dependent ancillary was explicitly **excluded from automated servicing** by the source,
+because the supplier or provider cannot be automated and a human must handle it.
+
+### Authoritative Owner
+
+The ancillary disposition source alone, and there is **no second authority**, because there is no external
+act at all.
+
+### Ordering Semantic Requirement
+
+```text
+ManualReview
+  -> a valid, source-approved servicing outcome, not an error and not a failure
+  -> the ticket exchange is allowed to proceed
+  -> the ancillary coupon stays OpenForUse and detached, with its G1 provenance intact
+  -> no provider operation, no value movement, no commercial service mutation
+  -> the operation ends NeedsReconciliation once every automatable disposition has settled
+  -> the disposition stays intentionally unresolved and visible for reconciliation tooling
+```
+
+It is never marked `Confirmed` merely to make the operation completable, and it never blocks unrelated safe
+automated ancillary work in the same reissue.
+
+### Ordering Port / Dependency Boundary
+
+None. `ManualReview` rides on the existing
+`src/AeroTech.Ordering.Domain/Ports/AncillaryDisposition/IAncillaryExchangeDispositionPort.cs` result. No
+manual-review integration port was invented, no operation key exists because there is no provider operation to
+key, and no `Pending`/`Unknown`/`Recover`/`WasDispatched` rail was created for it.
+
+### Request / Response Evidence
+
+The accepted decision must carry a non-blank actionable reason. The source `Detail` is used, persisted to its
+own `ManualReviewReason` column so it is unambiguous rather than sharing a free-text field. A `ManualReview`
+with no reason is `AncillaryManualReviewReasonMissing` (20322, 422) before any irreversible ticket work; a
+reason is never fabricated. A `ManualReview` arriving with a refund, exchange, retention or cancellation
+consequence attached is refused as a malformed decision (20297).
+
+No new manual-review aggregate exists.
+
+### Durable Evidence And Idempotency
+
+`Disposition`, `DecisionReference`, `DecisionVersion`, `DecisionContextFingerprint` and `ManualReviewReason`
+on the accepted ancillary disposition. Replay of an operation already in `NeedsReconciliation` redispatches
+no ticket work and no ancillary work, and leaves the manual evidence untouched.
+
+### Ordering And Isolation
+
+`ManualReview` is deliberately excluded from the settlement selector, so it can never be picked, can never
+block and can never starve later automation — even when it sorts first by document number. It **is** included
+in mechanical G1 detachment, because an affected coupon's association must not survive the reissue. Completion
+is gated once, centrally: a plan carrying an unresolved manual review reconciles instead of completing.
+
+A `ManualReview` on one coupon of an EMD prevents cancelling another coupon of the same EMD, because the
+whole-document void would terminate the manual-review coupon. That shape fails closed before the ticket
+exchange with 20321; the cancel is never processed first.
+
+### Deterministic Verification
+
+`AncillaryManualReviewFlowTests` (7).
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. No real ancillary disposition source is wired, so no real carrier ever selects `ManualReview`.
+   `UnconfiguredAncillaryProvider` fails closed with 501.
+2. Whether a real source expresses "cannot be automated" as a disposition at all, rather than by omitting the
+   ancillary or by failing the call. Ordering supports only the explicit disposition and refuses the others.
+3. Whether a real source supplies a reason an operator can act on. Ordering requires a non-blank reason and
+   interprets none of it.
+
+### Known Semantic Gaps
+
+* **Resolution is not implemented.** Nothing in Ordering resolves a manual review, and no servicing command
+  exists to close one out. The operation stays `NeedsReconciliation` until a future explicit servicing
+  decision addresses it. That is P3-H.
+* The reason is free text. Ordering neither classifies it nor routes on it, so no read model can group manual
+  reviews by cause.
+
+### Explicit Non-Responsibilities
+
+Ordering does not decide that an ancillary needs manual handling, does not invent a reason, does not resolve
+the review, does not notify anyone, does not mutate the ancillary or its service while the review is open, and
+does not complete the servicing operation while one remains.
 
 ---
 
@@ -2317,12 +2577,15 @@ another association.
 * No reusable amount is stored, so no report or read model can state "how much" is retained. That is
   deliberate: any number Ordering wrote would be derived, and a derived residual balance is exactly what this
   capability refuses to invent.
-* `Cancel` and `ManualReview` remain unexecuted and are refused explicitly with
-  `AncillaryDispositionNotExecutable` (20298).
-* A retained coupon that is moved onto an association this exchange did not detach it from is refused by the
-  **frozen G1 association guard** (`ElectronicMiscDocumentAssociationMoved`, 20302, 409) during
-  re-materialization, before retention is considered. That is fail-closed, though by refusal rather than by
-  `NeedsReconciliation`; changing it would weaken a frozen G1 invariant.
+* `Cancel` and `ManualReview` are executed by `ICC-P3-ANCILLARY-CANCEL` and
+  `ICC-P3-ANCILLARY-MANUAL-REVIEW`. Retention never becomes a cancel: retention leaves the coupon open and
+  reusable, cancel voids the whole document and forfeits its value.
+* A retained coupon moved onto an association this exchange did not detach it from is handled in two ways
+  depending on when it happens, corrected in the G4 freeze correction. **Before** any document truth exists,
+  the frozen G1 association guard refuses the reissue outright
+  (`ElectronicMiscDocumentAssociationMoved`, 20302, 409). **After** the ticket exchange has confirmed and the
+  successor is durable, the operation reconciles instead: ticket truth stays authoritative and no fresh
+  business refusal is raised at that stage.
 * A retention with no delivering `OrderServiceId` produces no commercial service consequence and no
   `CommercialVersion` move. That is correct — there is no service to withdraw — but it means such a retention
   leaves no trace on the order aggregate beyond the accepted plan's evidence.

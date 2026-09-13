@@ -3,6 +3,7 @@ using System.Text;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
+using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
 using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain._Shared.Resources;
@@ -154,6 +155,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             if (decided.Disposition == AncillaryExchangeDisposition.RetainAsResidual)
                 EnsureRetentionIsExecutable(association, decided);
 
+            if (decided.Disposition == AncillaryExchangeDisposition.Cancel)
+                EnsureCancellationIsExecutable(quotedExchangeId, association, decided);
+
+            if (decided.Disposition == AncillaryExchangeDisposition.ManualReview)
+                EnsureManualReviewIsActionable(quotedExchangeId, association, decided);
+
             long? targetSuccessorCouponId = null;
 
             if (decided.Disposition == AncillaryExchangeDisposition.ReassociateExisting)
@@ -203,7 +210,19 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     : null,
                 RetentionReference: decided.Retention?.RetentionReference,
                 RetentionSourceReference: decided.Retention?.SourceReference,
-                RetentionMode: decided.Retention?.RetentionMode);
+                RetentionMode: decided.Retention?.RetentionMode,
+                CancelGroupRef: decided.Disposition == AncillaryExchangeDisposition.Cancel
+                    ? AcceptedExchangeAncillaryCancelGroup.RefOf(association.Document.DocumentNumber)
+                    : null,
+                CancellationReference: decided.Cancellation?.CancellationReference,
+                CancellationSourceReference: decided.Cancellation?.SourceReference,
+                CancellationDocumentAction: decided.Cancellation?.DocumentAction,
+                CancelledOrderServiceId: decided.Disposition == AncillaryExchangeDisposition.Cancel
+                    ? association.Coupon.OrderServiceId
+                    : null,
+                ManualReviewReason: decided.Disposition == AncillaryExchangeDisposition.ManualReview
+                    ? decided.Detail
+                    : null);
         }
 
         private static void EnsureRetentionIsExecutable(
@@ -234,6 +253,154 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     document,
                     coupon,
                     "retention shape, because it also carries an immediate monetary or exchange consequence");
+        }
+
+        private static void EnsureCancellationIsExecutable(
+            string quotedExchangeId,
+            AffectedAncillaryAssociation association,
+            AncillaryCouponDisposition decided)
+        {
+            var document = association.Document.DocumentNumber;
+            var coupon = association.Coupon.CouponNumber;
+
+            if (decided.Cancellation is not { } cancellation)
+                throw ExceptionFactory.AncillaryCancellationTermsMissing(document, coupon, "terms");
+
+            if (string.IsNullOrWhiteSpace(cancellation.CancellationReference))
+                throw ExceptionFactory.AncillaryCancellationTermsMissing(
+                    document, coupon, "cancellation reference");
+
+            if (string.IsNullOrWhiteSpace(cancellation.SourceReference))
+                throw ExceptionFactory.AncillaryCancellationTermsMissing(document, coupon, "source reference");
+
+            if (!Enum.IsDefined(cancellation.DocumentAction))
+                throw ExceptionFactory.AncillaryCancellationTermsMissing(document, coupon, "document action");
+
+            if (cancellation.DocumentAction != AncillaryCancellationDocumentAction.VoidWithoutRefund)
+                throw ExceptionFactory.AncillaryCancellationDocumentActionNotExecutable(
+                    document, coupon, cancellation.DocumentAction);
+
+            if (decided.Refund is not null || decided.Exchange is not null || decided.Retention is not null)
+                throw ExceptionFactory.AncillaryDispositionMalformed(
+                    quotedExchangeId,
+                    $"cancellation of {document} coupon {coupon} also carries another source-approved consequence");
+
+            if (association.Coupon.Purpose != EmdCouponPurpose.Service)
+                throw ExceptionFactory.AncillaryCancellationTargetNotEligible(
+                    document,
+                    coupon,
+                    $"it carries purpose {association.Coupon.Purpose} rather than a service");
+
+            if (!association.Coupon.IsOpenForUse)
+                throw ExceptionFactory.AncillaryCancellationTargetNotEligible(
+                    document, coupon, $"it already carries status {association.Coupon.Status}");
+
+            if (association.Coupon.OrderServiceId is null)
+                throw ExceptionFactory.AncillaryCancellationTargetNotEligible(
+                    document, coupon, "it names no order service");
+        }
+
+        private static void EnsureManualReviewIsActionable(
+            string quotedExchangeId,
+            AffectedAncillaryAssociation association,
+            AncillaryCouponDisposition decided)
+        {
+            var document = association.Document.DocumentNumber;
+            var coupon = association.Coupon.CouponNumber;
+
+            if (string.IsNullOrWhiteSpace(decided.Detail))
+                throw ExceptionFactory.AncillaryManualReviewReasonMissing(document, coupon);
+
+            if (decided.Refund is not null
+                || decided.Exchange is not null
+                || decided.Retention is not null
+                || decided.Cancellation is not null)
+                throw ExceptionFactory.AncillaryDispositionMalformed(
+                    quotedExchangeId,
+                    $"manual review of {document} coupon {coupon} also carries a source-approved consequence");
+        }
+
+        public static IReadOnlyList<AcceptedExchangeAncillaryCancelGroup> AcceptCancelGroups(
+            Order order,
+            ExchangeScope scope,
+            IReadOnlyList<AcceptedExchangeAncillaryDisposition> accepted)
+        {
+            ArgumentNullException.ThrowIfNull(order);
+            ArgumentNullException.ThrowIfNull(scope);
+            ArgumentNullException.ThrowIfNull(accepted);
+
+            var cancellations = accepted.Where(disposition => disposition.IsCancel).ToList();
+
+            if (cancellations.Count == 0)
+                return [];
+
+            return cancellations
+                .GroupBy(disposition => disposition.ElectronicMiscDocumentId)
+                .OrderBy(group => group.First().EmdDocumentNumber, StringComparer.Ordinal)
+                .Select(group => AcceptedCancelGroup(order, scope, group.ToList()))
+                .ToList();
+        }
+
+        private static AcceptedExchangeAncillaryCancelGroup AcceptedCancelGroup(
+            Order order,
+            ExchangeScope scope,
+            IReadOnlyList<AcceptedExchangeAncillaryDisposition> members)
+        {
+            var documentNumber = members[0].EmdDocumentNumber;
+            var document = scope.AffectedAncillaries
+                               .FirstOrDefault(association =>
+                                   association.Document.Id == members[0].ElectronicMiscDocumentId)?.Document
+                           ?? throw ExceptionFactory.ElectronicMiscDocumentNotFound(
+                               members[0].ElectronicMiscDocumentId);
+
+            var reference = members[0].CancellationReference!;
+            var sourceReference = members[0].CancellationSourceReference!;
+            var action = members[0].CancellationDocumentAction!.Value;
+
+            foreach (var member in members.Skip(1))
+                if (!string.Equals(member.CancellationReference, reference, StringComparison.Ordinal)
+                    || !string.Equals(member.CancellationSourceReference, sourceReference, StringComparison.Ordinal)
+                    || member.CancellationDocumentAction != action)
+                    throw ExceptionFactory.AncillaryCancellationScopeWiderThanApproved(
+                        documentNumber, "its approved coupons carry conflicting cancellation terms");
+
+            var approved = members.Select(member => member.EmdCouponNumber).Order().ToList();
+
+            if (document.WholeDocumentCancellationConflict(approved) is { } conflict)
+                throw ExceptionFactory.AncillaryCancellationScopeWiderThanApproved(documentNumber, conflict);
+
+            var services = new List<long>();
+
+            foreach (var member in members)
+            {
+                var serviceId = member.CancelledOrderServiceId!.Value;
+
+                if (order.OrderServices.FirstOrDefault(service => service.Id == serviceId) is not { } service)
+                    throw ExceptionFactory.AncillaryCancellationTargetNotEligible(
+                        documentNumber,
+                        member.EmdCouponNumber,
+                        $"order service {serviceId} does not belong to order {order.Id}");
+
+                if (service.ServiceType == OrderServiceType.AirTransportation)
+                    throw ExceptionFactory.AncillaryCancellationTargetNotEligible(
+                        documentNumber,
+                        member.EmdCouponNumber,
+                        $"order service {serviceId} carries air transportation");
+
+                if (!services.Contains(serviceId))
+                    services.Add(serviceId);
+            }
+
+            return new AcceptedExchangeAncillaryCancelGroup(
+                AcceptedExchangeAncillaryCancelGroup.RefOf(documentNumber),
+                members[0].ElectronicMiscDocumentId,
+                documentNumber,
+                approved,
+                services,
+                reference,
+                sourceReference,
+                action,
+                members[0].DecisionReference);
         }
 
         public static IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup> AcceptExchangeGroups(
@@ -570,7 +737,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     !disposition.IsReassociation
                     && !disposition.IsRefund
                     && !disposition.IsEmdExchange
-                    && !disposition.IsRetention)
+                    && !disposition.IsRetention
+                    && !disposition.IsCancel
+                    && !disposition.IsManualReview)
                 is { } unsupported)
                 throw ExceptionFactory.AncillaryDispositionNotExecutable(
                     unsupported.EmdDocumentNumber, unsupported.EmdCouponNumber, unsupported.Disposition);

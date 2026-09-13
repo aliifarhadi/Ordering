@@ -29,6 +29,12 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         string? RetentionSourceReference = null,
         AncillaryRetentionMode? RetentionMode = null,
         DateTimeOffset? RetentionSettledAt = null,
+        string? CancelGroupRef = null,
+        string? CancellationReference = null,
+        string? CancellationSourceReference = null,
+        AncillaryCancellationDocumentAction? CancellationDocumentAction = null,
+        long? CancelledOrderServiceId = null,
+        string? ManualReviewReason = null,
         long? RefundedOrderServiceId = null,
         ProviderOperationOutcome? AssociationOutcome = null,
         string? AssociationProviderReference = null,
@@ -55,6 +61,10 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool IsEmdExchange => Disposition == AncillaryExchangeDisposition.ExchangeToNewEmd;
 
         public bool IsRetention => Disposition == AncillaryExchangeDisposition.RetainAsResidual;
+
+        public bool IsCancel => Disposition == AncillaryExchangeDisposition.Cancel;
+
+        public bool IsManualReview => Disposition == AncillaryExchangeDisposition.ManualReview;
 
         public bool IsRetentionSettled => RetentionSettledAt is not null;
 

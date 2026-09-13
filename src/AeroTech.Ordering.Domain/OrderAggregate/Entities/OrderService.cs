@@ -415,6 +415,24 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Entities
             CommercialStatus = OrderServiceCommercialStatus.Cancelled;
         }
 
+        internal string? AncillaryCancellationConflict()
+        {
+            if (CommercialStatus is not (OrderServiceCommercialStatus.Pending
+                or OrderServiceCommercialStatus.Active))
+                return $"order service {Id} already carries commercial status {CommercialStatus}";
+
+            return DocumentStatus == OrderServiceDocumentStatus.Issued
+                ? null
+                : $"order service {Id} already carries document status {DocumentStatus}";
+        }
+
+        internal void MarkCancelledByAncillaryDocumentVoid()
+        {
+            Status = OrderServiceStatus.Cancelled;
+            CommercialStatus = OrderServiceCommercialStatus.Cancelled;
+            DocumentStatus = OrderServiceDocumentStatus.Voided;
+        }
+
         internal void MarkCancelled()
         {
             if (DocumentStatus == OrderServiceDocumentStatus.Issued)

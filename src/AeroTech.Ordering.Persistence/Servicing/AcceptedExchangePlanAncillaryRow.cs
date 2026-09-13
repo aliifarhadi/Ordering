@@ -56,6 +56,18 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         public DateTimeOffset? RetentionSettledAt { get; set; }
 
+        public string? CancelGroupRef { get; set; }
+
+        public string? CancellationReference { get; set; }
+
+        public string? CancellationSourceReference { get; set; }
+
+        public AncillaryCancellationDocumentAction? CancellationDocumentAction { get; set; }
+
+        public long? CancelledOrderServiceId { get; set; }
+
+        public string? ManualReviewReason { get; set; }
+
         public long? RefundedOrderServiceId { get; set; }
 
         public ProviderOperationOutcome? RefundDocumentOutcome { get; set; }

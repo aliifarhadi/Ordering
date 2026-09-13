@@ -370,6 +370,47 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             return document;
         }
 
+        public static async Task<ElectronicMiscDocument> AttachServiceAncillaryAsync(
+            OrderingDatabaseFixture fixture,
+            OrderSliceHarness harness,
+            long orderId,
+            string documentNumber,
+            IReadOnlyList<(long? TicketCouponId, long OrderServiceId)> coupons,
+            decimal value = 50_000m)
+        {
+            var ticket = (await TicketsAsync(fixture, orderId)).OrderBy(candidate => candidate.Id).First();
+            var order = await ReloadAsync(fixture, orderId);
+
+            var document = ElectronicMiscDocument.Issue(
+                harness.Ids.NewId(),
+                orderId,
+                ticket.TravelerId,
+                harness.Ids.NewId(),
+                documentNumber,
+                ElectronicMiscDocumentType.Associated,
+                "A",
+                OrderSliceHarness.HomeAirlineId,
+                null,
+                DocumentAuthority.Local,
+                order.CurrencyId,
+                coupons
+                    .Select(coupon => new EmdCouponIssuance(
+                        EmdCouponPurpose.Service,
+                        "0DF",
+                        value,
+                        [],
+                        OrderServiceId: coupon.OrderServiceId,
+                        AssociatedTicketCouponId: coupon.TicketCouponId))
+                    .ToList(),
+                harness.Ids,
+                harness.Clock);
+
+            await harness.MiscDocumentRepository.AddAsync(document);
+            await harness.UnitOfWork.SaveChangesAsync();
+
+            return document;
+        }
+
         public static async Task<ElectronicMiscDocument> AttachResidualAncillaryAsync(
             OrderingDatabaseFixture fixture,
             OrderSliceHarness harness,

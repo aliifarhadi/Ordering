@@ -211,6 +211,32 @@ namespace AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate
                && candidate.RefundRecord is null
                && candidate.IsDisassociatedByReissue(operationId);
 
+        public string? WholeDocumentCancellationConflict(IReadOnlyList<int> approvedCouponNumbers)
+        {
+            ArgumentNullException.ThrowIfNull(approvedCouponNumbers);
+
+            if (StatusSummary != ElectronicMiscDocumentStatus.Issued)
+                return $"the document already carries status {StatusSummary}";
+
+            if (_coupons.Count == 0)
+                return "the document carries no coupon";
+
+            if (_coupons.FirstOrDefault(coupon => !coupon.IsOpenForUse) is { } terminal)
+                return $"coupon {terminal.CouponNumber} already carries status {terminal.Status}";
+
+            return _coupons.FirstOrDefault(coupon => !approvedCouponNumbers.Contains(coupon.CouponNumber))
+                is { } unapproved
+                ? $"coupon {unapproved.CouponNumber} is not approved for cancellation"
+                : null;
+        }
+
+        public bool PermitsCancellationVoid(IReadOnlyList<int> approvedCouponNumbers, long operationId)
+            => WholeDocumentCancellationConflict(approvedCouponNumbers) is null
+               && _coupons.All(coupon => coupon.IsDisassociatedByReissue(operationId));
+
+        public bool IsVoidSettledBy(long operationId)
+            => VoidRecord is { } record && record.OperationId == operationId;
+
         public bool PermitsDisassociation(int emdCouponNumber, long operationId, long predecessorTicketCouponId)
             => Associable(emdCouponNumber) is { } candidate
                && (candidate.IsAssociatedWith(predecessorTicketCouponId)

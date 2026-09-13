@@ -232,16 +232,39 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
         // ---------------------------------------------------------------- P-R. a disposition this capability cannot run
 
-        [Theory]
-        [InlineData(AncillaryExchangeDisposition.Cancel)]
-        [InlineData(AncillaryExchangeDisposition.ManualReview)]
-        public async Task P_an_unsupported_disposition_stops_before_the_first_irreversible_operation(
-            AncillaryExchangeDisposition unsupported)
+        [Fact]
+        public async Task P_a_disposition_outside_the_capability_stops_before_the_first_irreversible_operation()
         {
             var refusal = await RefusedAsync(harness =>
-                harness.AncillaryDispositions.DispositionByCoupon[AncillaryKey(_document, 1)] = unsupported);
+                harness.AncillaryDispositions.DispositionByCoupon[AncillaryKey(_document, 1)] =
+                    (AncillaryExchangeDisposition)99);
 
             Assert.Equal(20298, refusal.Code);
+            Assert.Equal(422, refusal.HttpStatus);
+        }
+
+        [Fact]
+        public async Task P2_cancelling_a_coupon_that_documents_no_service_stops_before_the_first_irreversible_operation()
+        {
+            var refusal = await RefusedAsync(harness =>
+                harness.AncillaryDispositions.DispositionByCoupon[AncillaryKey(_document, 1)] =
+                    AncillaryExchangeDisposition.Cancel);
+
+            Assert.Equal(20320, refusal.Code);
+            Assert.Equal(409, refusal.HttpStatus);
+        }
+
+        [Fact]
+        public async Task P3_a_manual_review_with_no_reason_stops_before_the_first_irreversible_operation()
+        {
+            var refusal = await RefusedAsync(harness =>
+            {
+                harness.AncillaryDispositions.DispositionByCoupon[AncillaryKey(_document, 1)] =
+                    AncillaryExchangeDisposition.ManualReview;
+                harness.AncillaryDispositions.OmitManualReviewReason = true;
+            });
+
+            Assert.Equal(20322, refusal.Code);
             Assert.Equal(422, refusal.HttpStatus);
         }
 
@@ -254,7 +277,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await AttachAncillaryAsync(_fixture, harness, scenario.OrderId, _document, [scenario.CouponId]);
             await AttachAncillaryAsync(_fixture, harness, scenario.OrderId, _secondDocument, [scenario.CouponId]);
             harness.AncillaryDispositions.DispositionByCoupon[AncillaryKey(_secondDocument, 1)] =
-                AncillaryExchangeDisposition.ManualReview;
+                (AncillaryExchangeDisposition)99;
 
             var refusal = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(NewKey())));
@@ -274,6 +297,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await AttachAncillaryAsync(_fixture, harness, scenario.OrderId, _document, [scenario.CouponId]);
             harness.AncillaryDispositions.DispositionByCoupon[AncillaryKey(_document, 1)] =
                 AncillaryExchangeDisposition.ManualReview;
+            harness.AncillaryDispositions.OmitManualReviewReason = true;
 
             var first = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(key)));
@@ -281,8 +305,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var replay = await Assert.ThrowsAsync<BusinessException>(
                 () => harness.Exchange.ExchangeAsync(scenario.Execution(key)));
 
-            Assert.Equal(20298, first.Code);
-            Assert.Equal(20298, replay.Code);
+            Assert.Equal(20322, first.Code);
+            Assert.Equal(20322, replay.Code);
             Assert.Equal(ServicingOperationStatus.Rejected, await StatusAsync(scenario.OrderId));
             Assert.Empty(harness.EmdAssociations.ObservedRequests);
         }

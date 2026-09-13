@@ -17,6 +17,7 @@ using AeroTech.Ordering.Domain.DocumentStockAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.Ports.AncillaryDisposition;
 using AeroTech.Ordering.Domain.Ports.EmdAssociation;
+using AeroTech.Ordering.Domain.Ports.DocumentVoid;
 using AeroTech.Ordering.Domain.Ports.EmdExchange;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence;
@@ -65,7 +66,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             DeterministicDocumentExchangeAdapter? documentExchanges = null,
             DeterministicDocumentRefundAdapter? documentRefunds = null,
             DeterministicEmdExchangeAdapter? emdExchanges = null,
-            IEmdExchangePort? unconfiguredEmdExchanges = null)
+            IEmdExchangePort? unconfiguredEmdExchanges = null,
+            DeterministicDocumentVoidAdapter? documentVoids = null,
+            IDocumentVoidPort? unconfiguredDocumentVoids = null)
         {
             _fixture = fixture;
 
@@ -139,7 +142,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             var releaseCoordinator = new ReservationReleaseCoordinator(reservations, Reservation, coordinator, frameworkClock);
 
             CancellationQuotes = new DeterministicOrderCancellationQuoteAdapter();
-            DocumentVoids = new DeterministicDocumentVoidAdapter();
+            DocumentVoids = documentVoids ?? new DeterministicDocumentVoidAdapter();
             VoidDocument = new Application.OrderAggregate.Services.DocumentVoid.DocumentVoidService(
                 Orders, tickets, miscDocuments, DocumentVoids, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
             Cancel = new OrderCancelService(Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
@@ -197,6 +200,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 RefundValues,
                 ExchangeResiduals,
                 DocumentRefunds,
+                unconfiguredDocumentVoids ?? DocumentVoids,
                 unconfiguredAncillaryDispositions ?? AncillaryDispositions,
                 unconfiguredEmdExchanges ?? EmdExchanges,
                 unconfiguredEmdAssociations ?? EmdAssociations,

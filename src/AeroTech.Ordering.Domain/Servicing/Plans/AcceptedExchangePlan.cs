@@ -52,7 +52,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         ResidualInstrumentKind? ResidualInstrument = null,
         string? ResidualDetail = null,
         IReadOnlyList<AcceptedExchangeAncillaryDisposition>? AncillaryDispositions = null,
-        IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup>? AncillaryExchangeGroups = null)
+        IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup>? AncillaryExchangeGroups = null,
+        IReadOnlyList<AcceptedExchangeAncillaryCancelGroup>? AncillaryCancelGroups = null)
     {
         public bool IsEligibilityEstablished
             => EligibilityOutcome == DocumentExchangeEligibilityOutcome.Eligible;
@@ -109,6 +110,21 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
             => (RequiresMonetarySettlement && !IsMonetarySettled)
                || (RequiresAncillaryReassociation && !IsAncillarySettled);
 
+        public AcceptedExchangePlan WithCancelGroup(AcceptedExchangeAncillaryCancelGroup group)
+        {
+            ArgumentNullException.ThrowIfNull(group);
+
+            return this with
+            {
+                AncillaryCancelGroups = CancelGroups
+                    .Select(candidate => string.Equals(
+                        candidate.CancelGroupRef, group.CancelGroupRef, StringComparison.Ordinal)
+                        ? group
+                        : candidate)
+                    .ToList()
+            };
+        }
+
         public AcceptedExchangePlan WithExchangeGroup(AcceptedExchangeAncillaryExchangeGroup group)
         {
             ArgumentNullException.ThrowIfNull(group);
@@ -153,13 +169,25 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup> ExchangeGroups
             => AncillaryExchangeGroups ?? [];
 
+        public IReadOnlyList<AcceptedExchangeAncillaryCancelGroup> CancelGroups
+            => AncillaryCancelGroups ?? [];
+
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> AncillaryCancellations
+            => Ancillaries.Where(disposition => disposition.IsCancel).ToList();
+
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> AncillaryManualReviews
+            => Ancillaries.Where(disposition => disposition.IsManualReview).ToList();
+
+        public bool HasUnresolvedManualReview => AncillaryManualReviews.Count > 0;
+
         public IReadOnlyList<AcceptedExchangeAncillaryDisposition> ExecutableAncillaries
             => Ancillaries
                 .Where(disposition =>
                     disposition.IsReassociation
                     || disposition.IsRefund
                     || disposition.IsEmdExchange
-                    || disposition.IsRetention)
+                    || disposition.IsRetention
+                    || disposition.IsCancel)
                 .ToList();
 
         public AcceptedExchangeAncillaryDisposition? NextUnsettledAncillary
@@ -168,11 +196,25 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         private bool IsAncillaryUnitSettled(AcceptedExchangeAncillaryDisposition disposition)
             => disposition.IsEmdExchange
                 ? ExchangeGroup(disposition.ExchangeGroupRef ?? string.Empty) is { IsSettled: true }
-                : disposition.IsSettled;
+                : disposition.IsCancel
+                    ? CancelGroup(disposition.CancelGroupRef ?? string.Empty) is { IsSettled: true }
+                    : disposition.IsSettled;
 
         public AcceptedExchangeAncillaryExchangeGroup? ExchangeGroup(string exchangeGroupRef)
             => ExchangeGroups.SingleOrDefault(group =>
                 string.Equals(group.ExchangeGroupRef, exchangeGroupRef, StringComparison.Ordinal));
+
+        public IReadOnlyList<AcceptedExchangeAncillaryDisposition> CancelGroupMembers(string cancelGroupRef)
+            => Ancillaries
+                .Where(disposition => disposition.IsCancel
+                                      && string.Equals(
+                                          disposition.CancelGroupRef, cancelGroupRef, StringComparison.Ordinal))
+                .OrderBy(disposition => disposition.EmdCouponNumber)
+                .ToList();
+
+        public AcceptedExchangeAncillaryCancelGroup? CancelGroup(string cancelGroupRef)
+            => CancelGroups.SingleOrDefault(group =>
+                string.Equals(group.CancelGroupRef, cancelGroupRef, StringComparison.Ordinal));
 
         public bool RequiresAncillaryReassociation => ExecutableAncillaries.Count > 0;
 
@@ -181,6 +223,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool RequiresAncillaryEmdExchange => ExchangeGroups.Count > 0;
 
         public bool RequiresAncillaryRetention => AncillaryRetentions.Count > 0;
+
+        public bool RequiresAncillaryCancellation => CancelGroups.Count > 0;
 
         public AcceptedExchangePlan WithAncillaryRetention(
             AcceptedExchangeAncillaryDisposition retained,
@@ -198,24 +242,29 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
             };
         }
 
+        private IReadOnlyList<AcceptedExchangeAncillaryDisposition> UngroupedAncillaries
+            => ExecutableAncillaries
+                .Where(disposition => !disposition.IsEmdExchange && !disposition.IsCancel)
+                .ToList();
+
         public bool IsAncillarySettled
-            => ExecutableAncillaries.Where(disposition => !disposition.IsEmdExchange)
-                   .All(disposition => disposition.IsSettled)
-               && ExchangeGroups.All(group => group.IsSettled);
+            => UngroupedAncillaries.All(disposition => disposition.IsSettled)
+               && ExchangeGroups.All(group => group.IsSettled)
+               && CancelGroups.All(group => group.IsSettled);
 
         public bool HasRejectedAncillary
-            => ExecutableAncillaries.Where(disposition => !disposition.IsEmdExchange)
-                   .Any(disposition => disposition.IsRejected)
-               || ExchangeGroups.Any(group => group.IsRejected);
+            => UngroupedAncillaries.Any(disposition => disposition.IsRejected)
+               || ExchangeGroups.Any(group => group.IsRejected)
+               || CancelGroups.Any(group => group.IsRejected);
 
         public ExchangeAncillaryState AncillaryState
         {
             get
             {
-                var states = ExecutableAncillaries
-                    .Where(disposition => !disposition.IsEmdExchange)
+                var states = UngroupedAncillaries
                     .Select(disposition => disposition.State)
                     .Concat(ExchangeGroups.Select(group => group.State))
+                    .Concat(CancelGroups.Select(group => group.State))
                     .ToList();
 
                 if (states.Count == 0)

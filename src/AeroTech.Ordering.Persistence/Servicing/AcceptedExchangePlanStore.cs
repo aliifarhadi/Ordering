@@ -138,6 +138,12 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         ancillary.RetentionSourceReference,
                         ancillary.RetentionMode,
                         ancillary.RetentionSettledAt,
+                        ancillary.CancelGroupRef,
+                        ancillary.CancellationReference,
+                        ancillary.CancellationSourceReference,
+                        ancillary.CancellationDocumentAction,
+                        ancillary.CancelledOrderServiceId,
+                        ancillary.ManualReviewReason,
                         ancillary.RefundedOrderServiceId,
                         ancillary.AssociationOutcome,
                         ancillary.AssociationProviderReference,
@@ -152,8 +158,33 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 row.AncillaryExchangeGroups
                     .OrderBy(group => group.ExchangeGroupRef, StringComparer.Ordinal)
                     .Select(ExchangeGroup)
+                    .ToList(),
+                row.AncillaryCancelGroups
+                    .OrderBy(group => group.CancelGroupRef, StringComparer.Ordinal)
+                    .Select(CancelGroup)
                     .ToList());
         }
+
+        private static AcceptedExchangeAncillaryCancelGroup CancelGroup(
+            AcceptedExchangePlanAncillaryCancelGroupRow group)
+            => new(
+                group.CancelGroupRef,
+                group.ElectronicMiscDocumentId,
+                group.EmdDocumentNumber,
+                JsonSerializer.Deserialize<IReadOnlyList<int>>(group.EmdCouponNumbers, PlanOptions) ?? [],
+                JsonSerializer.Deserialize<IReadOnlyList<long>>(group.OrderServiceIds, PlanOptions) ?? [],
+                group.CancellationReference,
+                group.SourceReference,
+                group.DocumentAction,
+                group.DecisionReference,
+                group.VoidEligibilityOutcome,
+                group.VoidRefundRequiredInstead,
+                group.VoidEligibilityDetail,
+                group.VoidDispatchedAt,
+                group.VoidOutcome,
+                group.VoidProviderReference,
+                group.VoidDetail,
+                group.CancellationSettledAt);
 
         private static AcceptedExchangeAncillaryExchangeGroup ExchangeGroup(
             AcceptedExchangePlanAncillaryExchangeGroupRow group)
@@ -338,6 +369,29 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         ResidualDetail = group.ResidualDetail
                     })
                     .ToList(),
+                AncillaryCancelGroups = plan.CancelGroups
+                    .Select(group => new AcceptedExchangePlanAncillaryCancelGroupRow
+                    {
+                        OperationId = plan.OperationId,
+                        CancelGroupRef = group.CancelGroupRef,
+                        ElectronicMiscDocumentId = group.ElectronicMiscDocumentId,
+                        EmdDocumentNumber = group.EmdDocumentNumber,
+                        EmdCouponNumbers = JsonSerializer.Serialize(group.EmdCouponNumbers, PlanOptions),
+                        OrderServiceIds = JsonSerializer.Serialize(group.OrderServiceIds, PlanOptions),
+                        CancellationReference = group.CancellationReference,
+                        SourceReference = group.SourceReference,
+                        DocumentAction = group.DocumentAction,
+                        DecisionReference = group.DecisionReference,
+                        VoidEligibilityOutcome = group.VoidEligibilityOutcome,
+                        VoidRefundRequiredInstead = group.VoidRefundRequiredInstead,
+                        VoidEligibilityDetail = group.VoidEligibilityDetail,
+                        VoidDispatchedAt = group.VoidDispatchedAt,
+                        VoidOutcome = group.VoidOutcome,
+                        VoidProviderReference = group.VoidProviderReference,
+                        VoidDetail = group.VoidDetail,
+                        CancellationSettledAt = group.CancellationSettledAt
+                    })
+                    .ToList(),
                 Ancillaries = plan.Ancillaries
                     .Select(ancillary => new AcceptedExchangePlanAncillaryRow
                     {
@@ -369,6 +423,12 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         RetentionSourceReference = ancillary.RetentionSourceReference,
                         RetentionMode = ancillary.RetentionMode,
                         RetentionSettledAt = ancillary.RetentionSettledAt,
+                        CancelGroupRef = ancillary.CancelGroupRef,
+                        CancellationReference = ancillary.CancellationReference,
+                        CancellationSourceReference = ancillary.CancellationSourceReference,
+                        CancellationDocumentAction = ancillary.CancellationDocumentAction,
+                        CancelledOrderServiceId = ancillary.CancelledOrderServiceId,
+                        ManualReviewReason = ancillary.ManualReviewReason,
                         RefundedOrderServiceId = ancillary.RefundedOrderServiceId,
                         RefundDocumentOutcome = ancillary.RefundDocumentOutcome,
                         RefundDocumentReference = ancillary.RefundDocumentReference,
@@ -542,6 +602,77 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
             await TouchAsync(operationId, cancellationToken);
         }
+
+        public async Task RecordAncillaryCancelEligibilityAsync(
+            long operationId,
+            string cancelGroupRef,
+            EligibilityOutcome outcome,
+            bool refundRequiredInstead,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireCancelGroupAsync(operationId, cancelGroupRef, cancellationToken);
+
+            row.VoidEligibilityOutcome = outcome;
+            row.VoidRefundRequiredInstead = refundRequiredInstead;
+            row.VoidEligibilityDetail = detail ?? row.VoidEligibilityDetail;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordAncillaryCancelVoidDispatchedAsync(
+            long operationId,
+            string cancelGroupRef,
+            DateTimeOffset dispatchedAt,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireCancelGroupAsync(operationId, cancelGroupRef, cancellationToken);
+
+            row.VoidDispatchedAt ??= dispatchedAt;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordAncillaryCancelVoidOutcomeAsync(
+            long operationId,
+            string cancelGroupRef,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireCancelGroupAsync(operationId, cancelGroupRef, cancellationToken);
+
+            row.VoidOutcome = outcome;
+            row.VoidProviderReference = providerReference ?? row.VoidProviderReference;
+            row.VoidDetail = detail ?? row.VoidDetail;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordAncillaryCancellationSettledAsync(
+            long operationId,
+            string cancelGroupRef,
+            DateTimeOffset settledAt,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireCancelGroupAsync(operationId, cancelGroupRef, cancellationToken);
+
+            row.CancellationSettledAt ??= settledAt;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        private async Task<AcceptedExchangePlanAncillaryCancelGroupRow> RequireCancelGroupAsync(
+            long operationId,
+            string cancelGroupRef,
+            CancellationToken cancellationToken)
+            => await _dbContext.Set<AcceptedExchangePlanAncillaryCancelGroupRow>()
+                   .FirstOrDefaultAsync(
+                       group => group.OperationId == operationId
+                                && group.CancelGroupRef == cancelGroupRef,
+                       cancellationToken)
+               ?? throw ExceptionFactory.AcceptedExchangePlanNotFound(operationId);
 
         public async Task RecordAncillaryExchangeOutcomeAsync(
             long operationId,
@@ -782,7 +913,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
             => _dbContext.Set<AcceptedExchangePlanRow>()
                 .Include(plan => plan.Coupons)
                 .Include(plan => plan.Ancillaries)
-                .Include(plan => plan.AncillaryExchangeGroups);
+                .Include(plan => plan.AncillaryExchangeGroups)
+                .Include(plan => plan.AncillaryCancelGroups);
 
         private async Task<AcceptedExchangePlanRow> RequireAsync(
             long operationId,

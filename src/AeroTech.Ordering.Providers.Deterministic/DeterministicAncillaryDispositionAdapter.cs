@@ -124,6 +124,29 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public bool ReportRetentionWithRefundTerms { get; set; }
 
+        public string CancellationReference { get; set; } = "ANC-CANCEL";
+
+        public string CancellationSourceReference { get; set; } = "ANC-CANCEL-SOURCE";
+
+        public AncillaryCancellationDocumentAction CancellationDocumentAction { get; set; }
+            = AncillaryCancellationDocumentAction.VoidWithoutRefund;
+
+        public Dictionary<string, string> CancellationReferenceByCoupon { get; } = new(StringComparer.Ordinal);
+
+        public bool OmitCancellationTerms { get; set; }
+
+        public bool OmitCancellationReference { get; set; }
+
+        public bool OmitCancellationSourceReference { get; set; }
+
+        public bool ReportCancellationWithRefundTerms { get; set; }
+
+        public string ManualReviewReason { get; set; } = "the supplier cannot automate this ancillary";
+
+        public bool OmitManualReviewReason { get; set; }
+
+        public bool ReportManualReviewWithRefundTerms { get; set; }
+
         public long? ExchangeSuccessorOrderServiceId { get; set; }
 
         public string? ExchangeSuccessorExternalValueReference { get; set; }
@@ -363,16 +386,36 @@ namespace AeroTech.Ordering.Providers.Deterministic
                     : coupon.PredecessorCouponNumber,
                 disposition,
                 Target(coupon),
-                ReportRetentionWithRefundTerms
-                 && disposition == AncillaryExchangeDisposition.RetainAsResidual
+                (ReportRetentionWithRefundTerms
+                 && disposition == AncillaryExchangeDisposition.RetainAsResidual)
+                || (ReportCancellationWithRefundTerms && disposition == AncillaryExchangeDisposition.Cancel)
+                || (ReportManualReviewWithRefundTerms && disposition == AncillaryExchangeDisposition.ManualReview)
                     ? RefundTerms(AncillaryExchangeDisposition.Refund)
                     : RefundTerms(disposition),
                 disposition == AncillaryExchangeDisposition.ExchangeToNewEmd
                  && exchangeTerms.TryGetValue(Key(coupon), out var terms)
                     ? terms
                     : null,
-                RetentionTerms(disposition));
+                RetentionTerms(disposition),
+                CancellationTerms(coupon, disposition),
+                disposition == AncillaryExchangeDisposition.ManualReview && !OmitManualReviewReason
+                    ? ManualReviewReason
+                    : null);
         }
+
+        private AncillaryCancellationTerms? CancellationTerms(
+            AffectedAncillaryCoupon coupon,
+            AncillaryExchangeDisposition disposition)
+            => disposition == AncillaryExchangeDisposition.Cancel && !OmitCancellationTerms
+                ? new AncillaryCancellationTerms(
+                    OmitCancellationReference
+                        ? string.Empty
+                        : CancellationReferenceByCoupon.TryGetValue(Key(coupon), out var overridden)
+                            ? overridden
+                            : CancellationReference,
+                    OmitCancellationSourceReference ? string.Empty : CancellationSourceReference,
+                    CancellationDocumentAction)
+                : null;
 
         private AncillaryRetentionTerms? RetentionTerms(AncillaryExchangeDisposition disposition)
             => disposition == AncillaryExchangeDisposition.RetainAsResidual && !OmitRetentionTerms

@@ -377,6 +377,12 @@
         public const string AncillaryRetentionModeNotExecutable = "Retention mode {2} for coupon {1} of miscellaneous document {0} is not executable by this servicing capability.";
         public const string ElectronicMiscDocumentCouponNumbersMalformed = "Miscellaneous document {0} cannot be created: {1}.";
         public const string AncillaryExchangeAmountDoesNotReconcile = "The approved ancillary exchange lines net {1} to the customer against an approved {0}.";
+        public const string AncillaryCancellationTermsMissing = "The cancellation disposition for coupon {1} of miscellaneous document {0} carries no source-approved {2}.";
+        public const string AncillaryCancellationDocumentActionNotExecutable = "Cancellation document action {2} for coupon {1} of miscellaneous document {0} is not executable by this servicing capability.";
+        public const string AncillaryCancellationTargetNotEligible = "Coupon {1} of miscellaneous document {0} cannot be cancelled without refund because {2}.";
+        public const string AncillaryCancellationScopeWiderThanApproved = "Cancelling miscellaneous document {0} requires voiding the whole document, and {1}.";
+        public const string AncillaryManualReviewReasonMissing = "The manual review disposition for coupon {1} of miscellaneous document {0} carries no actionable reason.";
+        public const string AncillaryCancellationRequiresAuthority = "Cancelling miscellaneous document {0} without refund voids an accountable document and requires an identified actor.";
         public const string EmdExchangeSourceNotConfigured = "No miscellaneous document exchange authority is configured.";
         public const string DependentPriceChangeHostNotResolvable = "Servicing operation {0} has no single {1} change on order {2} to carry a dependent price consequence.";
         public const string ElectronicMiscDocumentNotFound = "Miscellaneous document {0} was not found.";

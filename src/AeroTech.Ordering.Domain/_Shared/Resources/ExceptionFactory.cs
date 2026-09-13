@@ -889,6 +889,24 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException EmdExchangeSourceNotConfigured() =>
             new(20313, ExceptionMessages.EmdExchangeSourceNotConfigured) { HttpStatus = 501 };
 
+        public static BusinessException AncillaryCancellationTermsMissing(params object?[] args) =>
+            new(20318, ExceptionMessages.AncillaryCancellationTermsMissing, args) { HttpStatus = 422 };
+
+        public static BusinessException AncillaryCancellationDocumentActionNotExecutable(params object?[] args) =>
+            new(20319, ExceptionMessages.AncillaryCancellationDocumentActionNotExecutable, args) { HttpStatus = 422 };
+
+        public static BusinessException AncillaryCancellationTargetNotEligible(params object?[] args) =>
+            new(20320, ExceptionMessages.AncillaryCancellationTargetNotEligible, args) { HttpStatus = 409 };
+
+        public static BusinessException AncillaryCancellationScopeWiderThanApproved(params object?[] args) =>
+            new(20321, ExceptionMessages.AncillaryCancellationScopeWiderThanApproved, args) { HttpStatus = 409 };
+
+        public static BusinessException AncillaryManualReviewReasonMissing(params object?[] args) =>
+            new(20322, ExceptionMessages.AncillaryManualReviewReasonMissing, args) { HttpStatus = 422 };
+
+        public static BusinessException AncillaryCancellationRequiresAuthority(params object?[] args) =>
+            new(20323, ExceptionMessages.AncillaryCancellationRequiresAuthority, args) { HttpStatus = 422 };
+
         public static BusinessException DependentPriceChangeHostNotResolvable(params object?[] args) =>
             new(20308, ExceptionMessages.DependentPriceChangeHostNotResolvable, args) { HttpStatus = 409 };
 
