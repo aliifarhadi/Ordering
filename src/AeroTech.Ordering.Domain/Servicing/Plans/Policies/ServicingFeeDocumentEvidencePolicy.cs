@@ -1,5 +1,6 @@
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
+using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Entities;
 
 namespace AeroTech.Ordering.Domain.Servicing.Plans.Policies
 {
@@ -7,13 +8,13 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Policies
     {
         public static string? Conflict(
             ElectronicMiscDocument existing,
-            AcceptedExchangeFeeDocument document,
-            long operationId,
-            IReadOnlyList<long> primaryPricingLineIds)
+            ResolvedServicingFeeDocument resolved,
+            long operationId)
         {
             ArgumentNullException.ThrowIfNull(existing);
-            ArgumentNullException.ThrowIfNull(document);
-            ArgumentNullException.ThrowIfNull(primaryPricingLineIds);
+            ArgumentNullException.ThrowIfNull(resolved);
+
+            var document = resolved.Document;
 
             if (!string.Equals(existing.DocumentNumber, document.AllocatedDocumentNumber, StringComparison.Ordinal))
                 return $"document {existing.DocumentNumber} is not the number allocated to "
@@ -39,32 +40,88 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Policies
             if (existing.CurrencyId != document.CurrencyId)
                 return $"document {existing.DocumentNumber} carries currency {existing.CurrencyId}";
 
-            if (existing.Coupons.Count != document.Coupons.Count)
+            if (existing.Coupons.Count != resolved.Coupons.Count)
                 return $"document {existing.DocumentNumber} carries {existing.Coupons.Count} coupons against "
-                       + $"{document.Coupons.Count} approved";
+                       + $"{resolved.Coupons.Count} approved";
+
+            if (existing.PriceLinks.Count != resolved.LinkCount)
+                return $"document {existing.DocumentNumber} carries {existing.PriceLinks.Count} price links "
+                       + $"against {resolved.LinkCount} approved attributions";
 
             var coupons = existing.Coupons.OrderBy(coupon => coupon.CouponNumber).ToList();
 
             for (var position = 0; position < coupons.Count; position++)
+                if (CouponConflict(existing, coupons[position], resolved.Coupons[position]) is { } conflict)
+                    return conflict;
+
+            return null;
+        }
+
+        private static string? CouponConflict(
+            ElectronicMiscDocument existing,
+            EmdCoupon coupon,
+            ResolvedServicingFeeCoupon resolved)
+        {
+            if (coupon.Purpose != EmdCouponPurpose.Fee)
+                return $"coupon {coupon.CouponNumber} carries purpose {coupon.Purpose}";
+
+            if (coupon.OrderServiceId is not null)
+                return $"coupon {coupon.CouponNumber} names order service {coupon.OrderServiceId}";
+
+            if (coupon.AssociatedTicketCouponId is not null)
+                return $"coupon {coupon.CouponNumber} is associated to ticket coupon "
+                       + coupon.AssociatedTicketCouponId;
+
+            if (coupon.ExternalValueReference is not null)
+                return $"coupon {coupon.CouponNumber} carries an external value reference";
+
+            if (!string.Equals(
+                    coupon.ReasonForIssuanceSubCode,
+                    resolved.Accepted.ReasonForIssuanceSubCode,
+                    StringComparison.Ordinal))
+                return $"coupon {coupon.CouponNumber} carries sub code {coupon.ReasonForIssuanceSubCode}";
+
+            if (coupon.IssuanceValue != resolved.Accepted.DocumentedAmount)
+                return $"coupon {coupon.CouponNumber} carries value {coupon.IssuanceValue} against an approved "
+                       + resolved.Accepted.DocumentedAmount;
+
+            if (coupon.PricingLineId != resolved.PrimaryPricingLineId)
+                return $"coupon {coupon.CouponNumber} names primary pricing line {coupon.PricingLineId}";
+
+            return LinkConflict(existing, coupon, resolved);
+        }
+
+        private static string? LinkConflict(
+            ElectronicMiscDocument existing,
+            EmdCoupon coupon,
+            ResolvedServicingFeeCoupon resolved)
+        {
+            var links = existing.PriceLinks.Where(link => link.EmdCouponId == coupon.Id).ToList();
+
+            if (links.Count != resolved.PriceLinks.Count)
+                return $"coupon {coupon.CouponNumber} carries {links.Count} price links against "
+                       + $"{resolved.PriceLinks.Count} approved attributions";
+
+            if (links.Select(link => link.PricingLineId).Distinct().Count() != links.Count)
+                return $"coupon {coupon.CouponNumber} repeats a price link";
+
+            foreach (var expected in resolved.PriceLinks)
             {
-                var coupon = coupons[position];
-                var approved = document.Coupons[position];
+                if (links.SingleOrDefault(link => link.PricingLineId == expected.PricingLineId) is not { } link)
+                    return $"coupon {coupon.CouponNumber} carries no price link to pricing line "
+                           + expected.PricingLineId;
 
-                if (coupon.Purpose != EmdCouponPurpose.Fee)
-                    return $"coupon {coupon.CouponNumber} carries purpose {coupon.Purpose}";
+                if (link.AttributedValue != expected.AttributedValue)
+                    return $"coupon {coupon.CouponNumber} attributes {link.AttributedValue} to pricing line "
+                           + $"{expected.PricingLineId} against an approved {expected.AttributedValue}";
 
-                if (!string.Equals(
-                        coupon.ReasonForIssuanceSubCode,
-                        approved.ReasonForIssuanceSubCode,
-                        StringComparison.Ordinal))
-                    return $"coupon {coupon.CouponNumber} carries sub code {coupon.ReasonForIssuanceSubCode}";
+                if (link.AllocationId is not null)
+                    return $"coupon {coupon.CouponNumber} binds pricing line {expected.PricingLineId} to "
+                           + $"allocation {link.AllocationId}";
 
-                if (coupon.IssuanceValue != approved.DocumentedAmount)
-                    return $"coupon {coupon.CouponNumber} carries value {coupon.IssuanceValue} against an approved "
-                           + approved.DocumentedAmount;
-
-                if (coupon.PricingLineId != primaryPricingLineIds[position])
-                    return $"coupon {coupon.CouponNumber} names pricing line {coupon.PricingLineId}";
+                if (link.CurrencyId != existing.CurrencyId)
+                    return $"coupon {coupon.CouponNumber} carries currency {link.CurrencyId} on pricing line "
+                           + expected.PricingLineId;
             }
 
             return null;

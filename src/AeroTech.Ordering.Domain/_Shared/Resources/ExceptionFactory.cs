@@ -916,6 +916,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ServicingFeeDocumentAmountDoesNotReconcile(params object?[] args) =>
             new(20326, ExceptionMessages.ServicingFeeDocumentAmountDoesNotReconcile, args) { HttpStatus = 422 };
 
+        public static BusinessException ServicingFeeDocumentTravellerNotInOrder(params object?[] args) =>
+            new(20327, ExceptionMessages.ServicingFeeDocumentTravellerNotInOrder, args) { HttpStatus = 409 };
+
         public static BusinessException DependentPriceChangeHostNotResolvable(params object?[] args) =>
             new(20308, ExceptionMessages.DependentPriceChangeHostNotResolvable, args) { HttpStatus = 409 };
 

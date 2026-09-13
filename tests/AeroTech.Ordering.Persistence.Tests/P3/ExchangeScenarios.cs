@@ -370,6 +370,36 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             return document;
         }
 
+        public static async Task ConfirmFeeDocumentIssuanceAsync(
+            OrderingDatabaseFixture fixture,
+            long operationId,
+            string documentReference,
+            string providerReference)
+        {
+            await using var command = fixture.NewCommandContext();
+
+            await command.Database.ExecuteSqlRawAsync(
+                "UPDATE [Order].[AcceptedExchangePlanFeeDocuments] SET [IssuanceOutcome] = {0}, "
+                + "[IssuanceProviderReference] = {1}, [SettledAt] = NULL "
+                + "WHERE [OperationId] = {2} AND [DocumentReference] = {3}",
+                (int)ProviderOperationOutcome.Confirmed,
+                providerReference,
+                operationId,
+                documentReference);
+        }
+
+        public static async Task DetachPricingLineSourceRefAsync(
+            OrderingDatabaseFixture fixture,
+            long pricingLineId)
+        {
+            await using var command = fixture.NewCommandContext();
+
+            await command.Database.ExecuteSqlRawAsync(
+                "UPDATE [Order].[OrderPricingLines] SET [SourceLineRef] = {0} WHERE [Id] = {1}",
+                "EXC:DETACHED",
+                pricingLineId);
+        }
+
         public static async Task<ElectronicMiscDocument> AttachServiceAncillaryAsync(
             OrderingDatabaseFixture fixture,
             OrderSliceHarness harness,

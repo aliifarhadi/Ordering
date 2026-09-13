@@ -668,6 +668,9 @@ namespace AeroTech.Ordering.Persistence.Servicing
         {
             var row = await RequireFeeDocumentAsync(operationId, documentReference, cancellationToken);
 
+            if (row.IssuanceOutcome == ProviderOperationOutcome.Confirmed)
+                return;
+
             row.IssuanceOutcome = outcome;
             row.IssuanceProviderReference = providerReference ?? row.IssuanceProviderReference;
             row.IssuanceDetail = detail ?? row.IssuanceDetail;

@@ -5,8 +5,6 @@ using AeroTech.Ordering.Domain.DocumentStockAggregate.Entities;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate;
-using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
-using AeroTech.Ordering.Domain.OrderAggregate.Entities;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 using AeroTech.Ordering.Domain.Ports.DocumentIssuance;
 using AeroTech.Ordering.Domain.Servicing.Operations;
@@ -34,7 +32,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
                     cancellationToken);
 
-            if (ResolvePrimaryPricingLines(order, materialized, pending) is not { } primaryPricingLineIds)
+            if (ServicingFeeDocumentResolutionPolicy.Resolve(
+                    order.PricingLines, materialized.PriceChangeSetId, pending) is not { } resolved)
                 return await ReconcileAsync(
                     order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
 
@@ -44,6 +43,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             if (stock is null)
                 return await ReconcileAsync(
                     order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
+
+            if (pending.IsIssuanceConfirmed)
+                return await MaterializeFeeDocumentAsync(
+                    order, operation, predecessor, plan, successor, materialized, resolved, stock,
+                    documentJustConfirmed, isReplay, cancellationToken);
 
             var prior = stock.FindAllocation(operation.OperationId, pending.StockRole);
             var claimed = pending;
@@ -97,20 +101,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var attempted = claimed with
-            {
-                IssuanceOutcome = result.Outcome,
-                IssuanceProviderReference = result.ProviderReference ?? claimed.IssuanceProviderReference,
-                IssuanceDetail = result.Detail ?? claimed.IssuanceDetail
-            };
-
+            var attempted = claimed.WithIssuanceAttempt(result.Outcome, result.ProviderReference, result.Detail);
             var next = current.WithFeeDocument(attempted);
 
-            if (result.Outcome == ProviderOperationOutcome.Rejected)
+            if (attempted.IsIssuanceRejected)
                 return await ReconcileAsync(
                     order, operation, predecessor, next, isReplay, cancellationToken, materialized);
 
-            if (result.Outcome != ProviderOperationOutcome.Confirmed)
+            if (!attempted.IsIssuanceConfirmed)
                 return await SettleAsync(
                     order, operation, predecessor, next,
                     ServicingOperationStatus.AwaitingExternal,
@@ -123,8 +121,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     materialized);
 
             return await MaterializeFeeDocumentAsync(
-                order, operation, predecessor, next, successor, materialized, attempted, stock,
-                primaryPricingLineIds, documentJustConfirmed, isReplay, cancellationToken);
+                order, operation, predecessor, next, successor, materialized,
+                resolved with { Document = attempted }, stock, documentJustConfirmed, isReplay, cancellationToken);
         }
 
         private async Task<ExchangeOutcome> MaterializeFeeDocumentAsync(
@@ -134,42 +132,42 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             AcceptedExchangePlan plan,
             SuccessorDocumentIdentity successor,
             MaterializedExchange materialized,
-            AcceptedExchangeFeeDocument document,
+            ResolvedServicingFeeDocument resolved,
             DocumentStock stock,
-            IReadOnlyList<long> primaryPricingLineIds,
             bool documentJustConfirmed,
             bool isReplay,
             CancellationToken cancellationToken)
         {
-            var existing = await FindMiscDocumentAsync(
-                order.Id, document.AllocatedDocumentNumber!, cancellationToken);
+            var document = resolved.Document;
+
+            if (document.AllocatedDocumentNumber is not { } documentNumber)
+                return await ReconcileAsync(
+                    order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
+
+            var existing = await FindMiscDocumentAsync(order.Id, documentNumber, cancellationToken);
 
             if (existing is not null)
             {
-                if (ServicingFeeDocumentEvidencePolicy.Conflict(
-                        existing, document, operation.OperationId, primaryPricingLineIds) is not null)
+                if (ServicingFeeDocumentEvidencePolicy.Conflict(existing, resolved, operation.OperationId)
+                    is not null)
                     return await ReconcileAsync(
                         order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
             }
             else
             {
-                if (ResolvePriceLinks(order, materialized, document) is not { } coupons)
-                    return await ReconcileAsync(
-                        order, operation, predecessor, plan, isReplay, cancellationToken, materialized);
-
                 existing = ElectronicMiscDocument.Issue(
                     _idGenerator.NewId(),
                     order.Id,
                     document.TravelerId,
                     operation.OperationId,
-                    document.AllocatedDocumentNumber!,
+                    documentNumber,
                     ElectronicMiscDocumentType.Standalone,
                     document.ReasonForIssuanceCode,
                     document.IssuerCarrierId,
                     order.AirlineOfficeId,
                     DocumentAuthority.Local,
                     document.CurrencyId,
-                    coupons,
+                    FeeCouponIssuances(resolved),
                     _idGenerator,
                     _clock);
 
@@ -178,7 +176,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                 await _miscDocuments.AddAsync(existing, cancellationToken);
             }
 
-            if (stock.FindAllocation(operation.OperationId, document.StockRole) is { State: StockNumberState.Reserved })
+            if (stock.FindAllocation(operation.OperationId, document.StockRole)
+                is { State: StockNumberState.Reserved })
                 stock.MarkIssued(operation.OperationId, document.StockRole, _clock);
 
             var settledAt = _clock.GetDateTime();
@@ -241,68 +240,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                     .ToList());
         }
 
-        private static IReadOnlyList<long>? ResolvePrimaryPricingLines(
-            Order order,
-            MaterializedExchange materialized,
-            AcceptedExchangeFeeDocument document)
-        {
-            var resolved = new List<long>();
-
-            foreach (var coupon in document.Coupons)
-            {
-                if (CommittedLine(order, materialized, coupon.PrimarySourceLineRef) is not { } line)
-                    return null;
-
-                resolved.Add(line.Id);
-            }
-
-            return resolved;
-        }
-
-        private static IReadOnlyList<EmdCouponIssuance>? ResolvePriceLinks(
-            Order order,
-            MaterializedExchange materialized,
-            AcceptedExchangeFeeDocument document)
-        {
-            var coupons = new List<EmdCouponIssuance>();
-
-            foreach (var coupon in document.Coupons)
-            {
-                if (CommittedLine(order, materialized, coupon.PrimarySourceLineRef) is not { } primary)
-                    return null;
-
-                var links = new List<EmdCouponPriceLink>();
-
-                foreach (var attribution in coupon.Attributions)
-                {
-                    if (CommittedLine(order, materialized, attribution.SourceLineRef) is not { } line)
-                        return null;
-
-                    links.Add(new EmdCouponPriceLink(line.Id, null, attribution.AttributedAmount));
-                }
-
-                coupons.Add(new EmdCouponIssuance(
+        private static IReadOnlyList<EmdCouponIssuance> FeeCouponIssuances(ResolvedServicingFeeDocument resolved)
+            => resolved.Coupons
+                .Select(coupon => new EmdCouponIssuance(
                     EmdCouponPurpose.Fee,
-                    coupon.ReasonForIssuanceSubCode,
-                    coupon.DocumentedAmount,
-                    links,
-                    PricingLineId: primary.Id));
-            }
-
-            return coupons;
-        }
-
-        private static OrderPricingLine? CommittedLine(
-            Order order,
-            MaterializedExchange materialized,
-            string sourceLineRef)
-        {
-            var matches = order.PricingLines
-                .Where(line => line.PriceChangeSetId == materialized.PriceChangeSetId
-                               && string.Equals(line.SourceLineRef, sourceLineRef, StringComparison.Ordinal))
+                    coupon.Accepted.ReasonForIssuanceSubCode,
+                    coupon.Accepted.DocumentedAmount,
+                    coupon.PriceLinks,
+                    PricingLineId: coupon.PrimaryPricingLineId))
                 .ToList();
-
-            return matches.Count == 1 ? matches[0] : null;
-        }
     }
 }

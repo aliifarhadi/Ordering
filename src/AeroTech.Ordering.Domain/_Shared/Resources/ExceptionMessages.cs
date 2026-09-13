@@ -386,6 +386,7 @@
         public const string ServicingFeeDocumentMalformed = "Servicing fee document {0} is malformed: {1}.";
         public const string ServicingFeeDocumentLineNotEligible = "Servicing fee document {0} names pricing line {1}, which {2}.";
         public const string ServicingFeeDocumentAmountDoesNotReconcile = "Servicing fee document {0} does not reconcile: {1}.";
+        public const string ServicingFeeDocumentTravellerNotInOrder = "Servicing fee document {0} names traveller {1}, which does not belong to order {2}.";
         public const string EmdExchangeSourceNotConfigured = "No miscellaneous document exchange authority is configured.";
         public const string DependentPriceChangeHostNotResolvable = "Servicing operation {0} has no single {1} change on order {2} to carry a dependent price consequence.";
         public const string ElectronicMiscDocumentNotFound = "Miscellaneous document {0} was not found.";

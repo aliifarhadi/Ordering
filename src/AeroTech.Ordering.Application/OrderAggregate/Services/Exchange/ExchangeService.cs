@@ -347,6 +347,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
                 plan = plan with { ServicingFeeDocuments = ServicingFeeDocumentPolicy.Accept(accepted) };
 
+                ServicingFeeDocumentPolicy.EnsureTravellersBelongToOrder(order, plan.FeeDocuments);
+
                 order.PrepareExchange(ToArgs(plan, scope.PredecessorTicket), _idGenerator, _clock);
             }
             catch (BusinessException rejection)

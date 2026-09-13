@@ -5,13 +5,14 @@ Branch: `k8s-stg`
 
 ```text
 Frozen remote baseline     635a481085cb667b75dd3f9c36caf7d429b71b05   P3-G5
-HEAD at the freeze gate    377f6b79d7c4adec516905870c230c2d3d72b8b3   P3-G6 (local)
+HEAD before the correction 5d4bd1f9a4295549aff4dff322d76dae0d21f204   P3-G6 Freeze
 Delta to the brief         none — the G6 work of this slice, committed locally
 Working tree               clean
 ```
 
-The freeze gate has now been executed in full. §12 carries the actual results and §18 records the two
-defects the gate exposed and how they were fixed.
+§12 carries the executed results, §13 the two defects the first gate exposed, and **§19 the four
+correctness defects that source review found after the gate was green** — a green suite was not sufficient
+evidence, and closing them is what makes G6 freezable.
 
 This is the last implementation slice of P3-G. It makes **source-approved EMD-S documentation of an already
 accepted servicing Fee/Penalty** executable.
@@ -316,14 +317,20 @@ one primary repeated across coupons, `OrderingDerived` pricing, a duplicated `So
 result, forbidden component types (`Commission`, `Discount`, `Fare`, `Adjustment`), a forbidden additional
 attribution component, and one line legitimately funding two documents.
 
-### Three mandated cases have no executable test
+### Cases 36, 37 and 38 are now covered
 
-`36` (Confirmed + conflicting local document number), `37` (exact already-materialized identity → no-op) and
-`38` (committed pricing line missing on resume) are **implemented and code-reviewed** —
-`ServicingFeeDocumentEvidencePolicy` and `ResolvePrimaryPricingLines`/`ResolvePriceLinks` are the guards — but
-each needs a state the atomic materialization-plus-checkpoint transaction does not naturally produce, so
-reaching them requires raw-SQL fixture surgery against an unpredictable stock-allocated number. I did not
-write speculative tests I could not run in this session. This is stated as a gap rather than papered over.
+The earlier delivery left these three without executable tests. They are closed by
+`ServicingFeeDocumentFreezeGuardTests` (§19.5):
+
+| Brief case | Test |
+| --- | --- |
+| 36 Confirmed + conflicting local document | `G6FG3` (4 perturbations) |
+| 37 exact already-materialized identity → adopted, no second issue | `G6FG2` |
+| 38 committed pricing line missing on resume | `G6FG4` |
+
+The durable post-confirmation state they need is arranged with two small test-only fixture operations —
+`ConfirmFeeDocumentIssuanceAsync` and `DetachPricingLineSourceRefAsync` — because materialization and the
+settlement checkpoint commit in one transaction and therefore never produce that state naturally.
 
 ### Why the eligibility matrix lives in the Domain suite
 
@@ -501,20 +508,147 @@ rather than guessed:
    the call reaching the provider parks the operation at `AwaitingExternal` until readback resolves it.
    `DocumentIssuanceResult` was not widened.
 
-## 18. Freeze verdict
+## 19. Final correctness correction
+
+A fully green gate was **not** sufficient evidence. Source review of the recovery/identity boundary found four
+correctness holes, all closed here. None of them changed G6's design; each closed a hole in it.
+
+### 19.1 Provider `Confirmed` is now monotonic
+
+`IssuanceOutcome = Confirmed` is persisted *before* local materialization, so a crash can land between the two.
+The old resume path saw an existing stock allocation and called `RecoverAsync` again — which meant a later
+`Pending`, `Unknown` or `Rejected` answer could **overwrite durable Confirmed truth**. Provider confirmation is
+irreversible; re-asking for it was wrong.
+
+This is the same mistake this codebase has hit before: trusting a fresh re-query over the durable evidence
+that already exists. The fix states the rule in three places so no single layer carries it:
+
+```text
+domain        AcceptedExchangeFeeDocument.WithIssuanceAttempt returns `this` once Confirmed
+persistence   RecordFeeDocumentIssuanceOutcomeAsync returns early once the row is Confirmed
+orchestration a durable Confirmed short-circuits straight to materialization, with zero provider call
+```
+
+On a Confirmed checkpoint the rail now validates committed pricing prerequisites, inspects or materializes the
+local EMD-S, and settles — or reconciles on contradiction — **without calling `IssueAsync` or `RecoverAsync`
+at all**. On contradiction the outcome stays `Confirmed`, the provider reference is retained, and ticket and
+pricing truth stay authoritative.
+
+### 19.2 Exact identity now proves the complete price-link set
+
+`ServicingFeeDocumentEvidencePolicy` compared document identity, coupon identity, amount and the **primary**
+`PricingLineId` only. An existing document with the right penalty line and the right coupon total but a
+missing, mis-pointed, mis-valued or extra Tax attribution was therefore adopted as an exact idempotent match —
+silently losing an attribution the source approved.
+
+Adoption now proves, per coupon: same link count, same committed `PricingLineId` set, same `AttributedValue`
+per link, no missing link, no extra link, no duplicate, `AllocationId` null throughout, and link currency
+equal to the document currency — plus a document-level link-count check. It also re-asserts the shape
+invariants (`Fee` purpose, no order service, no ticket association, no external value reference) on the
+existing document rather than assuming them.
+
+### 19.3 A supplied `TravelerId` is order-bound
+
+The policy only rejected `TravelerId <= 0`, so a positive but foreign or non-existent traveller could be
+persisted onto an EMD-S. `ServicingFeeDocumentPolicy.EnsureTravellersBelongToOrder` now runs pre-ticket and
+refuses with `ServicingFeeDocumentTravellerNotInOrder` (20327, 409). A null traveller is still allowed and is
+never inferred; a foreign traveller is never silently replaced with the exchange traveller.
+
+The check is a separate method rather than a parameter on `Accept`, so `Accept` stays a pure function of the
+accepted exchange and its 41 unit tests keep running without an order.
+
+### 19.4 Every attribution is resolved before any fresh dispatch
+
+Pre-dispatch resolution covered only primary lines; secondary attributions were resolved later, during local
+materialization — **after** the provider had already issued the document. A source-approved penalty tax
+missing from committed state would have produced a real EMD-S at the provider that Ordering then could not
+materialize.
+
+Resolution is now one shared step producing one `ResolvedServicingFeeDocument`, reused by fresh issuance,
+replay adoption and evidence validation, so those three paths cannot disagree. If any primary **or** secondary
+line fails to resolve uniquely inside the exact committed Exchange `PriceChangeSet`, the operation reconciles
+with no `IssueAsync`, no `RecoverAsync` and no fabricated link.
+
+### 19.5 Freeze-guard tests and their discrimination proof
+
+`ServicingFeeDocumentFreezeGuardTests` — 10 executed tests:
+
+```text
+G6FG1   durable Confirmed after a crash            -> zero provider call, Confirmed retained, materialized
+G6FG2   exact existing document                    -> adopted, no second EMD, no document version change
+G6FG3   contradicted link set (4 perturbations)    -> Confirmed retained, existing untouched, reconcile
+G6FG4   unresolvable committed secondary line      -> no dispatch at all, instruction retained
+G6FG5   foreign traveller                          -> 20327 before any irreversible work
+G6FG5b  traveller of this order                    -> accepted and round-tripped
+G6FG5c  null traveller                             -> accepted and stays null
+```
+
+All four fixes were then reverted together and the suite re-run:
+
+```text
+with the four fixes reverted:  10 total, 2 passed, 8 failed
+```
+
+Each failure maps to exactly its own guard — `G6FG1`/`G6FG2` to monotonicity, all four `G6FG3` cases to the
+complete price-link identity, `G6FG5` to traveller binding, `G6FG4` to pre-dispatch resolution. The two that
+kept passing are `G6FG5b`/`G6FG5c`, the valid-traveller cases, which should. The fixes were restored and the
+suite re-run green. In particular `G6FG3` fails when the policy compares only the primary `PricingLineId`,
+which is the discriminating property the correction brief required.
+
+### 19.6 Correction files
+
+**New (4)**: `Domain/Servicing/Plans/ResolvedServicingFeeDocument.cs`,
+`Domain/Servicing/Plans/ResolvedServicingFeeCoupon.cs`,
+`Domain/Servicing/Plans/Policies/ServicingFeeDocumentResolutionPolicy.cs`,
+`tests/Persistence.Tests/P3/ServicingFeeDocumentFreezeGuardTests.cs`.
+
+**Modified (7)**: `ServicingFeeDocumentEvidencePolicy.cs` (complete identity),
+`ServicingFeeDocumentPolicy.cs` (order-bound traveller), `AcceptedExchangeFeeDocument.cs`
+(`WithIssuanceAttempt`), `ExchangeService.FeeDocumentation.cs` (Confirmed short-circuit, shared resolution),
+`ExchangeService.cs` (traveller guard), `AcceptedExchangePlanStore.cs` (no Confirmed downgrade),
+`tests/.../P3/ExchangeScenarios.cs` (two fixture helpers). Exception codes: 327, 20001-20327, contiguous.
+
+**No migration.** The existing G6 evidence was sufficient: `IssuanceOutcome`, `IssuanceProviderReference`,
+`AllocatedDocumentNumber` and `SettledAt` already distinguish every state the corrected flow needs, and the
+complete attribution set is re-derived from committed pricing rather than stored twice.
+
+### 19.7 Final invariants
+
+```text
+Durable provider Confirmed is monotonic and is never recovered, re-issued or downgraded.
+
+Exact existing EMD identity includes the complete EmdPriceLink attribution set, not only the
+primary PricingLineId.
+
+A supplied TravelerId is order-bound.
+
+Every committed primary and secondary attribution is resolvable, uniquely, inside the exact
+committed Exchange PriceChangeSet before any fresh provider issuance.
+```
+
+---
+
+## 20. Freeze verdict
 
 Based on executed green results, not arithmetic:
 
 ```text
-build                                 0 errors
-focused Domain                       41 /   41
-focused Persistence                  26 /   26
-full Domain                         585 /  585
-full Persistence                   1266 / 1266
-EF                                   no pending model changes
+build                                       0 errors
+focused Domain    ServicingFeeDocumentPolicyTests        41 /   41
+focused Persist.  ServicingFeeDocumentFlowTests          26 /   26
+focused Persist.  ServicingFeeDocumentFreezeGuardTests   10 /   10
+full Domain                                            585 /  585
+EF                                          no pending model changes
+full Persistence                            pending the operator's approval to run
+```
 
-P3-G6 READY TO FREEZE: YES
-P3-G  READY TO FREEZE: YES
+The full Persistence suite is held pending approval: it takes 7-10 minutes and the standing instruction is
+not to run it without the operator saying so. Expected total is `1266 + 10 = 1276`, but this report does not
+claim a freeze from arithmetic.
+
+```text
+P3-G6 READY TO FREEZE: NO   — blocked only on the full Persistence run
+P3-G  READY TO FREEZE: NO   — blocked on the same run
 ```
 
 P3-G is complete: `ReassociateExisting`, `Refund`, `ExchangeToNewEmd`, `RetainAsResidual`, `Cancel`,

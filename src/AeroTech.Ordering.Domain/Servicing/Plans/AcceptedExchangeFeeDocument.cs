@@ -33,6 +33,19 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool IsSettled => SettledAt is not null;
 
+        public AcceptedExchangeFeeDocument WithIssuanceAttempt(
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail)
+            => IsIssuanceConfirmed
+                ? this
+                : this with
+                {
+                    IssuanceOutcome = outcome,
+                    IssuanceProviderReference = providerReference ?? IssuanceProviderReference,
+                    IssuanceDetail = detail ?? IssuanceDetail
+                };
+
         public ExchangeAncillaryState State => IsSettled
             ? ExchangeAncillaryState.Confirmed
             : IsIssuanceRejected

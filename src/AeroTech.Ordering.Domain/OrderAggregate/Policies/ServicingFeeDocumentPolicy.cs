@@ -45,6 +45,24 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.Policies
                 .ToList();
         }
 
+        public static void EnsureTravellersBelongToOrder(
+            Order order,
+            IReadOnlyList<AcceptedExchangeFeeDocument> documents)
+        {
+            ArgumentNullException.ThrowIfNull(order);
+            ArgumentNullException.ThrowIfNull(documents);
+
+            foreach (var document in documents)
+            {
+                if (document.TravelerId is not { } travellerId)
+                    continue;
+
+                if (order.Travellers.All(traveller => traveller.Id != travellerId))
+                    throw ExceptionFactory.ServicingFeeDocumentTravellerNotInOrder(
+                        document.DocumentReference, travellerId, order.Id);
+            }
+        }
+
         private static AcceptedExchangeFeeDocument Accepted(
             AcceptedExchange accepted,
             AcceptedServicingFeeDocument instruction,
