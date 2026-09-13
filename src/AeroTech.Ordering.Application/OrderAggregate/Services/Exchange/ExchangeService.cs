@@ -13,7 +13,10 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 using AeroTech.Ordering.Domain.OrderAggregate.Arguments;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate.Dto;
+using AeroTech.Ordering.Domain.DocumentStockAggregate.Contracts;
+using Microsoft.Extensions.Options;
 using AeroTech.Ordering.Domain.OrderAggregate.Policies;
+using AeroTech.Ordering.Domain.Ports.DocumentIssuance;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Arguments;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
@@ -57,6 +60,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         private readonly IEmdExchangePort _emdExchanges;
         private readonly IEmdAssociationPort _emdAssociations;
         private readonly IElectronicMiscDocumentRepository _miscDocuments;
+        private readonly IEmdIssuancePort _emdIssuance;
+        private readonly IDocumentStockRepository _stocks;
+        private readonly string _emdDocumentType;
         private readonly IAcceptedExchangePlanStore _plans;
         private readonly IOrderOperationCoordinator _operations;
         private readonly ExchangeOperationKeys _keys;
@@ -84,6 +90,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             IEmdExchangePort emdExchanges,
             IEmdAssociationPort emdAssociations,
             IElectronicMiscDocumentRepository miscDocuments,
+            IEmdIssuancePort emdIssuance,
+            IDocumentStockRepository stocks,
+            IOptions<OrderOperationOptions> operationOptions,
             IAcceptedExchangePlanStore plans,
             IOrderOperationCoordinator operations,
             IServicingOperationStore operationStore,
@@ -109,6 +118,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
             _ancillaryDispositions = ancillaryDispositions;
             _emdAssociations = emdAssociations;
             _miscDocuments = miscDocuments;
+            _emdIssuance = emdIssuance;
+            _stocks = stocks;
+            _emdDocumentType = operationOptions.Value.EmdDocumentType
+                ?? throw new InvalidOperationException(
+                    $"'{OrderOperationOptions.SectionName}:{nameof(OrderOperationOptions.EmdDocumentType)}' must be configured.");
             _plans = plans;
             _operations = operations;
             _keys = new ExchangeOperationKeys(operations);
@@ -330,6 +344,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
                         throw ExceptionFactory.AncillaryCancellationRequiresAuthority(
                             plan.CancelGroups[0].EmdDocumentNumber);
                 }
+
+                plan = plan with { ServicingFeeDocuments = ServicingFeeDocumentPolicy.Accept(accepted) };
 
                 order.PrepareExchange(ToArgs(plan, scope.PredecessorTicket), _idGenerator, _clock);
             }
@@ -988,6 +1004,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
             if (plan.RequiresMonetarySettlement && !plan.IsMonetarySettled)
                 return await SettleMonetaryAsync(
+                    order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
+                    cancellationToken);
+
+            if (plan.RequiresFeeDocumentation && !plan.IsFeeDocumentationSettled)
+                return await DocumentServicingFeesAsync(
                     order, operation, predecessor, plan, successor, materialized, documentJustConfirmed, isReplay,
                     cancellationToken);
 

@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Ports.DocumentIssuance;
 
 namespace AeroTech.Ordering.Providers.Deterministic
@@ -12,6 +12,10 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public ProviderOperationOutcome RecoveryOutcome { get; set; } = ProviderOperationOutcome.Confirmed;
 
+        public bool ThrowBeforeIssue { get; set; }
+
+        public bool ThrowAfterIssue { get; set; }
+
         public List<EmdIssuanceRequest> Requests { get; } = new();
 
         public List<DocumentRecoveryRequest> Recoveries { get; } = new();
@@ -24,7 +28,14 @@ namespace AeroTech.Ordering.Providers.Deterministic
 
         public Task<DocumentIssuanceResult> IssueAsync(EmdIssuanceRequest request, CancellationToken cancellationToken = default)
         {
+            if (ThrowBeforeIssue)
+                throw new InvalidOperationException("miscellaneous document issuance crashed before dispatch");
+
             Requests.Add(request);
+
+            if (ThrowAfterIssue)
+                throw new InvalidOperationException(
+                    "miscellaneous document issuance crashed after the provider side effect");
 
             var outcome = _numberOutcomes.TryGetValue(request.DocumentNumber, out var scripted) ? scripted : Outcome;
 

@@ -383,6 +383,9 @@
         public const string AncillaryCancellationScopeWiderThanApproved = "Cancelling miscellaneous document {0} requires voiding the whole document, and {1}.";
         public const string AncillaryManualReviewReasonMissing = "The manual review disposition for coupon {1} of miscellaneous document {0} carries no actionable reason.";
         public const string AncillaryCancellationRequiresAuthority = "Cancelling miscellaneous document {0} without refund voids an accountable document and requires an identified actor.";
+        public const string ServicingFeeDocumentMalformed = "Servicing fee document {0} is malformed: {1}.";
+        public const string ServicingFeeDocumentLineNotEligible = "Servicing fee document {0} names pricing line {1}, which {2}.";
+        public const string ServicingFeeDocumentAmountDoesNotReconcile = "Servicing fee document {0} does not reconcile: {1}.";
         public const string EmdExchangeSourceNotConfigured = "No miscellaneous document exchange authority is configured.";
         public const string DependentPriceChangeHostNotResolvable = "Servicing operation {0} has no single {1} change on order {2} to carry a dependent price consequence.";
         public const string ElectronicMiscDocumentNotFound = "Miscellaneous document {0} was not found.";

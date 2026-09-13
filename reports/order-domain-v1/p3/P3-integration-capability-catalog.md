@@ -18,7 +18,8 @@ Entries in this revision: `ICC-P3-EXCHANGE-AIRPRICE`, `ICC-P3-EXCHANGE-FUNDING`,
 `ICC-P3-EXCHANGE-REFUND-VALUE`, `ICC-P3-EXCHANGE-RESIDUAL`, `ICC-P3-EXCHANGE-INVENTORY`,
 `ICC-P3-EXCHANGE-DOCUMENT`, `ICC-P3-EXCHANGE-USAGE`, `ICC-P3-ANCILLARY-EXCHANGE-DISPOSITION`,
 `ICC-P3-EMD-ASSOCIATION`, `ICC-P3-EMD-REFUND`, `ICC-P3-EMD-EXCHANGE`,
-`ICC-P3-ANCILLARY-RETENTION`, `ICC-P3-ANCILLARY-CANCEL`, `ICC-P3-ANCILLARY-MANUAL-REVIEW`.
+`ICC-P3-ANCILLARY-RETENTION`, `ICC-P3-ANCILLARY-CANCEL`, `ICC-P3-ANCILLARY-MANUAL-REVIEW`,
+`ICC-P3-SERVICING-FEE-DOCUMENT`.
 
 Capability scope of this revision: **even, add-collect, refund-due, residual and mixed reissue**, each over
 both supported exchange shapes (fully unused and partially used) and over repeated A→B→C lineage. This closes
@@ -2222,6 +2223,178 @@ Ordering does not decide whether an ancillary is exchangeable, does not choose t
 RFIC, RFISC, purpose or value, does not derive any successor term from the predecessor EMD, does not generate
 a provider document number, does not compose exchange groups, does not un-exchange a coupon, and does not
 reconcile a refused or contradicted act on its own.
+
+---
+
+## ICC-P3-SERVICING-FEE-DOCUMENT
+
+### Capability
+
+Documenting a servicing **Fee or Penalty that the accepted exchange pricing already contains** as a
+stand-alone accountable document (EMD-S), on the explicit instruction of the source, without inventing an
+`OrderService` and without moving any money.
+
+### Authoritative Owner
+
+Two authorities, and neither may be substituted for the other.
+
+The **accepted pricing / exchange source** owns the economics: the fee or penalty exists, and its amount, only
+because that source said so. The **same source** separately owns the *documentation decision*: whether that
+charge is documented as an EMD-S at all, under which document reference, RFIC and RFISC, and with which
+attributions.
+
+Ordering owns neither. It owns only the accountable-document act and its evidence.
+
+### Ordering Semantic Requirement
+
+```text
+an explicit source instruction
+  -> one Standalone EMD per DocumentReference
+  -> Fee coupons only, each with OrderServiceId null and AssociatedTicketCouponId null
+  -> each coupon's PricingLineId is the exact committed primary exchange pricing line
+  -> each explicit attribution becomes one EmdPriceLink to its exact committed line
+  -> no new OrderChange, PriceChangeSet, OrderPricingChanged or CommercialVersion move
+  -> no funding, refund or residual call of its own
+  -> never issued before ticket exchange truth is durable
+  -> ticket truth is never rolled back if the documentation later fails
+```
+
+**A Fee or Penalty component does not imply an EMD-S.** The repository benchmark freezes four legitimate
+treatments — netted, separately collected, added to the replacement document, documented via EMD-S — and
+Ordering records the approved one rather than assuming one. The G6 execution path contains no reference to
+`PricingComponentType` at all; component type is read only when validating a line the source explicitly named.
+
+**This is not an ancillary disposition.** No `AncillaryExchangeDisposition` value was added, the
+`IAncillaryExchangeDispositionPort` is not consulted, `IEmdExchangePort` is not used and no residual coupling
+is reused. It is an accountable-document consequence of the accepted pricing result.
+
+**RFIC and RFISC are source/provider facts.** They are never derived from component type, description,
+airline or any local table.
+
+### Ordering Port / Dependency Boundary
+
+`src/AeroTech.Ordering.Domain/Ports/DocumentIssuance/IEmdIssuancePort.cs` — the **frozen issuance port**,
+reused unchanged. Document numbers come only from the `DocumentStock` aggregate; no number is generated in
+application code. No `IServiceFeeEmdPort`, no `IPenaltyDocumentPort`, no second EMD aggregate.
+
+```text
+stable operation key   ProviderOperationKey(operation, "emd-fee:{DocumentReference}")
+stock role             Emd:emd-fee:{DocumentReference}
+document type          Standalone
+coupons                Fee purpose, source RFISC, source amount, no service, no association
+```
+
+`ElectronicMiscDocumentIssuer` was neither reused nor modified: its plan builder is driven entirely by
+`OrderService` + `EmdIssuanceSnapshot`, which G6 does not have. Only its stock-reservation protocol was
+replicated.
+
+### Request Evidence
+
+The accepted exchange may carry `FeeDocuments`. Each document needs a non-blank stable `DocumentReference`, a
+non-blank `SourceReference`, a valid issuer, a non-blank RFIC, a currency and at least one coupon. Each coupon
+needs a non-blank RFISC, a non-blank `PrimarySourceLineRef`, a positive source-approved `DocumentedAmount` and
+at least one explicit attribution, with the primary line among its own attributions. Malformed shapes are
+`ServicingFeeDocumentMalformed` (20324, 422), all before any irreversible ticket work.
+
+Every named line must resolve uniquely inside the accepted exchange pricing result by exact `SourceLineRef`.
+The primary must be `Fee` or `Penalty`, `CustomerBalance`, `Debit` and not a `Transfer` role; additional
+explicit attributions may add `Tax` under the same rule, so tax-on-penalty is documentable when the source
+says so and never inferred. Anything else — `Commission`, `Discount`, `Fare`, `Adjustment`, `SettlementOnly`,
+`Informational`, `Credit`, `Transfer`, a foreign currency — is `ServicingFeeDocumentLineNotEligible`
+(20325, 422).
+
+### Amount And Currency Conservation
+
+Ordering calculates nothing. Per coupon, the attributions must sum exactly to the documented amount; per
+accepted line, the attributions across **all** documents of the operation must not exceed its accepted debit;
+per document, the coupon amounts sum to the total sent to the port. Violations are
+`ServicingFeeDocumentAmountDoesNotReconcile` (20326, 422). No currency is converted and no missing remainder
+is invented. One line may legitimately fund two documents while staying within its accepted amount.
+
+### Recovery
+
+The frozen stock protocol is the recovery mechanism: the document number is committed **before** the provider
+call, so an existing non-retired allocation means a call may already have reached the provider and only
+`RecoverAsync` may run. G6 is one notch stricter than the frozen issuer, which recovers only on `Reserved`.
+
+```text
+Confirmed          local EMD-S materialized, stock -> Issued, checkpoint settled
+Pending / Unknown  AwaitingExternal, reservation retained, no local EMD-S, no second IssueAsync
+Rejected           ticket and pricing truth retained, no local EMD-S, NeedsReconciliation
+```
+
+Before local materialization after a Confirmed, the document number, operation, type, issuer, traveller,
+RFIC, currency, coupon count, RFISCs, amounts and pricing-line identities are revalidated. An exact match is
+adopted idempotently; a conflict retains the provider confirmation, the stock evidence and the ticket/pricing
+truth and reconciles without a second issue and without overwriting.
+
+Price links are resolved from committed state only — the order's pricing lines filtered by the exchange's own
+`PriceChangeSetId` and the exact `SourceLineRef` — on both the fresh and the replay path, so the two cannot
+diverge. A missing, duplicated or out-of-set line reconciles after ticket truth.
+
+### Local Truth
+
+```text
+ElectronicMiscDocument   Standalone
+coupons                  Fee purpose, OrderServiceId null, AssociatedTicketCouponId null,
+                         ExternalValueReference null, PricingLineId = exact committed primary line
+price links              one EmdPriceLink per explicit attribution, exact line, source-approved value
+provider evidence        provider reference recorded on the document
+money                    none — no G6-owned value movement of any kind
+```
+
+These are the aggregate's already-frozen coupon rules, not new parallel ones: `EnsureCouponIsWellFormed`
+already refuses a Standalone document carrying a ticket-coupon association and a `Fee` coupon whose
+`PricingLineId` is null or whose `OrderServiceId` is set.
+
+### Deterministic Verification
+
+`ServicingFeeDocumentPolicyTests` (41, pure unit, no database) and `ServicingFeeDocumentFlowTests` (25,
+end-to-end). The deterministic EMD issuance adapter gained only test configuration — crash-before and
+crash-after hooks alongside its existing per-document outcome, recovery outcome and observed-request lists.
+
+### Real-Service Verification Status
+
+`BLOCKED_INTEGRATION`.
+
+### BLOCKED_INTEGRATION
+
+1. No real EMD-S provider adapter is wired. `UnconfiguredEmdIssuanceProvider` fails closed, and G6 is not
+   treated as complete merely because no real adapter exists.
+2. Carrier and location capability for EMD-S is unknown from inside Ordering.
+3. Real RFIC/RFISC support is unverified; Ordering carries what it is given and interprets none of it.
+4. Cross-carrier stock is unsupported. Stock is resolved by the instruction's own `IssuerCarrierId`, so the
+   wrong carrier's stock can never be allocated; an instruction naming a carrier with no active EMD stock
+   reconciles instead.
+5. A provider needing a separate EMD-S **related-ticket** field is not representable. The
+   `AssociatedTicketDocumentNumber` / `AssociatedTicketCouponNumber` / `AssociatedTicketCouponId` fields mean
+   EMD-A association in this domain and were deliberately not overloaded to emulate one.
+6. `RecoverAsync` cannot distinguish never-dispatched from unknown. The committed stock reservation preserves
+   the no-duplicate fail-safe, at the cost that a crash between reserving the number and the call reaching
+   the provider parks the operation at `AwaitingExternal` until readback resolves it. `DocumentIssuanceResult`
+   was not widened.
+
+### Known Semantic Gaps
+
+* **Forfeiture, GL posting and receipt rendering are out of scope.** Ordering records the accountable document
+  and its links to committed pricing; it posts nothing to accounting and renders nothing.
+* **Components beyond `Fee`, `Penalty` and explicitly-attributed `Tax` cannot be documented.** Widening that
+  set is a business ruling, not an implementation detail, so the shapes are refused rather than guessed.
+* **A fee requiring value movement the accepted exchange monetary plan does not represent has no home here.**
+  G6 creates no second collection, refund or residual.
+* Three replay/conflict shapes — a Confirmed provider result against a conflicting local document number, an
+  exactly-already-materialized identity, and a committed pricing line missing on resume — are implemented and
+  guarded but not yet covered by an executable test, because each needs a state the atomic
+  materialization-plus-checkpoint transaction does not naturally produce.
+* A `NeedsReconciliation` fee document has no automated operator remediation command. Every piece of evidence
+  one would need is persisted. That is P3-H.
+
+### Explicit Non-Responsibilities
+
+Ordering does not decide that a fee or penalty exists, does not compute one, does not decide whether it should
+be documented, does not choose between EMD-S and tax or new-fare treatment, does not derive RFIC or RFISC,
+does not convert currency, does not create an `OrderService` to carry the document, does not move any money
+for it, and does not reconcile a refused or contradicted issuance on its own.
 
 ---
 

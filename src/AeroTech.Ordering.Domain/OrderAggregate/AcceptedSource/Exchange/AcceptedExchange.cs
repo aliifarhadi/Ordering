@@ -1,4 +1,4 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 
 namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange
 {
@@ -19,5 +19,6 @@ namespace AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange
         string? SourcePricingReference = null,
         AcceptedAddCollect? AddCollect = null,
         AcceptedRefundDue? RefundDue = null,
-        AcceptedResidual? Residual = null);
+        AcceptedResidual? Residual = null,
+        IReadOnlyList<AcceptedServicingFeeDocument>? FeeDocuments = null);
 }

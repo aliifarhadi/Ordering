@@ -53,7 +53,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         string? ResidualDetail = null,
         IReadOnlyList<AcceptedExchangeAncillaryDisposition>? AncillaryDispositions = null,
         IReadOnlyList<AcceptedExchangeAncillaryExchangeGroup>? AncillaryExchangeGroups = null,
-        IReadOnlyList<AcceptedExchangeAncillaryCancelGroup>? AncillaryCancelGroups = null)
+        IReadOnlyList<AcceptedExchangeAncillaryCancelGroup>? AncillaryCancelGroups = null,
+        IReadOnlyList<AcceptedExchangeFeeDocument>? ServicingFeeDocuments = null)
     {
         public bool IsEligibilityEstablished
             => EligibilityOutcome == DocumentExchangeEligibilityOutcome.Eligible;
@@ -171,6 +172,30 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public IReadOnlyList<AcceptedExchangeAncillaryCancelGroup> CancelGroups
             => AncillaryCancelGroups ?? [];
+
+        public IReadOnlyList<AcceptedExchangeFeeDocument> FeeDocuments => ServicingFeeDocuments ?? [];
+
+        public bool RequiresFeeDocumentation => FeeDocuments.Count > 0;
+
+        public bool IsFeeDocumentationSettled => FeeDocuments.All(document => document.IsSettled);
+
+        public AcceptedExchangeFeeDocument? NextUnsettledFeeDocument
+            => FeeDocuments.FirstOrDefault(document => !document.IsSettled);
+
+        public AcceptedExchangePlan WithFeeDocument(AcceptedExchangeFeeDocument document)
+        {
+            ArgumentNullException.ThrowIfNull(document);
+
+            return this with
+            {
+                ServicingFeeDocuments = FeeDocuments
+                    .Select(candidate => string.Equals(
+                        candidate.DocumentReference, document.DocumentReference, StringComparison.Ordinal)
+                        ? document
+                        : candidate)
+                    .ToList()
+            };
+        }
 
         public IReadOnlyList<AcceptedExchangeAncillaryDisposition> AncillaryCancellations
             => Ancillaries.Where(disposition => disposition.IsCancel).ToList();

@@ -162,8 +162,30 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 row.AncillaryCancelGroups
                     .OrderBy(group => group.CancelGroupRef, StringComparer.Ordinal)
                     .Select(CancelGroup)
+                    .ToList(),
+                row.FeeDocuments
+                    .OrderBy(document => document.DocumentReference, StringComparer.Ordinal)
+                    .Select(FeeDocument)
                     .ToList());
         }
+
+        private static AcceptedExchangeFeeDocument FeeDocument(AcceptedExchangePlanFeeDocumentRow document)
+            => new(
+                document.DocumentReference,
+                document.SourceReference,
+                document.IssuerCarrierId,
+                document.TravelerId,
+                document.ReasonForIssuanceCode,
+                document.CurrencyId,
+                document.TotalAmount,
+                JsonSerializer.Deserialize<IReadOnlyList<AcceptedServicingFeeDocumentCoupon>>(
+                    document.Coupons, PlanOptions) ?? [],
+                document.AllocatedDocumentNumber,
+                document.IssuanceOutcome,
+                document.IssuanceProviderReference,
+                document.IssuanceDetail,
+                document.ElectronicMiscDocumentId,
+                document.SettledAt);
 
         private static AcceptedExchangeAncillaryCancelGroup CancelGroup(
             AcceptedExchangePlanAncillaryCancelGroupRow group)
@@ -367,6 +389,26 @@ namespace AeroTech.Ordering.Persistence.Servicing
                         ResidualInstrumentReference = group.ResidualInstrumentReference,
                         ResidualInstrument = group.ResidualInstrument,
                         ResidualDetail = group.ResidualDetail
+                    })
+                    .ToList(),
+                FeeDocuments = plan.FeeDocuments
+                    .Select(document => new AcceptedExchangePlanFeeDocumentRow
+                    {
+                        OperationId = plan.OperationId,
+                        DocumentReference = document.DocumentReference,
+                        SourceReference = document.SourceReference,
+                        IssuerCarrierId = document.IssuerCarrierId,
+                        TravelerId = document.TravelerId,
+                        ReasonForIssuanceCode = document.ReasonForIssuanceCode,
+                        CurrencyId = document.CurrencyId,
+                        TotalAmount = document.TotalAmount,
+                        Coupons = JsonSerializer.Serialize(document.Coupons, PlanOptions),
+                        AllocatedDocumentNumber = document.AllocatedDocumentNumber,
+                        IssuanceOutcome = document.IssuanceOutcome,
+                        IssuanceProviderReference = document.IssuanceProviderReference,
+                        IssuanceDetail = document.IssuanceDetail,
+                        ElectronicMiscDocumentId = document.ElectronicMiscDocumentId,
+                        SettledAt = document.SettledAt
                     })
                     .ToList(),
                 AncillaryCancelGroups = plan.CancelGroups
@@ -602,6 +644,62 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
             await TouchAsync(operationId, cancellationToken);
         }
+
+        public async Task RecordFeeDocumentAllocationAsync(
+            long operationId,
+            string documentReference,
+            string allocatedDocumentNumber,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireFeeDocumentAsync(operationId, documentReference, cancellationToken);
+
+            row.AllocatedDocumentNumber ??= allocatedDocumentNumber;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordFeeDocumentIssuanceOutcomeAsync(
+            long operationId,
+            string documentReference,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireFeeDocumentAsync(operationId, documentReference, cancellationToken);
+
+            row.IssuanceOutcome = outcome;
+            row.IssuanceProviderReference = providerReference ?? row.IssuanceProviderReference;
+            row.IssuanceDetail = detail ?? row.IssuanceDetail;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        public async Task RecordFeeDocumentSettledAsync(
+            long operationId,
+            string documentReference,
+            long electronicMiscDocumentId,
+            DateTimeOffset settledAt,
+            CancellationToken cancellationToken = default)
+        {
+            var row = await RequireFeeDocumentAsync(operationId, documentReference, cancellationToken);
+
+            row.ElectronicMiscDocumentId ??= electronicMiscDocumentId;
+            row.SettledAt ??= settledAt;
+
+            await TouchAsync(operationId, cancellationToken);
+        }
+
+        private async Task<AcceptedExchangePlanFeeDocumentRow> RequireFeeDocumentAsync(
+            long operationId,
+            string documentReference,
+            CancellationToken cancellationToken)
+            => await _dbContext.Set<AcceptedExchangePlanFeeDocumentRow>()
+                   .FirstOrDefaultAsync(
+                       document => document.OperationId == operationId
+                                   && document.DocumentReference == documentReference,
+                       cancellationToken)
+               ?? throw ExceptionFactory.AcceptedExchangePlanNotFound(operationId);
 
         public async Task RecordAncillaryCancelEligibilityAsync(
             long operationId,
@@ -914,7 +1012,8 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 .Include(plan => plan.Coupons)
                 .Include(plan => plan.Ancillaries)
                 .Include(plan => plan.AncillaryExchangeGroups)
-                .Include(plan => plan.AncillaryCancelGroups);
+                .Include(plan => plan.AncillaryCancelGroups)
+                .Include(plan => plan.FeeDocuments);
 
         private async Task<AcceptedExchangePlanRow> RequireAsync(
             long operationId,

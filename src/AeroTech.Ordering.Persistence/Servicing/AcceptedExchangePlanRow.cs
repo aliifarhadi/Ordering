@@ -113,5 +113,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
         public List<AcceptedExchangePlanAncillaryExchangeGroupRow> AncillaryExchangeGroups { get; set; } = new();
 
         public List<AcceptedExchangePlanAncillaryCancelGroupRow> AncillaryCancelGroups { get; set; } = new();
+
+        public List<AcceptedExchangePlanFeeDocumentRow> FeeDocuments { get; set; } = new();
     }
 }

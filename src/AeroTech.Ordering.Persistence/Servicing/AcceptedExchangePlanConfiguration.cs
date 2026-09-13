@@ -53,6 +53,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 .WithOne()
                 .HasForeignKey(group => group.OperationId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasMany(plan => plan.FeeDocuments)
+                .WithOne()
+                .HasForeignKey(document => document.OperationId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

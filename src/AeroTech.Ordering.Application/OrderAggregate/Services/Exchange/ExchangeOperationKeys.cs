@@ -17,6 +17,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
         public const string ReassociationStep = "emd-reassociate";
         public const string AncillaryExchangeStep = "emd-exchange";
         public const string AncillaryCancelStep = "emd-cancel";
+        public const string FeeDocumentStep = "emd-fee";
 
         private readonly IOrderOperationCoordinator _operations;
 
@@ -62,6 +63,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Exchange
 
         public string AncillaryCancel(OrderOperation operation, AcceptedExchangeAncillaryCancelGroup group)
             => Step(operation, group.LegIdentity);
+
+        public string FeeDocument(OrderOperation operation, AcceptedExchangeFeeDocument document)
+            => Step(operation, document.LegIdentity);
 
         public string AncillaryExchangeFundingGuarantee(
             OrderOperation operation,

@@ -72,6 +72,27 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans.Contracts
             DateTimeOffset settledAt,
             CancellationToken cancellationToken = default);
 
+        Task RecordFeeDocumentAllocationAsync(
+            long operationId,
+            string documentReference,
+            string allocatedDocumentNumber,
+            CancellationToken cancellationToken = default);
+
+        Task RecordFeeDocumentIssuanceOutcomeAsync(
+            long operationId,
+            string documentReference,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken = default);
+
+        Task RecordFeeDocumentSettledAsync(
+            long operationId,
+            string documentReference,
+            long electronicMiscDocumentId,
+            DateTimeOffset settledAt,
+            CancellationToken cancellationToken = default);
+
         Task RecordAncillaryCancelEligibilityAsync(
             long operationId,
             string cancelGroupRef,
