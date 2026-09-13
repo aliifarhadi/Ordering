@@ -2,6 +2,8 @@
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 
+using AeroTech.Ordering.Domain.Servicing.Plans.Policies;
+
 namespace AeroTech.Ordering.Domain.Servicing.Plans
 {
     public sealed record AcceptedExchangeAncillaryExchangeGroup(
@@ -90,11 +92,16 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool IsMaterialized => SuccessorElectronicMiscDocumentId is not null;
 
-        public bool IsSettled => IsExchangeConfirmed
-                                 && IsMaterialized
-                                 && (!RequiresFunding || IsFundingCaptured)
-                                 && (!RequiresRefundDue || IsRefundDueSettled)
-                                 && (!RequiresExternalResidual || IsResidualSettled);
+        public bool IsSettled
+            => ServicingSettlementRules.IsExchangeGroupSettled(
+                ExchangeOutcome,
+                IsMaterialized,
+                RequiresFunding,
+                FundingCaptureOutcome,
+                RequiresRefundDue,
+                RefundDueOutcome,
+                RequiresExternalResidual,
+                ResidualOutcome);
 
         public bool IsRejected => IsExchangeRejected
                                   || FundingGuaranteeOutcome == ProviderOperationOutcome.Rejected

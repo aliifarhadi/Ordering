@@ -191,9 +191,19 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var evidence = await reading.ServicingEvidence.ListAsync(operationIds.Single());
 
             Assert.Single(evidence, entry => entry.Stage == ServicingEvidenceStage.DocumentVoid);
-            Assert.Equal(
-                ProviderOperationOutcome.Confirmed,
-                evidence.Single(entry => entry.Stage == ServicingEvidenceStage.DocumentVoid).Outcome);
+
+            var voidEvidence = evidence.Single(entry => entry.Stage == ServicingEvidenceStage.DocumentVoid);
+            var outcomes = string.Join(",", results.Select(Describe));
+            var rows = string.Join(",", evidence.Select(entry => entry.Stage + ":" + entry.Outcome));
+
+            Assert.True(
+                voidEvidence.Outcome == ProviderOperationOutcome.Confirmed,
+                "outcome=" + voidEvidence.Outcome
+                + "; detail=" + (voidEvidence.Detail ?? "-")
+                + "; reference=" + (voidEvidence.ProviderReference ?? "-")
+                + "; dispatched=" + dispatched
+                + "; results=" + outcomes
+                + "; evidence=" + rows);
         }
 
         [Fact]
@@ -217,6 +227,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.All(view.ExternalEvidence, evidence => Assert.True(evidence.IsConfirmed));
             Assert.Empty(await reading.ReconciliationView.ListUnresolvedAsync(issued.OrderId));
         }
+
+        private static string Describe(
+            Application.OrderAggregate.Services.DocumentVoid.DocumentVoidOutcome? outcome)
+            => outcome is null ? "throw" : outcome.OperationStatus + "/" + outcome.IsReplay;
 
         private static async Task<Application.OrderAggregate.Services.DocumentVoid.DocumentVoidOutcome?>
             AttemptAsync(OrderSliceHarness harness, IssuedTicket issued, string key)

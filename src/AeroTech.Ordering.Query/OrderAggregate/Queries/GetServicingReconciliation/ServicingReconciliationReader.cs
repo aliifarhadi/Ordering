@@ -1,4 +1,6 @@
+﻿using System.Text.Json;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.Servicing.Plans;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation.Policies;
@@ -11,6 +13,12 @@ namespace AeroTech.Ordering.Query.OrderAggregate.Queries.GetServicingReconciliat
 {
     public sealed class ServicingReconciliationReader
     {
+        private static readonly JsonSerializerOptions PlanOptions = new()
+        {
+            PropertyNamingPolicy = null,
+            WriteIndented = false
+        };
+
         private readonly OrderQueryDbContext _dbContext;
 
         public ServicingReconciliationReader(OrderQueryDbContext dbContext) => _dbContext = dbContext;
@@ -83,6 +91,7 @@ namespace AeroTech.Ordering.Query.OrderAggregate.Queries.GetServicingReconciliat
                 order.Documents,
                 order.Control,
                 order.Reservations,
+                checkpoints,
                 manualReviews,
                 resolutions,
                 ServicingRecoveryPolicy.Determine(
@@ -252,44 +261,63 @@ namespace AeroTech.Ordering.Query.OrderAggregate.Queries.GetServicingReconciliat
             if (plan is null)
                 return null;
 
+            var accepted = JsonSerializer.Deserialize<AcceptedExchange>(plan.AcceptedPlan, PlanOptions);
+
+            var feeDocuments = await _dbContext.AcceptedExchangePlanFeeDocuments
+                .AsNoTracking()
+                .Where(document => document.OperationId == operationId)
+                .Select(document => document.SettledAt)
+                .ToListAsync(cancellationToken);
+
             var ancillaries = await _dbContext.AcceptedExchangePlanAncillaries
                 .AsNoTracking()
                 .Where(ancillary => ancillary.OperationId == operationId)
-                .Select(ancillary => new
-                {
+                .Select(ancillary => new ServicingAncillaryCheckpoint(
                     ancillary.Disposition,
                     ancillary.AssociationOutcome,
-                    ancillary.RefundDocumentOutcome
-                })
+                    ancillary.RefundDocumentOutcome,
+                    ancillary.RefundValueOutcome,
+                    ancillary.RetentionSettledAt))
                 .ToListAsync(cancellationToken);
 
-            var hasUnsettledFeeDocument = await _dbContext.AcceptedExchangePlanFeeDocuments
+            var exchangeGroups = await _dbContext.AcceptedExchangePlanAncillaryExchangeGroups
                 .AsNoTracking()
-                .AnyAsync(
-                    document => document.OperationId == operationId && document.SettledAt == null,
-                    cancellationToken);
+                .Where(group => group.OperationId == operationId)
+                .Select(group => new ServicingExchangeGroupCheckpoint(
+                    group.ExchangeOutcome,
+                    group.SuccessorElectronicMiscDocumentId != null,
+                    group.AddCollectAmount != null && group.AddCollectCurrencyId != null,
+                    group.FundingCaptureOutcome,
+                    group.RefundDueAmount != null && group.RefundDueCurrencyId != null,
+                    group.RefundDueOutcome,
+                    group.ResidualAmount != null
+                        && group.ResidualCurrencyId != null
+                        && group.ResidualFulfillment != ResidualFulfillment.DocumentCoupled,
+                    group.ResidualOutcome))
+                .ToListAsync(cancellationToken);
 
-            return new ServicingPlanCheckpoints(
+            var cancelGroups = await _dbContext.AcceptedExchangePlanAncillaryCancelGroups
+                .AsNoTracking()
+                .Where(group => group.OperationId == operationId)
+                .Select(group => group.CancellationSettledAt)
+                .ToListAsync(cancellationToken);
+
+            return ServicingPlanCheckpoints.From(
                 plan.EligibilityOutcome == DocumentExchangeEligibilityOutcome.Eligible,
                 plan.ReservationOutcome,
                 plan.DocumentExchangeOutcome,
-                HasUnsettledMonetary(plan),
-                hasUnsettledFeeDocument,
-                ancillaries.Any(ancillary =>
-                    ancillary.Disposition != AncillaryExchangeDisposition.ManualReview
-                    && ancillary.AssociationOutcome is null
-                    && ancillary.RefundDocumentOutcome is null),
-                ancillaries.Any(ancillary =>
-                    ancillary.Disposition == AncillaryExchangeDisposition.ManualReview));
+                new ServicingMonetaryCheckpoint(
+                    accepted?.AddCollect is not null,
+                    plan.FundingCaptureOutcome,
+                    accepted?.RefundDue is not null,
+                    plan.RefundDueOutcome,
+                    accepted?.Residual is not null,
+                    plan.ResidualOutcome),
+                feeDocuments,
+                ancillaries,
+                exchangeGroups,
+                cancelGroups);
         }
-
-        private static bool HasUnsettledMonetary(AcceptedExchangePlanReadModel plan)
-            => (plan.FundingMethodRef is not null
-                && plan.FundingCaptureOutcome != ProviderOperationOutcome.Confirmed)
-               || (plan.RefundDueOutcome is not null
-                   && plan.RefundDueOutcome != ProviderOperationOutcome.Confirmed)
-               || (plan.ResidualOutcome is not null
-                   && plan.ResidualOutcome != ProviderOperationOutcome.Confirmed);
 
         private sealed record OrderEvidence(
             IReadOnlyList<ServicingDocumentEvidence> Documents,

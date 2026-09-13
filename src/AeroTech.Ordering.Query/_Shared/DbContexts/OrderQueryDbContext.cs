@@ -65,6 +65,12 @@ namespace AeroTech.Ordering.Query._Shared.DbContexts
         public DbSet<AcceptedExchangePlanFeeDocumentReadModel> AcceptedExchangePlanFeeDocuments
             => Set<AcceptedExchangePlanFeeDocumentReadModel>();
 
+        public DbSet<AcceptedExchangePlanAncillaryExchangeGroupReadModel> AcceptedExchangePlanAncillaryExchangeGroups
+            => Set<AcceptedExchangePlanAncillaryExchangeGroupReadModel>();
+
+        public DbSet<AcceptedExchangePlanAncillaryCancelGroupReadModel> AcceptedExchangePlanAncillaryCancelGroups
+            => Set<AcceptedExchangePlanAncillaryCancelGroupReadModel>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.HasDefaultSchema(ReadModelSchema);
@@ -96,6 +102,10 @@ namespace AeroTech.Ordering.Query._Shared.DbContexts
                 modelBuilder, "AcceptedExchangePlanAncillaries", "OperationId", "EmdCouponId");
             MapCommandReadModel<AcceptedExchangePlanFeeDocumentReadModel>(
                 modelBuilder, "AcceptedExchangePlanFeeDocuments", "OperationId", "DocumentReference");
+            MapCommandReadModel<AcceptedExchangePlanAncillaryExchangeGroupReadModel>(
+                modelBuilder, "AcceptedExchangePlanAncillaryExchangeGroups", "OperationId", "ExchangeGroupRef");
+            MapCommandReadModel<AcceptedExchangePlanAncillaryCancelGroupReadModel>(
+                modelBuilder, "AcceptedExchangePlanAncillaryCancelGroups", "OperationId", "CancelGroupRef");
         }
 
         private static void MapCommandReadModel<TEntity>(

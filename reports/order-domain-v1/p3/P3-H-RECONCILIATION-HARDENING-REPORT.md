@@ -714,8 +714,8 @@ narrow resolution vocabulary was derived from §10's own allowed-actions list ra
 ## 27. Freeze verdict
 
 ```text
-P3-H READY TO FREEZE: YES
-P3 READY TO FREEZE:   YES
+P3-H READY TO FREEZE: YES   (reconciliation, CQRS separation and checkpoint parity are complete)
+P3 READY TO FREEZE:   NO    (blocked by the open defect in §30)
 ```
 
 P4 was not started and no P4 handoff was created.
@@ -924,6 +924,10 @@ Functional equivalence is covered by the unchanged R1–R40 matrix, which assert
 stage, provider evidence, document evidence, `ControlStatus`, reservation consistency, manual review, manual
 resolutions and the safe recovery action.
 
+**Correction (see §29):** the claim of exact functional equivalence made in this section was **not true for
+the exchange checkpoint**. The Query reconstructed it with a reduced shape that diverged from
+`AcceptedExchangePlan.Checkpoints`, and the operator stage labels changed. Both are fixed in §29.
+
 ### 28.11 Claim concurrency — not redesigned
 
 Per §8 of the correction, the claim mechanism was left alone: no distributed lock, no second claim table, no
@@ -983,3 +987,223 @@ Architecture only. No business behavior was added or removed, no migration was c
 changed, and the roadmap position is unchanged: reconciliation and hardening, `ControlStatus` boundary,
 Order/Inventory consistency, operator recovery, involuntary boundary only — no DCS, no disruption recovery, no
 no-show flow, no involuntary pricing policy. Every `BLOCKED_INTEGRATION` in §25 stands unchanged.
+
+---
+
+## 29. Reconciliation Checkpoint Semantic Parity
+
+Reviewed HEAD: `f87e912dfdc73f85717abfb8168c459690b0b6a4` (parent `6df8f4f`).
+
+§28 moved the reconciliation read path into the Query project. That was structurally right but **semantically
+wrong**: the Query reconstructed exchange checkpoints with a reduced, hand-rolled shape that did not agree
+with `AcceptedExchangePlan.Checkpoints`. §28 claimed exact functional equivalence. **That claim was false for
+the exchange checkpoint, and is corrected here.** The boundary tests were green throughout, which is exactly
+why a green architectural test is not sufficient evidence.
+
+### 29.1 Defects found
+
+| # | Area | Query said | Domain says |
+| --- | --- | --- | --- |
+| P1 | monetary | a refund/residual/add-collect leg counted as required only once its outcome column was non-null, so a **required but not-yet-started** leg read as settled | `RequiresRefundDue = RefundDue is not null` from the accepted source; unsettled until `Confirmed` |
+| P2 | G2 ancillary refund | `RefundDocumentOutcome == Confirmed` alone counted as settled | `IsRefundSettled = IsRefundDocumentSettled && IsRefundValueSettled` |
+| P3 | G3 exchange group | group state was never read; settlement was inferred from individual ancillary columns | `AcceptedExchangeAncillaryExchangeGroup.IsSettled` — exchange confirmed, successor materialized, funding captured, refund-due settled, external residual settled |
+| P4 | G4 retention | `RetentionSettledAt` was not projected at all | `IsRetentionSettled = RetentionSettledAt is not null` |
+| P5 | G5 cancel group | cancel-group state was never read | `AcceptedExchangeAncillaryCancelGroup.IsSettled = CancellationSettledAt is not null` |
+| P6 | stage labels | exposed internal property names (`HasUnsettledMonetary`, `IsEligibilityEstablished`, …) | the established operator labels |
+
+P6 was an observable read-contract change introduced by the §28 refactor, contradicting its "no behavior
+change" claim.
+
+### 29.2 One rule, shared by both sides
+
+The fix is not a second algorithm in Query. All settlement predicates now live once in
+`Domain/Servicing/Plans/Policies/ServicingSettlementRules.cs` as pure functions over primitives:
+
+```text
+IsConfirmed / IsLegSettled / IsMonetarySettled
+IsAncillaryRefundSettled / IsAncillaryUnitSettled
+IsExchangeGroupSettled / IsCancelGroupSettled / IsFeeDocumentSettled
+IsExecutable / IsGrouped
+```
+
+The frozen domain value objects now delegate to them, so there is exactly one implementation:
+
+```text
+AcceptedExchangePlan.IsMonetarySettled              -> ServicingSettlementRules.IsMonetarySettled
+AcceptedExchangeAncillaryDisposition.IsRefundSettled-> ServicingSettlementRules.IsAncillaryRefundSettled
+AcceptedExchangeAncillaryDisposition.IsSettled      -> ServicingSettlementRules.IsAncillaryUnitSettled
+AcceptedExchangeAncillaryExchangeGroup.IsSettled    -> ServicingSettlementRules.IsExchangeGroupSettled
+AcceptedExchangeAncillaryCancelGroup.IsSettled      -> ServicingSettlementRules.IsCancelGroupSettled
+AcceptedExchangeFeeDocument.IsSettled               -> ServicingSettlementRules.IsFeeDocumentSettled
+```
+
+`ServicingPlanCheckpoints.From(...)` is the single construction path and is called from both sides with the
+same durable facts, carried by three small domain value records — `ServicingMonetaryCheckpoint`,
+`ServicingAncillaryCheckpoint`, `ServicingExchangeGroupCheckpoint`:
+
+```text
+Application/Domain  AcceptedExchangePlan.Checkpoints -> From(facts from the aggregate)
+Query               ServicingReconciliationReader    -> From(facts from read models)
+```
+
+### 29.3 Where the "required" facts come from
+
+Group-level requirement is persisted as columns and is projected directly, matching
+`AcceptedExchangePlanStore` field-for-field — note that requirement needs the **currency** column too, not
+just the amount:
+
+```text
+RequiresFunding          AddCollectAmount != null && AddCollectCurrencyId != null
+RequiresRefundDue        RefundDueAmount  != null && RefundDueCurrencyId  != null
+RequiresExternalResidual ResidualAmount   != null && ResidualCurrencyId   != null
+                         && ResidualFulfillment != DocumentCoupled
+```
+
+Plan-level requirement has **no persisted column**: `AcceptedExchangePlan.RequiresFunding/RefundDue/Residual`
+read `Accepted.AddCollect/RefundDue/Residual`, which live only inside the `AcceptedPlan` JSON column.
+`MonetaryOutcome` cannot substitute — its `Mixed` value cannot distinguish add-collect+refund-due from
+add-collect+residual. The reader therefore deserializes that one column into the Domain `AcceptedExchange`
+accepted-source record and asks it the same questions. That reuses the frozen rule exactly rather than
+approximating it. It is a value snapshot, not the servicing plan aggregate, and no plan aggregate is
+reconstructed in Query.
+
+**Recommendation, not implemented here:** persisting the three requirement flags as columns on
+`AcceptedExchangePlans` would remove the JSON read from the read path entirely. That is a command-schema
+change and out of this correction's scope.
+
+### 29.4 Stage labels restored
+
+`ServicingPlanCheckpoints` now exposes the established operator labels as constants and returns them:
+
+```text
+EligibilityOutcome  ReservationOutcome  DocumentExchangeOutcome
+MonetaryOutcome     FeeDocuments        Ancillaries              ManualReview
+```
+
+These are exactly the labels the pre-refactor composer produced. No new enum was introduced.
+
+### 29.5 Fee documents — verified, unchanged
+
+`RequiresFeeDocumentation && !IsFeeDocumentationSettled` is `Count > 0 && !All(SettledAt != null)`, which is
+`Any(SettledAt == null)`. The existing Query projection was already exactly equivalent and was kept.
+
+### 29.6 Domain-vs-Query parity test
+
+`ServicingCheckpointParityTests` (23 cases) does what §13 requires: it derives `plan.Checkpoints` from the
+**command-side** store and compares it to the Query view's checkpoints as whole records, so any divergence in
+any field fails.
+
+```text
+CP1   parity for ReassociateExisting / Refund / ExchangeToNewEmd / RetainAsResidual / ManualReview
+CP1b  parity for a cancel group (service-purpose ancillary)
+CP2   required refund-due and required residual with the outcome nulled
+CP2b  required add-collect with the capture nulled
+CP3   refund document Confirmed, refund value null
+CP4   refund document Confirmed, refund value Pending / Unknown / Rejected
+CP5   retention settlement nulled
+CP6   cancel-group settlement nulled
+CP7   exchange group: successor, exchange outcome, capture, refund-due, residual each nulled
+CP8   fee document settlement nulled
+CP9   the operator stage label is a stable semantic name, never a property name
+CP10  unresolved external evidence still outranks a manual review
+```
+
+### 29.7 Discrimination proof
+
+Each fix was reverted in isolation and the parity tests re-run:
+
+```text
+monetary requirement reverted to "outcome column is non-null"   -> CP2, CP2 (residual), CP2b fail  (3/3)
+Query ancillary + group projection reverted to the pre-fix shape -> 5 of 23 fail
+both fixes in place                                              -> 23 / 23 pass
+```
+
+One subtlety worth recording: degrading the **shared** rule does not discriminate, because both sides move
+together and stay equal. Only degrading the Query-side projection exposes divergence — which is precisely
+what the parity test is for.
+
+### 29.8 Boundaries unchanged
+
+No architecture was redesigned. Domain still holds no query-only DTO or repository; Application still has no
+Query dependency; Query still owns its read models with `ExcludeFromMigrations`; Persistence is still
+command-only; the claim mechanism was not touched. Two read models were added
+(`AcceptedExchangePlanAncillaryExchangeGroups`, `AcceptedExchangePlanAncillaryCancelGroups`) and columns were
+added to two existing ones. No migration; both EF contexts report no pending model changes.
+
+`ServicingReconciliationView` now also carries `ExchangeCheckpoints`, so an operator sees the checkpoint state
+directly and the parity test can compare it.
+
+### 29.9 Gate after the parity correction
+
+```text
+BUILD                  0 errors (AeroTech.Ordering.sln)
+EF OrderingDbContext   no pending model changes
+EF OrderQueryDbContext no pending model changes
+DOMAIN                 585 / 585
+PERSISTENCE           1368 / 1368, 8 m 3 s
+  parity tests           23  (ServicingCheckpointParityTests)
+  boundary tests         19  (ServicingReconciliationBoundaryTests)
+  R1-R40                 50
+```
+
+No migration. Files added: `ServicingSettlementRules`, `ServicingMonetaryCheckpoint`,
+`ServicingAncillaryCheckpoint`, `ServicingExchangeGroupCheckpoint` (Domain);
+`AcceptedExchangePlanAncillaryExchangeGroupReadModel`, `AcceptedExchangePlanAncillaryCancelGroupReadModel`
+(Query); `ServicingCheckpointParityTests`. Files modified: the five frozen plan value objects now delegate to
+the shared rules, `ServicingPlanCheckpoints`, `AcceptedExchangePlan.Checkpoints`, the reader, two read models,
+`OrderQueryDbContext`, `ServicingReconciliationView`.
+
+---
+
+## 30. OPEN DEFECT — confirmed-truth monotonicity is not concurrency-safe
+
+**Status: open. This is why P3 is not reported ready to freeze.**
+
+`R39_Parallel_workers_cannot_duplicate_the_same_mutation` has failed intermittently — twice in roughly five
+full-suite runs — while passing 8/8 in isolation and 5/5 in a six-class run. The two captured failures were:
+
+```text
+run A   Assert.Single(evidence)                       -> more than one evidence row for the operation
+run B   the DocumentVoid row exists but its Outcome is not Confirmed
+```
+
+Source review of `ServicingExternalEvidenceStore.RecordAsync` identifies a genuine defect that matches run B:
+
+```csharp
+var existing = await _dbContext.Set<ServicingExternalEvidenceRow>()
+    .FirstOrDefaultAsync(row => row.OperationId == operationId && row.Stage == stage, cancellationToken);
+
+if (existing is null) { /* insert */ return; }
+
+if (existing.Outcome == ProviderOperationOutcome.Confirmed)
+    return;                       // <- the monotonic guard
+
+existing.Outcome = outcome;       // <- overwrite
+```
+
+The guard is a **read-then-write with no concurrency token**, and each worker holds its own
+`OrderingDbContext`. Two workers acting on the same operation can both read before either commits; a worker
+that read the row as absent or not-yet-`Confirmed` will then write its own outcome, so a `Confirmed` row can
+be **downgraded** to `Pending`/`Unknown`. That is precisely the invariant P3-H claims — "once durable evidence
+says Confirmed, never downgrade" (§5, §17b D2) — and it is only advisory today, not enforced.
+
+The recovery path makes this reachable: a replaying worker calls `RecoverAsync`, whose deterministic default
+`RecoveryOutcome` is `Unknown`, and then records evidence.
+
+### Recommended fix (not applied)
+
+Add a concurrency token to `Order.ServicingExternalEvidences` (a `rowversion` column, matching the
+`RowVersion` pattern already used on `AggregateRoot`) so a losing write fails with
+`DbUpdateConcurrencyException` instead of silently overwriting, and retry-with-reread on that exception,
+re-applying the monotonic guard.
+
+This was **not** applied in this run because it is an additive command-schema migration and a change to
+concurrency behaviour, and the correction brief scoped this run to checkpoint parity with no migration
+expected. It should be closed before P3 freezes.
+
+### Interim state
+
+`R39` carries a diagnostic failure message (outcome, detail, provider reference, dispatch count, per-worker
+result and the full evidence row set) so the next occurrence is captured in full rather than re-inferred. The
+assertion itself is unchanged and unweakened.
+

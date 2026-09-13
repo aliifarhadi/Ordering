@@ -3,6 +3,8 @@ using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
 using AeroTech.Ordering.Domain.Ports.DocumentExchange;
 
 
+using AeroTech.Ordering.Domain.Servicing.Plans.Policies;
+
 namespace AeroTech.Ordering.Domain.Servicing.Plans
 {
     public sealed record AcceptedExchangePlan(
@@ -142,9 +144,13 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         }
 
         public bool IsMonetarySettled
-            => (!RequiresFunding || IsFundingCaptured)
-               && (!RequiresRefundDue || IsRefundDueSettled)
-               && (!RequiresResidual || IsResidualSettled);
+            => ServicingSettlementRules.IsMonetarySettled(
+                RequiresFunding,
+                FundingCaptureOutcome,
+                RequiresRefundDue,
+                RefundDueOutcome,
+                RequiresResidual,
+                ResidualOutcome);
 
         public bool IsCollectionSettled => !RequiresFunding || IsFundingCaptured;
 
@@ -206,14 +212,38 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool HasUnresolvedManualReview => AncillaryManualReviews.Count > 0;
 
         public ServicingPlanCheckpoints Checkpoints
-            => new(
+            => ServicingPlanCheckpoints.From(
                 IsEligibilityEstablished,
                 ReservationOutcome,
                 DocumentExchangeOutcome,
-                RequiresMonetarySettlement && !IsMonetarySettled,
-                RequiresFeeDocumentation && !IsFeeDocumentationSettled,
-                RequiresAncillaryReassociation && !IsAncillarySettled,
-                HasUnresolvedManualReview);
+                new ServicingMonetaryCheckpoint(
+                    RequiresFunding,
+                    FundingCaptureOutcome,
+                    RequiresRefundDue,
+                    RefundDueOutcome,
+                    RequiresResidual,
+                    ResidualOutcome),
+                FeeDocuments.Select(document => document.SettledAt).ToList(),
+                Ancillaries
+                    .Select(ancillary => new ServicingAncillaryCheckpoint(
+                        ancillary.Disposition,
+                        ancillary.AssociationOutcome,
+                        ancillary.RefundDocumentOutcome,
+                        ancillary.RefundValueOutcome,
+                        ancillary.RetentionSettledAt))
+                    .ToList(),
+                ExchangeGroups
+                    .Select(group => new ServicingExchangeGroupCheckpoint(
+                        group.ExchangeOutcome,
+                        group.IsMaterialized,
+                        group.RequiresFunding,
+                        group.FundingCaptureOutcome,
+                        group.RequiresRefundDue,
+                        group.RefundDueOutcome,
+                        group.RequiresExternalResidual,
+                        group.ResidualOutcome))
+                    .ToList(),
+                CancelGroups.Select(group => group.CancellationSettledAt).ToList());
 
         public IReadOnlyList<AcceptedExchangeAncillaryDisposition> ExecutableAncillaries
             => Ancillaries

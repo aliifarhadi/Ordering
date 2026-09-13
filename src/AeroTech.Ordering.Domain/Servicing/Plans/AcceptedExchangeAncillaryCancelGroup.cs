@@ -1,4 +1,6 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
+
+using AeroTech.Ordering.Domain.Servicing.Plans.Policies;
 
 namespace AeroTech.Ordering.Domain.Servicing.Plans
 {
@@ -42,7 +44,7 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
         public bool IsVoidUnresolved
             => VoidOutcome is ProviderOperationOutcome.Pending or ProviderOperationOutcome.Unknown;
 
-        public bool IsSettled => CancellationSettledAt is not null;
+        public bool IsSettled => ServicingSettlementRules.IsCancelGroupSettled(CancellationSettledAt);
 
         public bool IsRejected => IsVoidRejected || IsEligibilityDenied || RequiresRefundDecisionInstead;
 

@@ -17,5 +17,7 @@ namespace AeroTech.Ordering.Query.OrderAggregate.Models
         public ProviderOperationOutcome? RefundDocumentOutcome { get; set; }
 
         public ProviderOperationOutcome? RefundValueOutcome { get; set; }
+
+        public DateTimeOffset? RetentionSettledAt { get; set; }
     }
 }

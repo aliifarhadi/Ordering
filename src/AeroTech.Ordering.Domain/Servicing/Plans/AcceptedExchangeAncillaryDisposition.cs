@@ -1,6 +1,8 @@
 ﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Refund;
 
+using AeroTech.Ordering.Domain.Servicing.Plans.Policies;
+
 namespace AeroTech.Ordering.Domain.Servicing.Plans
 {
     public sealed record AcceptedExchangeAncillaryDisposition(
@@ -80,7 +82,8 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool IsRefundValueRejected => RefundValueOutcome == ProviderOperationOutcome.Rejected;
 
-        public bool IsRefundSettled => IsRefundDocumentSettled && IsRefundValueSettled;
+        public bool IsRefundSettled
+            => ServicingSettlementRules.IsAncillaryRefundSettled(RefundDocumentOutcome, RefundValueOutcome);
 
         public bool IsRefundConsequenceCommitted => RefundPriceChangeSetId is not null;
 
@@ -99,12 +102,9 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
             }
         };
 
-        public bool IsSettled => Disposition switch
-        {
-            AncillaryExchangeDisposition.Refund => IsRefundSettled,
-            AncillaryExchangeDisposition.RetainAsResidual => IsRetentionSettled,
-            _ => AssociationOutcome == ProviderOperationOutcome.Confirmed
-        };
+        public bool IsSettled
+            => ServicingSettlementRules.IsAncillaryUnitSettled(
+                Disposition, AssociationOutcome, RefundDocumentOutcome, RefundValueOutcome, RetentionSettledAt);
 
         public bool IsRejected => Disposition switch
         {

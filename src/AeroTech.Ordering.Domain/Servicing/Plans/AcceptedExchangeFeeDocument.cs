@@ -1,5 +1,7 @@
-using AeroTech.Messages.Ordering.Enums;
+﻿using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.OrderAggregate.AcceptedSource.Exchange;
+
+using AeroTech.Ordering.Domain.Servicing.Plans.Policies;
 
 namespace AeroTech.Ordering.Domain.Servicing.Plans
 {
@@ -31,7 +33,7 @@ namespace AeroTech.Ordering.Domain.Servicing.Plans
 
         public bool IsIssuanceRejected => IssuanceOutcome == ProviderOperationOutcome.Rejected;
 
-        public bool IsSettled => SettledAt is not null;
+        public bool IsSettled => ServicingSettlementRules.IsFeeDocumentSettled(SettledAt);
 
         public AcceptedExchangeFeeDocument WithIssuanceAttempt(
             ProviderOperationOutcome outcome,
