@@ -714,8 +714,8 @@ narrow resolution vocabulary was derived from §10's own allowed-actions list ra
 ## 27. Freeze verdict
 
 ```text
-P3-H READY TO FREEZE: YES   (reconciliation, CQRS separation and checkpoint parity are complete)
-P3 READY TO FREEZE:   NO    (blocked by the open defect in §30)
+P3-H READY TO FREEZE: YES
+P3 READY TO FREEZE:   YES
 ```
 
 P4 was not started and no P4 handoff was created.
@@ -1155,9 +1155,9 @@ the shared rules, `ServicingPlanCheckpoints`, `AcceptedExchangePlan.Checkpoints`
 
 ---
 
-## 30. OPEN DEFECT — confirmed-truth monotonicity is not concurrency-safe
+## 30. CLOSED — confirmed-truth monotonicity is now concurrency-safe
 
-**Status: open. This is why P3 is not reported ready to freeze.**
+**Status: CLOSED** at `3d95c1e51aafa27212a0d3a29ab35a5faa0c2c52`+. Root cause, fix and deterministic evidence below.
 
 `R39_Parallel_workers_cannot_duplicate_the_same_mutation` has failed intermittently — twice in roughly five
 full-suite runs — while passing 8/8 in isolation and 5/5 in a six-class run. The two captured failures were:
@@ -1190,20 +1190,156 @@ says Confirmed, never downgrade" (§5, §17b D2) — and it is only advisory tod
 The recovery path makes this reachable: a replaying worker calls `RecoverAsync`, whose deterministic default
 `RecoveryOutcome` is `Unknown`, and then records evidence.
 
-### Recommended fix (not applied)
+### Chosen mechanism — a narrowly-scoped conditional write (CAS)
 
-Add a concurrency token to `Order.ServicingExternalEvidences` (a `rowversion` column, matching the
-`RowVersion` pattern already used on `AggregateRoot`) so a losing write fails with
-`DbUpdateConcurrencyException` instead of silently overwriting, and retry-with-reread on that exception,
-re-applying the monotonic guard.
+The brief's preferred shape (rowversion + retry/reread at the save boundary) was evaluated first and
+**rejected on layering grounds**, after tracing every call path as §2 requires.
 
-This was **not** applied in this run because it is an additive command-schema migration and a change to
-concurrency behaviour, and the correction brief scoped this run to checkpoint parity with no migration
-expected. It should be closed before P3 freezes.
+**The actual save boundary.** All four production call sites — `DocumentVoidService`, `RefundService`,
+`CancelRefundService`, `OrderCancelService` — stage the evidence write and then commit through
+`IUnitOfWork.SaveChangesAsync`. `OrderingUnitOfWork` opens **one transaction spanning the command and query
+contexts**, so in e.g. `DocumentVoidService.FinalizeAsync` the evidence row commits in the same transaction as
+the ticket void, the version bump, the operation transition, the receipt status and the projection.
 
-### Interim state
+Catching `DbUpdateConcurrencyException` means catching an EF exception, which can only happen in Persistence.
+The only Persistence-side save boundary is the shared `OrderingUnitOfWork`, so a retry there would be exactly
+the "generic retry interceptor" §6 prohibits — and it would re-drive a transaction containing document
+mutation and domain events. §6's sanctioned alternative was taken instead.
 
-`R39` carries a diagnostic failure message (outcome, detail, provider reference, dispatch count, per-worker
-result and the full evidence row set) so the next occurrence is captured in full rather than re-inferred. The
-assertion itself is unchanged and unweakened.
+`ServicingExternalEvidenceStore.RecordAsync` now performs its own atomic, monotonic upsert:
 
+```sql
+UPDATE [Order].[ServicingExternalEvidences]
+   SET [Outcome] = @outcome,
+       [ProviderReference] = COALESCE(@reference, [ProviderReference]),
+       [Detail]            = COALESCE(@detail, [Detail]),
+       [DocumentKind]      = COALESCE(@kind, [DocumentKind]),
+       [DocumentNumber]    = COALESCE(@number, [DocumentNumber]),
+       [UpdatedAt]         = @now
+ WHERE [OperationId] = @operationId
+   AND [Stage] = @stage
+   AND [Outcome] <> Confirmed;          -- the monotonic rule, evaluated by the database
+
+-- if that matched nothing: already Confirmed (no-op) or the row is absent
+
+INSERT ... SELECT ... WHERE NOT EXISTS (SELECT 1 ... WHERE OperationId = @operationId AND Stage = @stage);
+```
+
+bounded by at most three attempts so an interleaved insert converges, and the loop **throws**
+(`ServicingEvidenceNotRecorded`, 20333, 500) rather than falling through silently if it ever exhausts —
+losing an evidence write must never be a quiet no-op. Parameterised throughout
+(`ExecuteSqlInterpolatedAsync`), so no injection surface and no EF1002.
+
+`INSERT ... WHERE NOT EXISTS` is not atomic against a concurrent identical insert under READ COMMITTED, so a
+duplicate-key error can still escape. That case is caught provider-agnostically: on a `DbException`, if the
+row now exists the writer lost the insert race and returns so the loop re-applies the monotonic rule via the
+`UPDATE` branch; otherwise the exception is rethrown. This gap was found by C9b failing under full-suite
+load after the first version of the fix, not by review.
+
+There is **no read-then-write and no snapshot**: the monotonic rule is a predicate the database evaluates at
+write time, so a stale reader cannot exist.
+
+### Update-race safety (§4.A)
+
+The `WHERE [Outcome] <> Confirmed` predicate is evaluated under the row's exclusive lock. A writer carrying a
+weaker outcome that arrives after a `Confirmed` commit matches zero rows, then observes `Confirmed` and
+returns. `Confirmed -> Pending / Unknown / Rejected` is not expressible.
+
+### Insert-race safety (§4.B)
+
+`INSERT ... WHERE NOT EXISTS` plus the composite primary key means at most one insert succeeds. If the weaker
+writer inserts first, the `Confirmed` writer's next attempt takes the `UPDATE` branch — which matches, because
+the stored outcome is not `Confirmed` — and upgrades the row. The weaker row never survives merely because it
+inserted first, which is what §4.B requires.
+
+### Confirmed identity retention (§8)
+
+Once stored, a `Confirmed` row is immutable: `Outcome`, `ProviderReference`, `Detail`, `DocumentKind`,
+`DocumentNumber` and `RecordedAt` are all frozen, because every subsequent write fails the `<> Confirmed`
+predicate. An exact replay is a no-op that does not even move `UpdatedAt`. A **contradictory** `Confirmed`
+identity does not overwrite and is not merged — the durable row stands (C9).
+
+### Provider-redispatch guarantee (§7)
+
+There is **no retry of the unit of work and no retry of any servicing command**. The bounded loop re-issues
+only the evidence `UPDATE`/`INSERT` statements. Every provider call is upstream of `RecordAsync` and is never
+re-entered, so the fix cannot repeat an external mutation, a document mutation, a domain event, a version
+increment or any money movement. R39 continues to assert exactly one irreversible dispatch.
+
+### Transactional-semantics change — stated explicitly
+
+The evidence write is now **immediately durable** rather than enlisted in the caller's unit of work. If the
+surrounding transaction later rolls back, the evidence survives.
+
+This is deliberate and is the stronger guarantee: the row records *what the provider said*, which remains true
+regardless of whether local materialization committed. A surviving `Confirmed` row after a rolled-back local
+save is precisely the "provider Confirmed + local save crash" checkpoint the recover-first rails already
+consume (§5, §17b D2) — it makes recovery better informed, not worse. Evidence is only ever recorded after the
+provider has answered, so a throw-before-dispatch still records nothing.
+
+### Deterministic tests — C1–C10
+
+`ServicingEvidenceConcurrencyTests` (11 cases, two or more independent `OrderingDbContext` instances,
+1 second, no order fixture):
+
+| Case | Test |
+| --- | --- |
+| C1 / C2 / C3 | `C1_C2_C3_A_stale_writer_cannot_downgrade_a_confirmed_row` (Theory: Unknown / Pending / Rejected) — both writers take a **tracking** read of `Pending`, the winner commits `Confirmed`, the stale writer then attempts a downgrade |
+| C4 | `C4_A_confirmed_writer_upgrades_a_weaker_row_written_first` |
+| C4b | `C4b_An_upgrade_that_omits_a_field_keeps_the_durable_value` — `COALESCE` preserves reference, detail, kind and number |
+| C5 | `C5_An_exact_confirmed_replay_is_a_no_op` — outcome, reference, detail, `RecordedAt` and `UpdatedAt` all unchanged under an advanced clock |
+| C6 | `C6_An_insert_race_won_by_the_confirmed_writer_keeps_confirmed` |
+| C7 | `C7_An_insert_race_won_by_the_weaker_writer_still_ends_confirmed` |
+| C8 | `C8_Two_confirmed_writers_with_the_same_identity_leave_one_row` |
+| C9 | `C9_A_contradictory_confirmed_identity_never_overwrites_the_durable_one` |
+| C9b | `C9b_A_parallel_burst_of_writers_leaves_exactly_one_confirmed_row` — five concurrent writers, own context each |
+| C10 | R39 — exactly one irreversible provider dispatch, one operation identity, one version consequence, one evidence key, final `Confirmed` |
+
+### Discrimination proof
+
+The pre-fix store was restored (with an explicit save so the same tests could drive it) and the suite re-run:
+
+```text
+C1 (loser Unknown)   Expected: Confirmed   Actual: Unknown     <- the downgrade defect
+C3 (loser Rejected)  Expected: Confirmed   Actual: Rejected    <- the downgrade defect
+C9b                  primary-key violation on the parallel burst
+with the fix         11 / 11 pass
+```
+
+C2's loser (`Pending`) equals the seeded value, so that row is unchanged either way; C1 and C3 carry the
+discrimination.
+
+A first attempt at these tests used a **no-tracking** read for the "observe" step and passed against the
+broken store — it never created the stale snapshot. The tests only became discriminating once the observe step
+took a tracking read, which is what the production `RecordAsync` did.
+
+### Migration
+
+**None.** No schema change was required: no rowversion, no new column, no index change. `PK (OperationId,
+Stage)` and every business column are untouched, and migration ownership stays command-side.
+`OrderQueryDbContext` maps the table read-only with `ExcludeFromMigrations`, unchanged. Both contexts report
+no pending model changes.
+
+### Gate after the fix
+
+```text
+BUILD                  0 errors (AeroTech.Ordering.sln)
+EF OrderingDbContext   no pending model changes
+EF OrderQueryDbContext no pending model changes
+DOMAIN                 585 / 585
+PERSISTENCE           1379 / 1379, 12 m 34 s
+  evidence concurrency   11  (ServicingEvidenceConcurrencyTests, 1 s, no order fixture)
+  checkpoint parity      23
+  boundary               19
+  R1-R40                 50
+```
+
+`R39` passed in every run after the fix, including the full-suite runs where it previously failed
+intermittently. It also carries a diagnostic failure message now (outcome, detail, provider reference,
+dispatch count, per-worker result, full evidence set) so any future occurrence is captured rather than
+re-inferred; the assertions themselves are unchanged.
+
+Files changed: `ServicingExternalEvidenceStore` (the fix), `ExceptionFactory` + `ExceptionMessages`
+(code 20333, contiguous 20001-20333), `ServicingEvidenceConcurrencyTests` (new),
+`ServicingConfirmedTruthReconciliationTests` (R39 diagnostic message only). No migration, no schema change,
+no port change, no CQRS or checkpoint-parity change.

@@ -458,5 +458,7 @@
         public const string ServicingResolutionKindNotApplicable = "Servicing operation {0} currently requires {1}; a {2} resolution is not applicable.";
 
         public const string ServicingResolutionAttributionRequired = "A manual resolution of servicing operation {0} requires both an actor and a reason.";
+
+        public const string ServicingEvidenceNotRecorded = "External servicing evidence for operation {0} stage {1} could not be recorded.";
     }
 }

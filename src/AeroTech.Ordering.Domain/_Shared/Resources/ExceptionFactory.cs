@@ -1027,6 +1027,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ServicingResolutionAttributionRequired(params object?[] args) =>
             new(20332, ExceptionMessages.ServicingResolutionAttributionRequired, args) { HttpStatus = 422 };
 
+        public static BusinessException ServicingEvidenceNotRecorded(params object?[] args) =>
+            new(20333, ExceptionMessages.ServicingEvidenceNotRecorded, args) { HttpStatus = 500 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }
