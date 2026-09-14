@@ -2065,7 +2065,45 @@ brief.
 
 ### 32.10 Gate from final source
 
-GATE32-PENDING
+One run, after all mutation rounds. The source was verified restored first (no mutation text, boundary guard
+present, five rejected-replay claim releases), then built and tested without any intervening edit.
+
+```text
+BUILD                  0 errors (AeroTech.Ordering.sln)
+DOMAIN                 585 / 585
+EF OrderingDbContext   No changes have been made to the model since the last migration.
+EF OrderQueryDbContext No changes have been made to the model since the last migration.
+PERSISTENCE           1429 / 1430, 0 skipped, 0 SQL timeouts, 9 m 36 s
+  failed               ServicingConfirmedTruthReconciliationTests.R39_Parallel_workers_cannot_duplicate_the_same_mutation
+```
+
+There is no GitHub CI (no `.github` directory); every result is a local run. No Application-, CQRS- or API-level
+test project exists beyond Domain and Persistence.
+
+**R39 investigated, not relabelled.** R39 starts two workers with the same caller and key in parallel. Both
+returned no outcome. Its `AttemptAsync` converts any exception to `null`, so the failure point was read from the
+database:
+
+```text
+ServicingOperation 639249940078276325   Status Executing   ClaimGeneration 1
+OperationOrderClaim                     Generation 2, IsBlocking
+ServicingExternalEvidence (DocumentVoid) Confirmed, VOID-T00010000001405
+CommandReceipt                          Pending
+```
+
+Reading of that state:
+
+1. Worker A crossed the boundary, dispatched **once**, and checkpointed `Confirmed`.
+2. Worker B's guard read landed before A's claim commit, and its acquire landed after it. The frozen re-entrant
+   branch bumped the claim to generation 2, and §30's post-acquire check then refused B.
+3. A's finalization found a stale generation and failed.
+
+No second mutation happened, and the durable truth is intact. After lease expiry, a replay adopts `Confirmed`
+with zero provider calls (§31.6). The defect is liveness: the refused concurrent worker fences out the winner. It
+lives in the §30 guard (`OrderOperationCoordinator.BeginAsync` with `OperationClaimStore.AcquireAsync`'s frozen
+re-entrant bump). This brief did not touch that window — the boundary save comes after `BeginAsync`.
+`OperationCoordinatorInterleavingTests` asserts only that B is refused, never that A can still finish, which is
+how it stayed hidden. Isolated re-runs of R39: R39-RATE-PENDING.
 
 ### 32.11 Verdict
 
