@@ -28,60 +28,13 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
             var existing = await BlockingClaimQuery(orderId).SingleOrDefaultAsync(cancellationToken);
 
-            if (existing is not null)
-            {
-                if (existing.OperationId != operationId)
-                    throw ExceptionFactory.OperationInProgress(existing.OperationId, orderId);
+            if (existing is null)
+                return await InsertAsync(orderId, operationId, recoveryLeaseUntil, cancellationToken);
 
-                existing.Generation++;
-                existing.RecoveryLeaseUntil = recoveryLeaseUntil;
+            if (existing.OperationId != operationId)
+                throw ExceptionFactory.OperationInProgress(existing.OperationId, orderId);
 
-                try
-                {
-                    await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    _dbContext.Entry(existing).State = EntityState.Detached;
-                    throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
-                }
-
-                return Project(existing);
-            }
-
-            var claim = new OperationOrderClaim
-            {
-                Id = _idGenerator.NewId(),
-                OperationId = operationId,
-                OrderId = orderId,
-                Generation = 1,
-                IsBlocking = true,
-                AcquiredAt = _clock.GetDateTime(),
-                RecoveryLeaseUntil = recoveryLeaseUntil
-            };
-
-            _dbContext.Set<OperationOrderClaim>().Add(claim);
-
-            try
-            {
-                await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
-            }
-            catch (DbUpdateException)
-            {
-                _dbContext.Entry(claim).State = EntityState.Detached;
-
-                var winner = await BlockingClaimQuery(orderId).AsNoTracking().SingleOrDefaultAsync(cancellationToken);
-
-                if (winner is null)
-                    throw;
-
-                if (winner.OperationId != operationId)
-                    throw ExceptionFactory.OperationInProgress(winner.OperationId, orderId);
-
-                throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
-            }
-
-            return Project(claim);
+            return await AdvanceAsync(existing, orderId, recoveryLeaseUntil, cancellationToken);
         }
 
         public async Task<OperationClaim> AcquireAsync(
@@ -95,10 +48,16 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
             var existing = await BlockingClaimQuery(orderId).SingleOrDefaultAsync(cancellationToken);
 
-            if (existing is not null && existing.OperationId == operationId && !IsObserved(existing, observed))
+            if (existing is null)
+                return await InsertAsync(orderId, operationId, recoveryLeaseUntil, cancellationToken);
+
+            if (existing.OperationId != operationId)
+                throw ExceptionFactory.OperationInProgress(existing.OperationId, orderId);
+
+            if (!IsObserved(existing, observed))
                 throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
 
-            return await AcquireAsync(orderId, operationId, recoveryLeaseUntil, cancellationToken);
+            return await AdvanceAsync(existing, orderId, recoveryLeaseUntil, cancellationToken);
         }
 
         public async Task<OperationClaim?> FindBlockingAsync(long orderId, CancellationToken cancellationToken = default)
@@ -139,6 +98,69 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
             claim.IsBlocking = false;
             claim.ResolvedAt = _clock.GetDateTime();
+        }
+
+        private async Task<OperationClaim> AdvanceAsync(
+            OperationOrderClaim existing,
+            long orderId,
+            DateTimeOffset recoveryLeaseUntil,
+            CancellationToken cancellationToken)
+        {
+            existing.Generation++;
+            existing.RecoveryLeaseUntil = recoveryLeaseUntil;
+
+            try
+            {
+                await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                _dbContext.Entry(existing).State = EntityState.Detached;
+                throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
+            }
+
+            return Project(existing);
+        }
+
+        private async Task<OperationClaim> InsertAsync(
+            long orderId,
+            long operationId,
+            DateTimeOffset recoveryLeaseUntil,
+            CancellationToken cancellationToken)
+        {
+            var claim = new OperationOrderClaim
+            {
+                Id = _idGenerator.NewId(),
+                OperationId = operationId,
+                OrderId = orderId,
+                Generation = 1,
+                IsBlocking = true,
+                AcquiredAt = _clock.GetDateTime(),
+                RecoveryLeaseUntil = recoveryLeaseUntil
+            };
+
+            _dbContext.Set<OperationOrderClaim>().Add(claim);
+
+            try
+            {
+                await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                _dbContext.Entry(claim).State = EntityState.Detached;
+
+                var winner = await BlockingClaimQuery(orderId).AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+
+                if (winner is null)
+                    throw;
+
+                if (winner.OperationId != operationId)
+                    throw ExceptionFactory.OperationInProgress(winner.OperationId, orderId);
+
+                throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
+            }
+
+            return Project(claim);
         }
 
         private IQueryable<OperationOrderClaim> BlockingClaimQuery(long orderId)

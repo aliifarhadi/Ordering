@@ -121,6 +121,65 @@ namespace AeroTech.Ordering.Persistence.Tests.Servicing
                 .AnyAsync(claim => claim.OrderId == orderId && claim.IsBlocking));
         }
 
+        [Fact]
+        public async Task A_contender_whose_claim_read_saw_nothing_cannot_advance_a_claim_inserted_after_that_read()
+        {
+            var orderId = NewId();
+            const long operationId = 8282;
+            byte[]? winnerRowVersion = null;
+
+            var barrier = new ClaimReadBarrierInterceptor(async () =>
+            {
+                await using (var owner = _fixture.NewCommandContext())
+                    await NewStore(owner).AcquireAsync(orderId, operationId, Lease);
+
+                await using var reading = _fixture.NewCommandContext();
+                winnerRowVersion = (await BlockingClaimAsync(reading, orderId)).RowVersion;
+            });
+
+            await using var contender = new OrderingDbContext(
+                new DbContextOptionsBuilder<OrderingDbContext>()
+                    .UseSqlServer(OrderingDatabaseFixture.ConnectionString)
+                    .AddInterceptors(barrier)
+                    .Options,
+                new OrderingDatabaseFixture.NullIdentityService(),
+                new OrderingDatabaseFixture.FixedClock(),
+                new OrderingDatabaseFixture.NullDomainEventDispatcher());
+
+            var outcome = await Capture(
+                NewStore(contender).AcquireAsync(orderId, operationId, Lease.AddHours(1), null));
+
+            Assert.Equal(1, barrier.Barriers);
+
+            await using var verification = _fixture.NewCommandContext();
+            var stored = await BlockingClaimAsync(verification, orderId);
+
+            Assert.Equal(operationId, stored.OperationId);
+            Assert.Equal(1, stored.Generation);
+            Assert.Equal(Lease, stored.RecoveryLeaseUntil);
+            Assert.Equal(winnerRowVersion, stored.RowVersion);
+            Assert.True(stored.IsBlocking);
+            Assert.Null(outcome.Claim);
+            Assert.Equal(20076, outcome.Error?.Code);
+
+            var store = NewStore(verification);
+
+            await store.EnsureCurrentGenerationAsync(orderId, operationId, 1);
+            await store.ResolveAsync(orderId, operationId, 1);
+            await verification.SaveChangesAsync();
+
+            await using var resolved = _fixture.NewCommandContext();
+
+            Assert.False(await resolved.Set<OperationOrderClaim>()
+                .AsNoTracking()
+                .AnyAsync(claim => claim.OrderId == orderId && claim.IsBlocking));
+        }
+
+        private static Task<OperationOrderClaim> BlockingClaimAsync(OrderingDbContext context, long orderId)
+            => context.Set<OperationOrderClaim>()
+                .AsNoTracking()
+                .SingleAsync(claim => claim.OrderId == orderId && claim.IsBlocking);
+
         private static async Task<Outcome> Capture(Task<Domain.Servicing.Operations.Contracts.OperationClaim> task)
         {
             try

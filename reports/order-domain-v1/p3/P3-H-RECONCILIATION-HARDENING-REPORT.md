@@ -2344,3 +2344,138 @@ P3 READY TO FREEZE: YES
 ```
 
 P4 was not started.
+
+**Superseded by §34.** The verdict above and the §33.3 statement *"The comparison and the write are atomic with
+respect to other writers"* were issued at `f8c5b452`. That statement was false: see §34.
+
+---
+
+## 34. True final closure — the compare-and-acquire TOCTOU
+
+Baseline `f8c5b45260edc35d02c3fbea69ef8ca20cfb27d5`.
+
+### 34.1 Why the `f8c5b452` green gate was insufficient
+
+The `f8c5b452` gate was 1432 / 1432, but no test forced the window that remained. §33's compare-and-acquire
+overload read the blocking claim once, and when it found none it delegated to the unconditional three-argument
+`AcquireAsync`, which read the claim a **second** time:
+
+```text
+B  overload first read                 -> no blocking claim        (observed = null)
+A  AcquireAsync inserts generation 1   -> committed
+B  delegates to three-argument AcquireAsync
+B  second read                         -> finds A's same-operation claim
+B  unconditional re-entrant branch     -> Generation++ -> 2, committed, returned as B's claim
+```
+
+Nothing tied the two reads into one decision. The observed-claim check ran only against the first read, so a
+contender that had observed nothing could still advance the owner's fencing generation. That is the exact R39
+invariant. R39-A did not catch it because it inserts A's claim before B's overload starts.
+
+### 34.2 Correction
+
+`OperationClaimStore` now decides from a single read. The block that inserts the claim and the RowVersion-guarded
+`Generation++` block were extracted into the private helpers `InsertAsync` and `AdvanceAsync`. Both overloads use them,
+and neither overload calls the other.
+
+```text
+compare-and-acquire(observed)
+  no blocking claim                         -> InsertAsync: generation 1; unique-index loser -> 20070 (other op) / 20076 (same op), no bump
+  blocking claim of another operation       -> 20070, zero write
+  same operation, not observed at this gen  -> 20076, zero write
+  same operation, observed at this gen      -> AdvanceAsync: Generation++ (RowVersion conflict -> 20076)
+
+three-argument acquire                      -> unchanged semantics: insert / 20070 / unconditional AdvanceAsync
+```
+
+The interface, coordinator, schema and migrations are unchanged, and no lock was added.
+
+### 34.3 R39-F
+
+`ClaimFencingTests.A_contender_whose_claim_read_saw_nothing_cannot_advance_a_claim_inserted_after_that_read` makes
+the interleaving deterministic. `ClaimReadBarrierInterceptor` pauses the contender immediately after its first
+claim SELECT has executed. While it is paused, the owner inserts generation 1.
+
+```text
+baseline f8c5b45   FAILED   Assert.Equal() Expected: 1  Actual: 2   (ClaimFencingTests.cs:158)
+after 34.2         passed
+```
+
+### 34.4 Focused verification: red
+
+One run from the fixed source covered 98 tests: interleaving, `OperationClaimStoreTests`, `PersistenceConstraintTests`,
+`ClaimFencingTests`, `ServicingConfirmedTruthReconciliationTests`, the dispatch-boundary classes, `DA2_`,
+rejected-replay claim release, `VoluntaryChangeCrashBoundaryTests` and `ExchangeCrashBoundaryTests`.
+
+```text
+97 passed, 1 failed, 0 SQL timeouts
+passed  R39-F, R39-A, R39-C, R39-D, A_claim_that_appears_between_the_guard_read_and_the_acquire_refuses_the_second_worker,
+        all five ClaimFencingTests
+FAILED  ServicingConfirmedTruthReconciliationTests.R39_Parallel_workers_cannot_duplicate_the_same_mutation (R39-B)
+        line 171  Assert.Equal(1, dispatched)  Expected: 1  Actual: 2
+```
+
+Two void dispatches were counted for one idempotency key. Isolated re-runs of R39-B passed 10/10 on the fixed
+build and 10/10 on the `f8c5b45` build, so the failure depends on timing. It is still a real duplicate mutation,
+not a test defect, as 34.5 shows.
+
+### 34.5 Root cause: a pre-completion snapshot re-executes a Completed operation
+
+```text
+B  DocumentVoidService.VoidAsync loads order + ticket         ticket Issued (snapshot)
+A  VoidAsync runs to the end                                  provider void, ticket Voided, operation Completed, claim resolved
+B  BeginAsync: receipt replay; guard sees no blocking claim   observed = null
+B  AcquireAsync: no blocking claim -> insert generation 1     succeeds (A's claim is no longer blocking)
+B  PrepareAsync: existing operation -> ClaimGeneration = 1
+B  target.IsVoided                                            false (stale snapshot)
+B  ReplayUnfinishedAsync: prior status Completed              returns null (Completed is not in the unfinished set)
+B  EnsureCanBeVoided                                          passes on the stale snapshot
+B  BeginExecutionAsync: status Completed -> Executing         in memory only, no refusal
+B  IDocumentVoidPort.VoidAsync                                SECOND provider dispatch, same provider key
+B  FinalizeAsync save                                         DbUpdateConcurrencyException
+```
+
+**Deterministic diagnostic.** A throwaway test (built into a scratch folder; the file was deleted before the run
+and is not in the tree) loaded the order and ticket into worker B's context before worker A completed the void. B
+then replayed with the same key:
+
+```text
+firstDispatches=1; firstStatus=Completed; staleDispatches=1; sameKey=True; staleEligibilityChecks=1;
+staleOutcome=throw; error=DbUpdateConcurrencyException
+```
+
+The claim store is not the cause. In this interleaving B finds no blocking claim, so both the `f8c5b45` delegation
+and the 34.2 code take the same insert path. The defect lies in the dispatch boundary:
+
+* `ServicingOperationStore.BeginExecutionAsync` accepts an operation in a terminal status.
+* The rails decide from a document/order snapshot taken before `BeginAsync`.
+
+The same shape is present in `OrderCancelService`, `OrderScopeCancellationService`, `CancelRefundService` and
+`RefundService`. Each loads its snapshot before `BeginAsync`, each `ReplayUnfinishedAsync` returns null for
+`Completed`, and each then calls `BeginExecutionAsync`.
+
+### 34.6 Required correction (outside this brief's permitted scope)
+
+This brief froze the dispatch boundary and the rails. The correction needs an explicit decision before any code
+changes:
+
+* `BeginExecutionAsync` must refuse any status other than `Prepared`, so a terminal or already-executing operation
+  can never cross the dispatch boundary again. This needs a new `ExceptionFactory` code in the 20000–29999 block.
+* Each rail must map a terminal prior status on replay (`Completed`, and `Rejected` as it already does) to a
+  replay outcome before execution, instead of returning null.
+* A deterministic regression test per rail must use the 34.5 interleaving: the stale snapshot is loaded, the first
+  worker completes, the stale worker replays. It must show zero second dispatches and no durable change.
+
+### 34.7 Not performed
+
+R39-G mutation, the mechanical final-source check and the single final gate were not run, because focused
+verification is red.
+
+### 34.8 Verdict
+
+```text
+P3-H READY TO FREEZE: NO
+P3 READY TO FREEZE: NO
+```
+
+Blocking evidence: R39-B `Expected: 1, Actual: 2` dispatches (34.4), reproduced deterministically in 34.5.
