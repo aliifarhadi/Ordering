@@ -2,7 +2,9 @@
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation.Policies;
 using AeroTech.Ordering.Application.OrderAggregate.Operations;
 using AeroTech.Ordering.Domain.ElectronicMiscDocumentAggregate.Contracts;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
@@ -136,15 +138,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 throw;
             }
 
-            return releaseOutcome switch
+            if (releaseOutcome == ProviderOperationOutcome.Confirmed)
             {
-                ProviderOperationOutcome.Confirmed =>
-                    await FinalizeAsync(order, operation, scope, reason, cancelledBy, cancellationToken),
-                ProviderOperationOutcome.Rejected =>
-                    await RejectAsync(order, operation, cancellationToken),
-                _ =>
-                    await SuspendAsync(order, operation, releaseOutcome, cancellationToken)
-            };
+                var checkpoint = await RecordReleaseEvidenceAsync(operation, releaseOutcome, cancellationToken);
+
+                return ServicingEvidencePolicy.Contradicts(checkpoint)
+                    ? await ReconcileAsync(order, operation, ProviderOperationOutcome.Unknown, cancellationToken)
+                    : await FinalizeAsync(order, operation, scope, reason, cancelledBy, cancellationToken);
+            }
+
+            return releaseOutcome == ProviderOperationOutcome.Rejected
+                ? await RejectAsync(order, operation, cancellationToken)
+                : await SuspendAsync(order, operation, releaseOutcome, cancellationToken);
         }
 
         private async Task<CancelOrderOutcome> FinalizeAsync(
@@ -256,18 +261,31 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                     prior.Status,
                     isReplay: true);
 
-            if (prior.Status is not (ServicingOperationStatus.Executing
+            if (prior.Status is not (ServicingOperationStatus.Prepared
+                or ServicingOperationStatus.Executing
                 or ServicingOperationStatus.AwaitingExternal
                 or ServicingOperationStatus.NeedsReconciliation))
+                return null;
+
+            var durablyReleased = await HasConfirmedReleaseEvidenceAsync(operation.OperationId, cancellationToken);
+
+            if (!durablyReleased && prior.Status == ServicingOperationStatus.Prepared)
                 return null;
 
             var recovered = await _release.RecoverAsync(order.Id, operation, null, cancellationToken);
 
             if (recovered == ProviderOperationOutcome.Rejected)
-                return await RejectAsync(order, operation, cancellationToken);
+                return durablyReleased
+                    ? await ReconcileAsync(order, operation, ProviderOperationOutcome.Unknown, cancellationToken)
+                    : await RejectAsync(order, operation, cancellationToken);
 
             if (recovered != ProviderOperationOutcome.Confirmed)
                 return await ReconcileAsync(order, operation, recovered, cancellationToken);
+
+            var checkpoint = await RecordReleaseEvidenceAsync(operation, recovered, cancellationToken);
+
+            if (ServicingEvidencePolicy.Contradicts(checkpoint))
+                return await ReconcileAsync(order, operation, ProviderOperationOutcome.Unknown, cancellationToken);
 
             var decision = WithdrawEligibilityPolicy.Evaluate(
                 order,
@@ -318,7 +336,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 isReplay: true);
         }
 
-        private async Task RecordReleaseEvidenceAsync(
+        private async Task<ServicingEvidenceRecording> RecordReleaseEvidenceAsync(
             OrderOperation operation,
             ProviderOperationOutcome outcome,
             CancellationToken cancellationToken)
@@ -329,6 +347,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 null,
                 null,
                 cancellationToken: cancellationToken);
+
+        private async Task<bool> HasConfirmedReleaseEvidenceAsync(
+            long operationId,
+            CancellationToken cancellationToken)
+            => (await _evidence.ListAsync(operationId, cancellationToken))
+                .Any(evidence => evidence.Stage == ServicingEvidenceStage.ReservationRelease && evidence.IsConfirmed);
 
         private static bool CanStillBeCancelled(Order order)
         {

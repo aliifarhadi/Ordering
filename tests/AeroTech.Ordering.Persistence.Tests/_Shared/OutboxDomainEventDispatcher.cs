@@ -14,8 +14,13 @@ namespace AeroTech.Ordering.Persistence.Tests._Shared
 
         public List<IDomainEvent> Dispatched { get; } = new();
 
+        public bool FailCommit { get; set; }
+
         public async Task DispatchAsync(IReadOnlyCollection<IDomainEvent> domainEvents, CancellationToken cancellationToken = default)
         {
+            if (FailCommit)
+                throw new InvalidOperationException("The local servicing commit failed.");
+
             foreach (var domainEvent in domainEvents)
             {
                 Dispatched.Add(domainEvent);

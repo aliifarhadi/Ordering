@@ -9,6 +9,7 @@ using AeroTech.Ordering.Persistence.ElectronicTicketAggregate;
 using AeroTech.Ordering.Persistence.OrderAggregate;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.Persistence.Tests.P1;
+using AeroTech.Ordering.Providers.Deterministic;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -407,6 +408,118 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
             Assert.Equal(after.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
             Assert.Empty(harness.DocumentRefunds.ObservedRecoveryKeys);
+        }
+
+        [Fact]
+        public async Task A_refund_confirmed_before_a_failed_local_commit_is_adopted_once_by_the_same_operation()
+        {
+            await using var setup = NewHarness();
+            var order = await TicketedOrderAsync(setup);
+            var ticket = await FirstTicketAsync(order.Id);
+            var caller = TestCallerContexts.AgencyUser(11, $"subject-{Guid.NewGuid():N}");
+            var documents = new DeterministicDocumentRefundAdapter();
+            var values = new DeterministicRefundValueAdapter();
+            var key = NewKey();
+
+            await using (var crashing = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                Quote(crashing, order, ticket);
+                crashing.Events.FailCommit = true;
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => crashing.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion)));
+            }
+
+            var crashed = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Refund);
+            var durable = await ServicingCrashWindow.EvidenceAsync(
+                _fixture, crashed.Id, ServicingEvidenceStage.DocumentRefund);
+
+            Assert.Equal(ServicingOperationStatus.Prepared, crashed.Status);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, durable.Outcome);
+            Assert.Equal($"RFND-{ticket.DocumentNumber}", durable.ProviderReference);
+            Assert.Empty((await FirstTicketAsync(order.Id)).Refunds);
+            Assert.Equal(order.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
+            Assert.Single(documents.ObservedRefundKeys);
+            Assert.Single(values.ObservedRequests);
+
+            await ServicingCrashWindow.ExpireRecoveryLeaseAsync(_fixture, order.Id);
+
+            await using (var resuming = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                Quote(resuming, order, ticket);
+
+                var resumed = await resuming.Refund.RefundAsync(
+                    Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+                Assert.Equal(crashed.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+            }
+
+            Assert.Single(documents.ObservedRefundKeys);
+            Assert.Empty(documents.ObservedRecoveryKeys);
+            Assert.Single(values.ObservedRequests);
+
+            var refunded = await FirstTicketAsync(order.Id);
+            var after = await ReloadAsync(order.Id);
+
+            Assert.Equal(ElectronicTicketStatus.Refunded, refunded.StatusSummary);
+            Assert.Single(refunded.Refunds);
+            Assert.Equal(order.CommercialVersion + 1, after.CommercialVersion);
+            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Refund);
+
+            await using (var replaying = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                var replay = await replaying.Refund.RefundAsync(
+                    Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+                Assert.Equal(crashed.Id, replay.OperationId);
+                Assert.True(replay.IsReplay);
+            }
+
+            var replayed = await ReloadAsync(order.Id);
+
+            Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
+            Assert.Equal(after.CommercialVersion, replayed.CommercialVersion);
+            Assert.Single(replayed.Changes, change => change.ChangeType == OrderChangeType.Refund);
+            Assert.Single(documents.ObservedRefundKeys);
+            Assert.Empty(documents.ObservedRecoveryKeys);
+            Assert.Single(values.ObservedRequests);
+        }
+
+        [Fact]
+        public async Task A_refund_confirmation_contradicted_by_a_competing_durable_one_enters_reconciliation()
+        {
+            await using var setup = NewHarness();
+            var order = await TicketedOrderAsync(setup);
+            var ticket = await FirstTicketAsync(order.Id);
+            CompetingConfirmationEvidenceStore? competing = null;
+
+            await using var harness = new OrderSliceHarness(
+                _fixture,
+                TestCallerContexts.AgencyUser(11, $"subject-{Guid.NewGuid():N}"),
+                decorateEvidence: store => competing = new CompetingConfirmationEvidenceStore(store));
+
+            Quote(harness, order, ticket);
+
+            var outcome = await harness.Refund.RefundAsync(
+                Execution(order.Id, ticket, QuoteId, NewKey(), order.CommercialVersion));
+
+            var durable = await ServicingCrashWindow.EvidenceAsync(
+                _fixture, outcome.OperationId, ServicingEvidenceStage.DocumentRefund);
+            var operation = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Refund);
+
+            Assert.True(competing!.Competed);
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, outcome.OperationStatus);
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, operation.Status);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, durable.Outcome);
+            Assert.Equal(CompetingConfirmationEvidenceStore.CompetingReference, durable.ProviderReference);
+            Assert.Equal(CompetingConfirmationEvidenceStore.CompetingDetail, durable.Detail);
+            Assert.Empty((await FirstTicketAsync(order.Id)).Refunds);
+            Assert.Equal(order.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
+            Assert.Empty(harness.RefundValues.ObservedRequests);
         }
 
         [Fact]

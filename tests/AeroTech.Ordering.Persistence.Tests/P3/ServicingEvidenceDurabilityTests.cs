@@ -6,6 +6,7 @@ using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
 using AeroTech.Ordering.Persistence.Tests.P1;
+using AeroTech.Ordering.Providers.Deterministic;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using static AeroTech.Ordering.Persistence.Tests.P3.ExchangeScenarios;
@@ -165,6 +166,106 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Empty(replaying.DocumentVoids.ObservedVoidKeys);
             Assert.Empty(replaying.DocumentVoids.ObservedRecoveryKeys);
             Assert.Single(await replaying.ServicingEvidence.ListAsync(operationId));
+        }
+
+        [Fact]
+        public async Task D4_A_void_confirmed_before_a_failed_local_commit_is_adopted_once_by_the_same_operation()
+        {
+            await using var setup = NewHarness();
+            var issued = await IssuedAsync(_fixture, setup);
+            var caller = TestCallerContexts.AirlineUser(7438, $"durable-{Guid.NewGuid():N}");
+            var voids = new DeterministicDocumentVoidAdapter();
+            var key = NewKey();
+            var before = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
+
+            await using (var crashing = new OrderSliceHarness(_fixture, caller, documentVoids: voids))
+            {
+                crashing.Events.FailCommit = true;
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => crashing.VoidDocument.VoidAsync(
+                        issued.OrderId, issued.TicketId, VoidReason.AgentError, "crash window", 7, key));
+            }
+
+            var crashed = await ServicingCrashWindow.OperationAsync(
+                _fixture, issued.OrderId, ServicingOperationKind.VoidDocument);
+            var durable = await ServicingCrashWindow.EvidenceAsync(_fixture, crashed.Id, Stage);
+
+            Assert.Equal(ServicingOperationStatus.Prepared, crashed.Status);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, durable.Outcome);
+            Assert.Equal($"VOID-{before.DocumentNumber}", durable.ProviderReference);
+            Assert.Equal(
+                ElectronicTicketStatus.Issued,
+                (await TicketAsync(_fixture, issued.OrderId, issued.TicketId)).StatusSummary);
+            Assert.Single(voids.ObservedVoidKeys);
+
+            await ServicingCrashWindow.ExpireRecoveryLeaseAsync(_fixture, issued.OrderId);
+
+            await using (var resuming = new OrderSliceHarness(_fixture, caller, documentVoids: voids))
+            {
+                var resumed = await resuming.VoidDocument.VoidAsync(
+                    issued.OrderId, issued.TicketId, VoidReason.AgentError, "crash window", 7, key);
+
+                Assert.Equal(crashed.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+            }
+
+            Assert.Single(voids.ObservedVoidKeys);
+            Assert.Empty(voids.ObservedRecoveryKeys);
+
+            var adopted = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
+
+            Assert.Equal(ElectronicTicketStatus.Voided, adopted.StatusSummary);
+            Assert.Equal(before.DocumentVersion + 1, adopted.DocumentVersion);
+
+            await using (var replaying = new OrderSliceHarness(_fixture, caller, documentVoids: voids))
+            {
+                var replay = await replaying.VoidDocument.VoidAsync(
+                    issued.OrderId, issued.TicketId, VoidReason.AgentError, "crash window", 7, key);
+
+                Assert.Equal(crashed.Id, replay.OperationId);
+                Assert.True(replay.IsReplay);
+            }
+
+            var afterReplay = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
+
+            Assert.Equal(adopted.DocumentVersion, afterReplay.DocumentVersion);
+            Assert.Equal(adopted.PriceLinks.Count, afterReplay.PriceLinks.Count);
+            Assert.Single(voids.ObservedVoidKeys);
+            Assert.Empty(voids.ObservedRecoveryKeys);
+            Assert.Equal(
+                ProviderOperationOutcome.Confirmed,
+                (await ServicingCrashWindow.EvidenceAsync(_fixture, crashed.Id, Stage)).Outcome);
+        }
+
+        [Fact]
+        public async Task D5_A_void_confirmation_contradicted_by_a_competing_durable_one_enters_reconciliation()
+        {
+            await using var setup = NewHarness();
+            var issued = await IssuedAsync(_fixture, setup);
+            CompetingConfirmationEvidenceStore? competing = null;
+
+            await using var voiding = new OrderSliceHarness(
+                _fixture,
+                TestCallerContexts.AirlineUser(7438, $"durable-{Guid.NewGuid():N}"),
+                decorateEvidence: store => competing = new CompetingConfirmationEvidenceStore(store));
+
+            var outcome = await voiding.VoidDocument.VoidAsync(
+                issued.OrderId, issued.TicketId, VoidReason.AgentError, "contradiction", 7, NewKey());
+
+            var durable = await ServicingCrashWindow.EvidenceAsync(_fixture, outcome.OperationId, Stage);
+            var operation = await ServicingCrashWindow.OperationAsync(
+                _fixture, issued.OrderId, ServicingOperationKind.VoidDocument);
+
+            Assert.True(competing!.Competed);
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, outcome.OperationStatus);
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, operation.Status);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, durable.Outcome);
+            Assert.Equal(CompetingConfirmationEvidenceStore.CompetingReference, durable.ProviderReference);
+            Assert.Equal(CompetingConfirmationEvidenceStore.CompetingDetail, durable.Detail);
+            Assert.Equal(
+                ElectronicTicketStatus.Issued,
+                (await TicketAsync(_fixture, issued.OrderId, issued.TicketId)).StatusSummary);
         }
 
         private OrderSliceHarness NewHarness()

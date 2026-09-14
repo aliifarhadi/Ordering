@@ -167,6 +167,104 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Fact]
+        public async Task R20_A_release_confirmed_before_a_failed_local_commit_is_adopted_once_without_a_second_release()
+        {
+            await using var setup = NewHarness();
+            var order = await ReservedOrderAsync(setup);
+            var caller = Caller();
+            var key = NewKey();
+
+            var operationId = await CrashAfterReleaseCheckpointAsync(caller, order.Id, key);
+
+            await using (var resuming = new OrderSliceHarness(_fixture, caller))
+            {
+                resuming.Reservation.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+                var resumed = await resuming.Cancel.CancelAsync(order.Id, Reason, Actor, key, null);
+
+                Assert.Equal(operationId, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+                Assert.Empty(resuming.Reservation.ObservedOperationKeys);
+                Assert.NotEmpty(resuming.Reservation.ObservedRecoveryKeys);
+            }
+
+            var cancelled = await ReloadAsync(order.Id);
+
+            Assert.Equal(OrderStatus.Cancelled, cancelled.Status);
+            Assert.Single(cancelled.Changes, change => change.ChangeType == OrderChangeType.Cancel);
+
+            await using (var replaying = new OrderSliceHarness(_fixture, caller))
+            {
+                var replay = await replaying.Cancel.CancelAsync(order.Id, Reason, Actor, key, null);
+
+                Assert.Equal(operationId, replay.OperationId);
+                Assert.True(replay.IsReplay);
+                Assert.Empty(replaying.Reservation.ObservedOperationKeys);
+                Assert.Empty(replaying.Reservation.ObservedRecoveryKeys);
+            }
+
+            var replayed = await ReloadAsync(order.Id);
+
+            Assert.Equal(cancelled.CommercialVersion, replayed.CommercialVersion);
+            Assert.Single(replayed.Changes, change => change.ChangeType == OrderChangeType.Cancel);
+            Assert.Equal(
+                ProviderOperationOutcome.Confirmed,
+                (await ServicingCrashWindow.EvidenceAsync(
+                    _fixture, operationId, ServicingEvidenceStage.ReservationRelease)).Outcome);
+        }
+
+        [Fact]
+        public async Task R21_A_recovered_rejection_never_overrides_a_durable_release_confirmation()
+        {
+            await using var setup = NewHarness();
+            var order = await ReservedOrderAsync(setup);
+            var caller = Caller();
+            var key = NewKey();
+
+            var operationId = await CrashAfterReleaseCheckpointAsync(caller, order.Id, key);
+
+            await using var resuming = new OrderSliceHarness(_fixture, caller);
+
+            resuming.Reservation.RecoveryOutcome = ProviderOperationOutcome.Rejected;
+
+            var resumed = await resuming.Cancel.CancelAsync(order.Id, Reason, Actor, key, null);
+
+            Assert.Equal(operationId, resumed.OperationId);
+            Assert.Equal(ServicingOperationStatus.NeedsReconciliation, resumed.OperationStatus);
+            Assert.Empty(resuming.Reservation.ObservedOperationKeys);
+            Assert.NotEqual(OrderStatus.Cancelled, (await ReloadAsync(order.Id)).Status);
+            Assert.Equal(
+                ProviderOperationOutcome.Confirmed,
+                (await ServicingCrashWindow.EvidenceAsync(
+                    _fixture, operationId, ServicingEvidenceStage.ReservationRelease)).Outcome);
+        }
+
+        private async Task<long> CrashAfterReleaseCheckpointAsync(ICallerContext caller, long orderId, string key)
+        {
+            await using (var crashing = new OrderSliceHarness(_fixture, caller))
+            {
+                crashing.Events.FailCommit = true;
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => crashing.Cancel.CancelAsync(orderId, Reason, Actor, key, null));
+
+                Assert.NotEmpty(crashing.Reservation.ObservedOperationKeys);
+            }
+
+            var crashed = await ServicingCrashWindow.OperationAsync(_fixture, orderId, ServicingOperationKind.Cancel);
+            var durable = await ServicingCrashWindow.EvidenceAsync(
+                _fixture, crashed.Id, ServicingEvidenceStage.ReservationRelease);
+
+            Assert.Equal(ServicingOperationStatus.Prepared, crashed.Status);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, durable.Outcome);
+            Assert.NotEqual(OrderStatus.Cancelled, (await ReloadAsync(orderId)).Status);
+
+            await ServicingCrashWindow.ExpireRecoveryLeaseAsync(_fixture, orderId);
+
+            return crashed.Id;
+        }
+
+        [Fact]
         public async Task R19b_An_agreeing_order_and_inventory_report_no_unresolved_work()
         {
             await using var harness = NewHarness();

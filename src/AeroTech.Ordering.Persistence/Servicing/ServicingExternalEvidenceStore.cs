@@ -6,6 +6,7 @@ using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain._Shared.Resources;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation.Policies;
 using Microsoft.EntityFrameworkCore;
 
 namespace AeroTech.Ordering.Persistence.Servicing
@@ -14,7 +15,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
     {
         private const int UpsertAttempts = 3;
 
-        private const string UpgradeSql =
+        private const string SupersedeSql =
             @"UPDATE [Order].[ServicingExternalEvidences]
                  SET [Outcome] = @outcome,
                      [ProviderReference] = COALESCE(@reference, [ProviderReference]),
@@ -24,7 +25,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
                      [UpdatedAt] = @now
                WHERE [OperationId] = @operationId
                  AND [Stage] = @stage
-                 AND [Outcome] <> @confirmed";
+                 AND [Outcome] IN ({0})";
 
         private const string InsertSql =
             @"INSERT INTO [Order].[ServicingExternalEvidences]
@@ -35,12 +36,9 @@ namespace AeroTech.Ordering.Persistence.Servicing
                      SELECT 1 FROM [Order].[ServicingExternalEvidences]
                       WHERE [OperationId] = @operationId AND [Stage] = @stage)";
 
-        private const string ConfirmedSql =
-            @"SELECT COUNT(1) FROM [Order].[ServicingExternalEvidences]
-               WHERE [OperationId] = @operationId AND [Stage] = @stage AND [Outcome] = @confirmed";
-
-        private const string ExistsSql =
-            @"SELECT COUNT(1) FROM [Order].[ServicingExternalEvidences]
+        private const string ReadSql =
+            @"SELECT [Outcome], [ProviderReference], [Detail], [DocumentKind], [DocumentNumber], [RecordedAt]
+                FROM [Order].[ServicingExternalEvidences]
                WHERE [OperationId] = @operationId AND [Stage] = @stage";
 
         private readonly OrderingDbContext _dbContext;
@@ -52,7 +50,7 @@ namespace AeroTech.Ordering.Persistence.Servicing
             _clock = clock;
         }
 
-        public async Task RecordAsync(
+        public async Task<ServicingEvidenceRecording> RecordAsync(
             long operationId,
             ServicingEvidenceStage stage,
             ProviderOperationOutcome outcome,
@@ -62,9 +60,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
             string? documentNumber = null,
             CancellationToken cancellationToken = default)
         {
-            var parameters = new EvidenceParameters(
+            var attempted = new ServicingExternalEvidence(
                 operationId, stage, outcome, providerReference, detail, documentKind, documentNumber,
                 _clock.GetDateTime());
+
+            var superseded = ServicingEvidencePolicy.OutcomesSupersededBy(outcome);
 
             using var suppressed = new TransactionScope(
                 TransactionScopeOption.Suppress, TransactionScopeAsyncFlowOption.Enabled);
@@ -74,14 +74,18 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
             for (var attempt = 0; attempt < UpsertAttempts; attempt++)
             {
-                if (await ExecuteAsync(connection, UpgradeSql, parameters, cancellationToken) > 0)
-                    return;
+                if (superseded.Count > 0
+                    && await SupersedeAsync(connection, attempted, superseded, cancellationToken) > 0)
+                    return new ServicingEvidenceRecording(
+                        attempted, await DurableAsync(connection, attempted, cancellationToken), true);
 
-                if (await CountAsync(connection, ConfirmedSql, parameters, cancellationToken) > 0)
-                    return;
+                var durable = await ReadAsync(connection, attempted, cancellationToken);
 
-                if (await TryInsertAsync(connection, parameters, cancellationToken))
-                    return;
+                if (durable is not null && !superseded.Contains(durable.Outcome))
+                    return new ServicingEvidenceRecording(attempted, durable, false);
+
+                if (durable is null && await TryInsertAsync(connection, attempted, cancellationToken))
+                    return new ServicingEvidenceRecording(attempted, attempted, true);
             }
 
             throw ExceptionFactory.ServicingEvidenceNotRecorded(operationId, stage);
@@ -119,82 +123,95 @@ namespace AeroTech.Ordering.Persistence.Servicing
             return connection;
         }
 
+        private static async Task<int> SupersedeAsync(
+            DbConnection connection,
+            ServicingExternalEvidence attempted,
+            IReadOnlyList<ProviderOperationOutcome> superseded,
+            CancellationToken cancellationToken)
+        {
+            var placeholders = string.Join(", ", superseded.Select((_, index) => $"@superseded{index}"));
+
+            await using var command = Bind(connection, string.Format(SupersedeSql, placeholders), attempted);
+
+            for (var index = 0; index < superseded.Count; index++)
+                Add(command, $"@superseded{index}", DbType.Int32, (int)superseded[index]);
+
+            return await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         private static async Task<bool> TryInsertAsync(
             DbConnection connection,
-            EvidenceParameters parameters,
+            ServicingExternalEvidence attempted,
             CancellationToken cancellationToken)
         {
             try
             {
-                return await ExecuteAsync(connection, InsertSql, parameters, cancellationToken) > 0;
+                await using var command = Bind(connection, InsertSql, attempted);
+
+                return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
             }
             catch (DbException)
             {
-                if (await CountAsync(connection, ExistsSql, parameters, cancellationToken) > 0)
+                if (await ReadAsync(connection, attempted, cancellationToken) is not null)
                     return false;
 
                 throw;
             }
         }
 
-        private static async Task<int> ExecuteAsync(
+        private static async Task<ServicingExternalEvidence> DurableAsync(
             DbConnection connection,
-            string sql,
-            EvidenceParameters parameters,
+            ServicingExternalEvidence attempted,
+            CancellationToken cancellationToken)
+            => await ReadAsync(connection, attempted, cancellationToken)
+               ?? throw ExceptionFactory.ServicingEvidenceNotRecorded(attempted.OperationId, attempted.Stage);
+
+        private static async Task<ServicingExternalEvidence?> ReadAsync(
+            DbConnection connection,
+            ServicingExternalEvidence attempted,
             CancellationToken cancellationToken)
         {
-            await using var command = parameters.Bind(connection, sql);
+            await using var command = Bind(connection, ReadSql, attempted);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
-            return await command.ExecuteNonQueryAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return null;
+
+            return new ServicingExternalEvidence(
+                attempted.OperationId,
+                attempted.Stage,
+                (ProviderOperationOutcome)reader.GetInt32(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.IsDBNull(3) ? null : (AccountableDocumentKind)reader.GetInt32(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.GetFieldValue<DateTimeOffset>(5));
         }
 
-        private static async Task<int> CountAsync(
-            DbConnection connection,
-            string sql,
-            EvidenceParameters parameters,
-            CancellationToken cancellationToken)
+        private static DbCommand Bind(DbConnection connection, string sql, ServicingExternalEvidence evidence)
         {
-            await using var command = parameters.Bind(connection, sql);
+            var command = connection.CreateCommand();
+            command.CommandText = sql;
 
-            return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+            Add(command, "@operationId", DbType.Int64, evidence.OperationId);
+            Add(command, "@stage", DbType.Int32, (int)evidence.Stage);
+            Add(command, "@outcome", DbType.Int32, (int)evidence.Outcome);
+            Add(command, "@reference", DbType.String, evidence.ProviderReference);
+            Add(command, "@detail", DbType.String, evidence.Detail);
+            Add(command, "@kind", DbType.Int32, (int?)evidence.DocumentKind);
+            Add(command, "@number", DbType.String, evidence.DocumentNumber);
+            Add(command, "@now", DbType.DateTimeOffset, evidence.RecordedAt);
+
+            return command;
         }
 
-        private sealed record EvidenceParameters(
-            long OperationId,
-            ServicingEvidenceStage Stage,
-            ProviderOperationOutcome Outcome,
-            string? ProviderReference,
-            string? Detail,
-            AccountableDocumentKind? DocumentKind,
-            string? DocumentNumber,
-            DateTimeOffset Now)
+        private static void Add(DbCommand command, string name, DbType type, object? value)
         {
-            public DbCommand Bind(DbConnection connection, string sql)
-            {
-                var command = connection.CreateCommand();
-                command.CommandText = sql;
-
-                Add(command, "@operationId", DbType.Int64, OperationId);
-                Add(command, "@stage", DbType.Int32, (int)Stage);
-                Add(command, "@outcome", DbType.Int32, (int)Outcome);
-                Add(command, "@reference", DbType.String, ProviderReference);
-                Add(command, "@detail", DbType.String, Detail);
-                Add(command, "@kind", DbType.Int32, (int?)DocumentKind);
-                Add(command, "@number", DbType.String, DocumentNumber);
-                Add(command, "@now", DbType.DateTimeOffset, Now);
-                Add(command, "@confirmed", DbType.Int32, (int)ProviderOperationOutcome.Confirmed);
-
-                return command;
-            }
-
-            private static void Add(DbCommand command, string name, DbType type, object? value)
-            {
-                var parameter = command.CreateParameter();
-                parameter.ParameterName = name;
-                parameter.DbType = type;
-                parameter.Value = value ?? DBNull.Value;
-                command.Parameters.Add(parameter);
-            }
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = name;
+            parameter.DbType = type;
+            parameter.Value = value ?? DBNull.Value;
+            command.Parameters.Add(parameter);
         }
     }
 }

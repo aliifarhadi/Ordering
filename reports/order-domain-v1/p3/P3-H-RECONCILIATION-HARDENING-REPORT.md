@@ -1287,16 +1287,12 @@ COMMITTED.
 The monotonic CAS is unchanged (`UPDATE ... WHERE [Outcome] <> Confirmed`, `INSERT ... WHERE NOT EXISTS`,
 duplicate-key loser rereads, bounded, loud on exhaustion).
 
-**Effective order for a terminal outcome** (all four rails, verified in source):
-
-```text
-1. provider returns / recovery establishes the outcome
-2. RecordAsync commits evidence on the independent connection
-3. local materialization (document void/refund/correction, order consequence, transitions)
-4. OrderingUnitOfWork.SaveChangesAsync commits the local servicing transaction
-```
-
-In `DocumentVoidService.FinalizeAsync` the evidence call is the first statement, before `target.Void(...)`.
+**RETRACTED — this claim was false.** This paragraph originally stated that all four rails committed terminal
+evidence before local materialization, "verified in source". It was not verified. At `f89e3ad` only
+`DocumentVoidService.FinalizeAsync` recorded `Confirmed` first. `RefundService`, `CancelRefundService` and
+`OrderCancelService` never recorded `Confirmed` at all: their `FinalizeAsync` bodies mutated the ticket/order and
+ran the value movement with no evidence write, and evidence was written only on the suspend, reconcile and
+reject paths. The corrected order, now enforced in all four rails, and its proof are in §31.
 
 **A regression I introduced and removed in this run.** The first attempt used
 `AddDbContextFactory<OrderingDbContext>` as a singleton. The ServiceHost container then failed validation
@@ -1309,7 +1305,10 @@ design needs no DI change and keeps the original `(OrderingDbContext, IClock)` c
 **Resume after durable `Confirmed` — §7.** Before this correction every rail's replay called the provider's
 `Recover` unconditionally, ignoring durable evidence. With evidence now surviving a local rollback, that path
 became reachable with `Confirmed` already on record, and the deterministic `Recover` default (`Unknown`) sent
-the operation to `NeedsReconciliation` instead of adopting it. Call-site audit:
+the operation to `NeedsReconciliation` instead of adopting it. **Superseded by §31:** the table below covered
+only resume from `AwaitingExternal`/`NeedsReconciliation`. It missed the real crash window: a local commit
+failure leaves the operation `Prepared`, which these short-circuits skipped, so every rail re-dispatched. The
+original call-site audit, kept for the record:
 
 | Rail | Evidence stage | Resume with durable `Confirmed` |
 | --- | --- | --- |
@@ -1517,3 +1516,268 @@ Files changed: `ServicingExternalEvidenceStore` (the fix), `ExceptionFactory` + 
 (code 20333, contiguous 20001-20333), `ServicingEvidenceConcurrencyTests` (new),
 `ServicingConfirmedTruthReconciliationTests` (R39 diagnostic message only). No migration, no schema change,
 no port change, no CQRS or checkpoint-parity change.
+
+---
+
+## 31. Remaining correctness — contradiction, precedence, checkpoints and the real crash window
+
+Baseline `f89e3ad9b6c1005e95e949cfc3f41c01b33d6953`.
+
+### 31.1 Correction of the previous report
+
+§30 stated that all four rails committed terminal evidence before local materialization, "verified in source".
+**That was false.** At the baseline:
+
+| Rail | `Confirmed` recorded before local mutation? |
+| --- | --- |
+| `DocumentVoidService` | yes — first statement of `FinalizeAsync` |
+| `RefundService` | **no** — `FinalizeAsync` ran `ticket.Refund`, `order.CommitRefund`, the price change set and the value movement with no evidence write; evidence was written only on suspend / reconcile / reject |
+| `CancelRefundService` | **no** — same shape for `RefundCorrection` |
+| `OrderCancelService` | **no** — `order.Cancel` and `ApplyReservationReleased` ran with no `ReservationRelease` evidence |
+
+§30's "D3" did not test the crash window either. It injected evidence into an operation that had already been
+suspended to `AwaitingExternal`. The real window is different (31.6), and every rail — including DocumentVoid —
+re-dispatched the provider in it.
+
+### 31.2 Blocker 1 — contradictory terminal evidence fails closed
+
+**Before.** `RecordAsync` returned `Task`. A second `Confirmed` carrying a different provider reference hit the
+`<> Confirmed` guard, matched nothing and returned normally, so the rail went on to materialize as if its own
+answer had been stored.
+
+**After.**
+
+```text
+Domain   ServicingEvidenceRecording(Attempted, Durable, Applied)
+Domain   ServicingEvidencePolicy.Contradicts(recording)
+           Applied or attempted unresolved          -> false
+           otherwise, any difference in Outcome, ProviderReference, DocumentKind, DocumentNumber -> true
+Port     IServicingExternalEvidenceStore.RecordAsync -> Task<ServicingEvidenceRecording>
+Rails    Contradicts(checkpoint) -> the rail's existing ReconcileAsync (NeedsReconciliation), never FinalizeAsync
+```
+
+**Fields compared.** Outcome, provider reference, document kind and document number are the identity the
+frozen contract fixes for a provider step (`08` "StepId/key and economic payload survive every transport
+attempt"; `05` 1730 "contradictory terminal evidence opens reconciliation"). `Detail` is diagnostic text and
+is not compared. A `null` against a stored value is not treated as equivalent. When equivalence is not
+established, the rail fails closed.
+
+**Documented gap.** The contradicting answer's own reference is not persisted. `(OperationId, Stage)` keeps
+only the first durable row, and preserving both references (`05` 1730) needs a schema change. None was made.
+
+**Where it is enforced.** Each rail's `Confirmed` checkpoint, first attempt and recovery. Terminal `Rejected`
+writes are enforced too (DocumentVoid `RejectAsync`; Refund and CancelRefund `SettleUnfinishedAsync`), so a
+rejection can never close an operation whose `Confirmed` is already durable. OrderCancel records no rejected
+evidence. Its only reachable case — recovery `Rejected` against a durable release confirmation — reconciles
+explicitly.
+
+### 31.3 Blocker 2 — deterministic unresolved precedence; Rejected → Confirmed removed
+
+Which stored outcomes a write may replace is now a Domain rule, `ServicingEvidencePolicy.OutcomesSupersededBy`.
+The SQL receives it only as parameters (`WHERE [Outcome] IN (@superseded0, ...)`):
+
+| Write | May replace |
+| --- | --- |
+| `Confirmed`, `Rejected` | `Pending`, `Unknown` |
+| `Unknown` | `Pending` |
+| `Pending` | nothing |
+
+**Derivation, not preference.**
+
+* `Unknown` over `Pending`: the frozen production fold `ReservationReleaseCoordinator.Aggregate` already
+  resolves a set of unresolved observations for one operation to `Unknown` whenever any `Unknown` is present.
+  `03` §3.5 defines ambiguity as `Unknown`, and `07` line 88 says Pending/Unknown resolve only from correlated
+  results or authoritative reconciliation. A later `Pending` is therefore not a resolution. Routing does not
+  change: both map to `AwaitingExternal` / `NeedsReconciliation`.
+* Terminal immutability: `07` line 125 makes `Rejected` "definitively not executed", and `05` 1730 / `06` C-3
+  send contradictory terminal facts to reconciliation. **No frozen contract permits `Rejected -> Confirmed`**,
+  and no production rail writes that sequence (a rejected operation is settled and replays return early). The
+  upgrade is removed. It is now a contradiction.
+
+No `BLOCKED_DECISION` was needed for any pair: every pair of outcomes, on every stage, is now decided.
+
+C10a is now exact: the Pending/Unknown race ends `Unknown`, asserted 20 times per run. C10c pins both
+sequential orders. C10b asserts that the `Rejected` row survives and the `Confirmed` writer is flagged. C10d
+races `Confirmed` against `Rejected` 20 times and asserts exactly one writer is not flagged, and that its
+outcome is the durable one.
+
+### 31.4 Blockers 3 and 4 — Refund and CancelRefund checkpoint before materialization
+
+The checkpoint is recorded **where `Confirmed` is established**, before any local mutation:
+
+```text
+first attempt   provider Confirmed -> record Confirmed (independent connection) -> Contradicts? reconcile
+                                   -> FinalizeAsync (document record, order commit, price change set,
+                                      frozen value movement, transition, receipt, projection, UoW commit)
+recovery        Recover Confirmed  -> record Confirmed -> Contradicts? reconcile -> Adopt*Async -> FinalizeAsync
+durable resume  Confirmed on record -> Adopt*Async -> FinalizeAsync      (no Refund/CancelRefund, no Recover)
+```
+
+The recovery checkpoint precedes `AdoptRefundAsync` / `AdoptCorrectionAsync` deliberately. Adoption
+re-accepts the quote and re-stages the change, and both can fail. Recording afterwards would lose a
+provider-confirmed fact on that failure path. If the checkpoint itself throws, nothing is materialized: the
+exception leaves the rail before `FinalizeAsync`, with the claim retained.
+
+### 31.5 Blocker 5 — OrderCancel release checkpoint
+
+First attempt: release `Confirmed` -> `ReservationRelease = Confirmed` -> `order.Cancel` /
+`ApplyReservationReleased`. Recovery: `Recover` `Confirmed` -> checkpoint -> eligibility -> finalize.
+
+On resume with durable `Confirmed`, the rail still calls `Recover`. That is a read-back, not a release, and it
+is needed for a different unresolved fact: the per-reservation release state (`FulfillmentReservation.MarkReleased`)
+rolled back with the local transaction, and the operation-level row does not carry it. The checkpoint rule is
+not waived — the durable row is what forbids the `Release` re-dispatch and turns a recovered `Rejected` into
+reconciliation. Evidence granularity stays per operation. No frozen contract requires per-reservation
+evidence.
+
+### 31.6 Blocker 6 — the real crash window
+
+**What actually happens.** `OrderOperationCoordinator.BeginAsync` commits the receipt, the `Prepared`
+operation row and the claim through `OperationsWriteBoundary` (autocommit) before any provider call. Each rail
+then calls `TransitionAsync(Executing)`, which is only a tracked change and commits with the final
+`IUnitOfWork.SaveChangesAsync`. A failure after the independent evidence commit but before that commit
+therefore leaves:
+
+```text
+receipt + operation identity   durable (committed at BeginAsync)
+operation status               Prepared   (the Executing transition rolled back)
+claim                          blocking, lease live
+evidence                       Confirmed  (independent connection)
+local servicing state          none
+```
+
+`ReplayUnfinishedAsync` only considered `Executing / AwaitingExternal / NeedsReconciliation`, returned `null`
+for `Prepared`, and **fresh-dispatched the provider again**. Operation identity was never lost; the resume
+filter ignored it.
+
+**Fix (narrow, existing architecture).** Each rail's replay now admits `Prepared`, consults durable `Confirmed`
+first, and still returns `null` for `Prepared` without it (the unchanged "failed before dispatch" retry).
+No coordinator, claim, receipt, schema or DI change was made.
+
+**Test at the real commit boundary.** The harness's domain-event dispatcher has a `FailCommit` switch. It throws
+inside `CommandDbContext.SaveChangesAsync`, which `OrderingUnitOfWork` runs inside its transaction, so the rail's
+real local commit rolls back. There is no ambient caller transaction: that setup would roll back the operation
+identity, and production never runs that way. Each test runs the normal service path with the provider returning
+`Confirmed`, forces the failure, disposes the harness, reads the operation (`Prepared`) and the durable evidence
+from fresh contexts, and expires the claim lease by SQL (the fixture clock is frozen; production waits out the
+900 s lease). It then resumes in a **new** harness with the same caller and idempotency key, and asserts: same
+`OperationId`, `Completed`, zero second provider mutation, exactly one local adoption, and a further replay that
+changes nothing.
+
+### 31.7 Call-site audit
+
+| Rail / stage | Stable provider key | First-attempt checkpoint | Recovery checkpoint | Local mutation after checkpoint | Resume with durable `Confirmed` | `Recover` on that resume | Zero-redispatch proof | Test |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| DocumentVoid / `DocumentVoid` | `document-void:{documentId}:{operationId}` | `DocumentVoidService.FinalizeAsync` L175 (reached from L160) | same, reached from L344 | `target.Void`, `order.ApplyDocumentVoid`, transition, receipt, projection, UoW | L325 -> `FinalizeAsync` with stored reference; `Prepared` admitted L319 | none | shared adapter: `ObservedVoidKeys` stays 1, `ObservedRecoveryKeys` 0 | `ServicingEvidenceDurabilityTests.D4_…`, `D5_…` |
+| Refund / `DocumentRefund` | `document-refund:{ticketId}:{operationId}` | `RefundService` L255 | L566, before `AdoptRefundAsync` | `ticket.Refund`, `order.CommitRefund`, price change set, value movement, transition, receipt, projection, UoW | L542 -> `AdoptRefundAsync`; `Prepared` admitted L536 | no document `Recover`; the frozen value coordinator performs its own value `Recover` (`AfterRecovery`) | shared adapters: `ObservedRefundKeys` 1, document `ObservedRecoveryKeys` 0, value `ObservedRequests` 1 | `DocumentRefundFlowTests.A_refund_confirmed_before_a_failed_local_commit_…`, `…contradicted_by_a_competing_durable_one…` |
+| CancelRefund / `RefundCorrection` | `cancel-refund:{refundRecordId}:{operationId}` | `CancelRefundService` L192 | L486, before `AdoptCorrectionAsync` | `ticket.CancelRefund`, `order.CommitRefundCorrection`, price change set, value correction, transition, receipt, projection, UoW | L461 -> `AdoptCorrectionAsync`; `Prepared` admitted L455 | no document `Recover`; frozen value-correction `Recover` (`AfterRecovery`) | resuming harness: `ObservedCorrectionKeys` 0, `ObservedRecoveryKeys` 0, value `ObservedRequests` 0 | `CancelRefundFlowTests.A_correction_confirmed_before_a_failed_local_commit_…`, `…contradicted_by_a_competing_durable_one…` |
+| OrderCancel / `ReservationRelease` | `release:{reservationId}:{operationId}` per reservation | `OrderCancelService` L143 | L285, before eligibility and finalize | `order.Cancel`, `ApplyReservationReleased`, transition, receipt, projection, UoW | L270 flag; `Prepared` admitted L264; `Recover` -> checkpoint -> finalize | **yes** — per-reservation release state is a different unresolved fact (31.5); a recovered `Rejected` reconciles | resuming harness: release `ObservedOperationKeys` 0 | `ServicingInventoryConsistencyTests.R20_…`, `R21_…` |
+
+**`RefundValue` / `RefundValueCorrection` stages.** There are no writers, before or after. The value movement is
+owned by the frozen P3-D coordinators (`RefundValueMovementCoordinator`, `RefundValueCorrectionCoordinator`).
+They record the value outcome on the ticket's refund / correction record inside the same local transaction, and
+on `AfterRecovery` they call `Recover` and re-request only when `WasDispatched` is false. That is not a P3-H rail
+and it does not breach the checkpoint invariant, so it was not changed. Two limits are noted. First, after a
+crash-window resume the value step relies on the real value provider answering "was this key dispatched"; the
+deterministic refund-value adapter remembers dispatches, while the value-correction adapter has to be told
+(`RecoveredAsDispatched`), which the correction test does explicitly. Second, the value outcome itself has no
+independent durable checkpoint. Both are owned by the value-movement capability's `BLOCKED_INTEGRATION`.
+
+### 31.8 Discriminators and their mutations
+
+All relational tests run on SQL Server (`DotAirOrderNewP0Tests`). Each mutation was applied to the source,
+built, run and restored.
+
+| Test | One-line mutation that makes it fail | Observed |
+| --- | --- | --- |
+| `D4_A_void_confirmed_before_a_failed_local_commit_…` | drop `ServicingOperationStatus.Prepared` from the void replay filter | 2 `Void` dispatches |
+| same | replace the void `Confirmed` checkpoint with a no-op recording | no durable evidence after the crash |
+| `A_refund_confirmed_before_a_failed_local_commit_…` | drop `Prepared` from the refund replay filter | 2 document refund dispatches |
+| same | replace the refund first-attempt checkpoint with a no-op recording | no durable evidence after the crash |
+| `A_correction_confirmed_before_a_failed_local_commit_…` | drop `Prepared` from the correction replay filter | correction re-dispatched in the resuming scope |
+| same | replace the correction first-attempt checkpoint with a no-op recording | no durable evidence after the crash |
+| `R20_A_release_confirmed_before_a_failed_local_commit_…` | replace the release first-attempt checkpoint with a no-op recording | no durable evidence after the crash |
+| `R21_A_recovered_rejection_never_overrides_…` | `return durablyReleased` -> `return false` on the recovered-`Rejected` branch | `Rejected` instead of `NeedsReconciliation` |
+| `D5_…`, `A_refund_confirmation_contradicted_…`, `A_correction_confirmation_contradicted_…` | `Contradicts` guard -> `if (true) return false;` | `Completed` instead of `NeedsReconciliation` |
+| `C9`, `C1_C2_C3(Rejected)`, `C10d` | same | contradiction not flagged / two unflagged terminal writers |
+| `C10b` | same, and separately `Confirmed` allowed to supersede `Rejected` | `Rejected` row not flagged / upgraded |
+| `C10c(Unknown, Pending)` | `Pending` allowed to supersede `Unknown` | row ends `Pending` |
+| `C10a` | same | **did not fail** — 20 repetitions happened to settle on `Unknown`. C10a is a determinism regression guard, not the discriminator. C10c is. |
+
+**Two proofs of my own that were wrong, recorded rather than hidden.**
+
+1. The first "contradiction off" mutation was `return false && durable.Outcome != … || …`. It parses as
+   `(false && a) || b || …`, so only the outcome comparison was disabled and every contradiction test still
+   passed. The mutation was redone at the guard.
+2. Two mutation rounds lost Refund/CancelRefund results to SQL timeouts. The timeouts struck in test *setup*
+   (`OrderProjector.ProjectAsync` inside `CreateOrderAsync`), including in unmutated tests. Server wait stats
+   show `RESOURCE_SEMAPHORE` about 6.6 million ms against about 16 s on locks, with around 1.3–1.7 GB of host
+   memory free. That is SQL Express memory-grant starvation, not a lock introduced by the change. The affected
+   mutations were re-run in isolated batches.
+
+### 31.9 Preserved
+
+Separate physical connection with `TransactionScope(Suppress)`; parameterised writes; DocumentVoid
+`FinalizeAsync` records evidence first; the DocumentVoid durable-`Confirmed` resume short-circuit; the
+coordinator's post-acquire interleaving guard; claim, receipt and operation store contracts. No migration, no
+schema change, no DI change, no new exception code, no port added.
+
+**Residual, unchanged.** A `Prepared` operation with only *unresolved* durable evidence (a crash after a
+suspend's evidence write but before its local commit) still re-dispatches with the same stable provider key
+rather than recovering. That is a duplicate transport request under the same economic identity (`03` §3.4),
+not a second economic operation. Tightening it would change the frozen "failed before dispatch" retry, which is
+outside this brief.
+
+### 31.10 Files changed
+
+Domain: `ServicingEvidenceRecording` (new), `Policies/ServicingEvidencePolicy` (new),
+`IServicingExternalEvidenceStore` (return type). Persistence: `ServicingExternalEvidenceStore` (policy-driven
+supersession, durable read-back). Application: `DocumentVoidService`, `RefundService`, `CancelRefundService`,
+`OrderCancelService`. Tests: `ServicingEvidenceConcurrencyTests` (rewritten), `ServicingEvidenceDurabilityTests`
+(D4, D5), `DocumentRefundFlowTests`, `CancelRefundFlowTests`, `ServicingInventoryConsistencyTests` (2 cases
+each), `ServicingCrashWindow` and `CompetingConfirmationEvidenceStore` (new test support), `OrderSliceHarness`
+(`decorateEvidence`), `OutboxDomainEventDispatcher` (`FailCommit`). ICC `ICC-P3-SERVICING-RECONCILIATION`.
+
+### 31.11 Gate from final source
+
+One sequential run on the restored source, after every mutation round:
+
+```text
+BUILD                  0 errors (AeroTech.Ordering.sln, repository output)
+DOMAIN                 585 / 585
+EF OrderingDbContext   No changes have been made to the model since the last migration.
+EF OrderQueryDbContext No changes have been made to the model since the last migration.
+PERSISTENCE           1399 / 1399, 0 failed, 0 skipped, 8.7 min
+FOCUSED P3-H            31 / 31 before the mutation rounds (concurrency 16, durability D1–D5, the refund /
+                        correction / release crash-window and contradiction cases, both adoption tests,
+                        both interleaving tests)
+```
+
+1399 = the previous full run (1386), plus C10a/C10b added after it (1388), plus the 11 cases this correction
+adds. There is no application-, CQRS- or API-level test project beyond Domain and Persistence, and **no GitHub
+CI**: the repository has no `.github` directory. Every result above is local.
+
+Out-of-repository `dotnet test` of the Domain DLL fails 6 source-boundary tests, because they locate `src/` from
+`AppContext.BaseDirectory`. The gate therefore runs Domain from the project path, where it is 585/585.
+
+### 31.12 Verdict
+
+| Criterion | Status |
+| --- | --- |
+| Conflicting `Confirmed` fails closed, first durable row preserved, operation reconciles | met — policy + all four rails; C9, D5, refund / correction contradiction tests; mutation-proven |
+| Deterministic unresolved precedence from frozen sources; no unjustified `Rejected -> Confirmed` | met — derived (31.3), no `BLOCKED_DECISION`; C10a/C10c/C10b/C10d |
+| Refund, CancelRefund, OrderCancel checkpoint `Confirmed` before materialization, first attempt and recovery | met — 31.4, 31.5, audit 31.7 |
+| True crash window: forced local commit failure, new scope, same operation, zero second provider mutation, exact adoption, idempotent replay | met — D4, refund, correction, R20; mutation-proven on both the `Prepared` filter and the checkpoint |
+| Preserved guarantees, no schema / DI / port change | met — 31.9 |
+| Gate from final source | met — 31.11 |
+
+Known and documented, not blocking: the contradicting reference is not persisted (schema); release evidence has
+no provider reference; the unresolved-evidence `Prepared` retry re-sends under the same key (31.9); real-provider
+verification remains `BLOCKED_INTEGRATION`.
+
+```text
+P3-H READY TO FREEZE: YES
+P3 READY TO FREEZE: YES
+```
+
+P4 was not started.

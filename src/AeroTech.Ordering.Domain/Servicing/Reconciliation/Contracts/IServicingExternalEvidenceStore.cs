@@ -4,7 +4,7 @@ namespace AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts
 {
     public interface IServicingExternalEvidenceStore
     {
-        Task RecordAsync(
+        Task<ServicingEvidenceRecording> RecordAsync(
             long operationId,
             ServicingEvidenceStage stage,
             ProviderOperationOutcome outcome,

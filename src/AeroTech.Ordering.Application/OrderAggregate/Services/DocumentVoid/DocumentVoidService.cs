@@ -12,6 +12,7 @@ using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.Ports.DocumentVoid;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation.Policies;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
 namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
@@ -171,8 +172,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             string? providerReference,
             CancellationToken cancellationToken)
         {
-            await RecordEvidenceAsync(
+            var checkpoint = await RecordEvidenceAsync(
                 operation, target, ProviderOperationOutcome.Confirmed, providerReference, null, cancellationToken);
+
+            if (ServicingEvidencePolicy.Contradicts(checkpoint))
+                return await ReconcileAsync(
+                    order, operation, target, ProviderOperationOutcome.Unknown, cancellationToken, providerReference);
 
             target.Void(operation.OperationId, provenance, providerReference, _idGenerator, _clock);
             order.ApplyDocumentVoid(target.AffectedServiceIds, _clock);
@@ -198,8 +203,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             VoidTarget target,
             CancellationToken cancellationToken)
         {
-            await RecordEvidenceAsync(
+            var checkpoint = await RecordEvidenceAsync(
                 operation, target, ProviderOperationOutcome.Rejected, null, null, cancellationToken);
+
+            if (ServicingEvidencePolicy.Contradicts(checkpoint))
+                return await ReconcileAsync(order, operation, target, ProviderOperationOutcome.Unknown, cancellationToken);
 
             await _operationStore.TransitionAsync(
                 operation.OperationId,
@@ -308,7 +316,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             if (prior.Status == ServicingOperationStatus.Rejected)
                 return Outcome(order, operation, target, ProviderOperationOutcome.Rejected, prior.Status, false, true);
 
-            if (prior.Status is not (ServicingOperationStatus.Executing
+            if (prior.Status is not (ServicingOperationStatus.Prepared
+                or ServicingOperationStatus.Executing
                 or ServicingOperationStatus.AwaitingExternal
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
@@ -316,6 +325,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             if (await ConfirmedEvidenceAsync(operation.OperationId, cancellationToken) is { } confirmed)
                 return await FinalizeAsync(
                     order, operation, target, provenance, confirmed.ProviderReference, cancellationToken);
+
+            if (prior.Status == ServicingOperationStatus.Prepared)
+                return null;
 
             var recovery = await _provider.RecoverAsync(
                 new DocumentVoidRecoveryRequest(
@@ -356,7 +368,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                 .FirstOrDefault(evidence =>
                     evidence.Stage == ServicingEvidenceStage.DocumentVoid && evidence.IsConfirmed);
 
-        private async Task RecordEvidenceAsync(
+        private async Task<ServicingEvidenceRecording> RecordEvidenceAsync(
             OrderOperation operation,
             VoidTarget target,
             ProviderOperationOutcome outcome,

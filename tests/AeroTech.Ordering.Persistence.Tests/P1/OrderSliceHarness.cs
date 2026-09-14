@@ -70,7 +70,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             DeterministicEmdExchangeAdapter? emdExchanges = null,
             IEmdExchangePort? unconfiguredEmdExchanges = null,
             DeterministicDocumentVoidAdapter? documentVoids = null,
-            IDocumentVoidPort? unconfiguredDocumentVoids = null)
+            IDocumentVoidPort? unconfiguredDocumentVoids = null,
+            Func<Domain.Servicing.Reconciliation.Contracts.IServicingExternalEvidenceStore,
+                Domain.Servicing.Reconciliation.Contracts.IServicingExternalEvidenceStore>? decorateEvidence = null)
         {
             _fixture = fixture;
 
@@ -146,10 +148,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             CancellationQuotes = new DeterministicOrderCancellationQuoteAdapter();
             DocumentVoids = documentVoids ?? new DeterministicDocumentVoidAdapter();
             ServicingEvidence = new ServicingExternalEvidenceStore(_command, frameworkClock);
+            var railEvidence = decorateEvidence?.Invoke(ServicingEvidence) ?? ServicingEvidence;
             ManualResolutions = new ServicingManualResolutionStore(_command);
             VoidDocument = new Application.OrderAggregate.Services.DocumentVoid.DocumentVoidService(
-                Orders, tickets, miscDocuments, DocumentVoids, ServicingEvidence, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
-            Cancel = new OrderCancelService(ServicingEvidence, Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
+                Orders, tickets, miscDocuments, DocumentVoids, railEvidence, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
+            Cancel = new OrderCancelService(railEvidence, Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
             ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
 
             RefundQuotes = new DeterministicRefundQuoteAdapter();
@@ -171,7 +174,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             RefundValueCorrections = new DeterministicRefundValueCorrectionAdapter();
             CancelRefundAuthorizations = new DeterministicCancelRefundAuthorizationAdapter();
             CancelRefund = new CancelRefundService(
-                ServicingEvidence,
+                railEvidence,
                 Orders,
                 tickets,
                 DocumentRefundCorrections,
@@ -185,7 +188,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 Ids,
                 frameworkClock,
                 projector);
-            Refund = new RefundService(ServicingEvidence, Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
+            Refund = new RefundService(railEvidence, Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
             ExchangeQuotes = new DeterministicExchangeQuoteAdapter();
             DocumentExchanges = documentExchanges ?? new DeterministicDocumentExchangeAdapter();
             ExchangeFunding = exchangeFunding ?? new DeterministicExchangeFundingAdapter();

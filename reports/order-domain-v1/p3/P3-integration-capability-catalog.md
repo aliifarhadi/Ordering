@@ -2792,8 +2792,10 @@ only the durable **record** of what that authority said, keyed by the Ordering o
 ```text
 per (OperationId, Stage)
   -> exactly one durable outcome row
-  -> Confirmed is monotonic: once written it is never overwritten or downgraded
-  -> Pending and Unknown stay distinct from each other and from Rejected
+  -> Confirmed and Rejected are terminal: once written they are never overwritten, downgraded or swapped
+  -> a later terminal answer that differs in outcome, provider reference, document kind or document number
+     is a contradiction: the first durable row stands and the owning operation enters NeedsReconciliation
+  -> Unknown supersedes Pending; Pending never supersedes Unknown (the frozen reservation-release fold)
   -> Rejected is never a synonym for not-dispatched
   -> provider reference and detail are stored verbatim, never interpreted
   -> AwaitingExternal, NeedsReconciliation, Rejected and Completed never collapse
@@ -2834,19 +2836,25 @@ the caller's servicing unit of work. Proven by relational tests that begin a cal
 `Confirmed`, roll back, dispose the context and read the row from a brand-new context
 (`ServicingEvidenceDurabilityTests.D1/D2`).
 
-**Monotonicity under concurrency.** The write is a database-evaluated CAS:
-`UPDATE ... WHERE [Outcome] <> Confirmed`, then `INSERT ... WHERE NOT EXISTS`, bounded to three attempts; a
-duplicate-key loss rereads and re-applies the rule. `Confirmed` is never downgraded, an exact replay does not
-move `UpdatedAt`, and a contradictory `Confirmed` does not overwrite the durable one
-(`ServicingEvidenceConcurrencyTests`, 13 cases, including a Pending-vs-Unknown first-insert race and a
-permitted Rejected → Confirmed upgrade).
+**Supersession under concurrency.** Which stored outcomes a write may replace is decided in Domain
+(`ServicingEvidencePolicy.OutcomesSupersededBy`); the SQL only applies it as a parameterised CAS:
+`UPDATE ... WHERE [Outcome] IN (@superseded...)`, then `INSERT ... WHERE NOT EXISTS`, bounded to three
+attempts, with a duplicate-key loss re-reading the row. `RecordAsync` returns a `ServicingEvidenceRecording`
+(attempted, durable, applied), and `ServicingEvidencePolicy.Contradicts` decides whether a terminal write that
+did not apply disagrees with the durable row. An exact replay applies nothing and does not move `UpdatedAt`
+(`ServicingEvidenceConcurrencyTests`, including repeated Pending-vs-Unknown and Confirmed-vs-Rejected races).
 
-**Zero redispatch after durable Confirmed.** The void, document-refund and refund-correction rails consult
-durable evidence before any provider call on resume and adopt locally from it — no `Apply`, no `Recover`
-(`ServicingEvidenceDurabilityTests.D3`, `DocumentRefundFlowTests` and `CancelRefundFlowTests`
-durable-evidence cases). The order-cancel reservation-release rail still performs its `Recover` readback,
-because its single operation-level evidence row does not carry the per-reservation release state that
-readback supplies — the brief's "different unresolved fact" exception.
+**Checkpoint before materialization.** Void, document refund, refund correction and reservation release each
+record `Confirmed` at the point it is established — first attempt and recovery — before any local mutation.
+A contradiction routes the operation through the rail's existing reconciliation path, never to completion.
+
+**Crash-window resume.** A local commit failure after the checkpoint leaves the operation `Prepared` (its
+`Executing` transition rolls back with the local work; the receipt, operation and claim rows were already
+committed at `BeginAsync`). Resume with the same idempotency key finds the same operation. With durable
+`Confirmed` present it adopts locally with no second provider mutation. Void, refund and correction also make no
+`Recover` call. Reservation release performs its `Recover` readback, because the operation-level row does
+not carry the per-reservation release state (a different unresolved fact). A recovered `Rejected` against a
+durable release confirmation reconciles instead of rejecting.
 
 ### Ordering And Isolation
 
@@ -2857,8 +2865,11 @@ a settled operation is never reported as outstanding work.
 
 ### Deterministic Verification
 
-`ServicingReconciliationQueryTests` (12), `ServicingInventoryConsistencyTests` (7),
-`ServicingConfirmedTruthReconciliationTests` (6).
+`ServicingReconciliationQueryTests` (12), `ServicingInventoryConsistencyTests` (9, including R20 release
+crash window and R21 recovered rejection against a durable confirmation),
+`ServicingConfirmedTruthReconciliationTests` (6), `ServicingEvidenceConcurrencyTests` (16),
+`ServicingEvidenceDurabilityTests` (D1–D5), and the crash-window and contradiction cases in
+`DocumentRefundFlowTests` and `CancelRefundFlowTests`.
 
 ### Real-Service Verification Status
 
@@ -2868,15 +2879,20 @@ a settled operation is never reported as outstanding work.
 
 1. No real provider is wired for any P3 rail, so every recorded outcome originates from a deterministic
    adapter. Whether a real issuer's reference format fits the stored width is unverified.
-2. Whether a real provider distinguishes `Pending` from `Unknown` at all. Ordering stores whichever it is
-   told and never collapses the two.
+2. Whether a real provider distinguishes `Pending` from `Unknown` at all. Ordering stores `Pending` until an
+   `Unknown` arrives, and then keeps `Unknown` until a terminal answer; routing treats both as unresolved.
 
 ### Known Semantic Gaps
 
 * Document and control evidence are scoped by `CurrentServicingOrderId`, so a predecessor document whose
   servicing order moved on (split) is not listed under the earlier order.
-* Evidence is per stage, not per attempt. The latest authoritative outcome for a stage is retained; the
-  sequence of uncertain intermediate readbacks is not a durable audit trail.
+* Evidence is per stage, not per attempt. The first terminal outcome for a stage is retained; the sequence of
+  uncertain intermediate readbacks is not a durable audit trail.
+* A contradicting terminal answer is detected and routes to reconciliation, but its own reference is not
+  persisted: the single `(OperationId, Stage)` row keeps only the first durable answer. Keeping both needs a
+  schema change that this correction did not make.
+* Reservation release evidence carries no provider reference, so two `Confirmed` release answers can never be
+  told apart at operation level; per-reservation release state lives on `FulfillmentReservation`.
 
 ### Explicit Non-Responsibilities
 

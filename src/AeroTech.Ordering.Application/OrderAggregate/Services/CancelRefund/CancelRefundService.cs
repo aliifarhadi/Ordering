@@ -1,6 +1,7 @@
 ﻿using AeroTech.Ordering.Domain.Servicing.Operations;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation.Policies;
 using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
@@ -186,15 +187,23 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                 throw;
             }
 
-            return outcome switch
+            if (outcome == ProviderOperationOutcome.Confirmed)
             {
-                ProviderOperationOutcome.Confirmed => await FinalizeAsync(
-                    order, operation, ticket, refund, execution, staged,
-                    providerReference, RefundValueDispatch.FirstAttempt, cancellationToken),
-                ProviderOperationOutcome.Rejected => await RejectAsync(order, operation, ticket, refund, cancellationToken),
-                _ => await SuspendAsync(
-                    order, operation, ticket, refund, outcome, cancellationToken, providerReference)
-            };
+                var checkpoint = await RecordCorrectionEvidenceAsync(
+                    operation, ticket, outcome, providerReference, null, cancellationToken);
+
+                return ServicingEvidencePolicy.Contradicts(checkpoint)
+                    ? await ReconcileAsync(
+                        order, operation, ticket, refund, ProviderOperationOutcome.Unknown, cancellationToken,
+                        providerReference)
+                    : await FinalizeAsync(
+                        order, operation, ticket, refund, execution, staged,
+                        providerReference, RefundValueDispatch.FirstAttempt, cancellationToken);
+            }
+
+            return outcome == ProviderOperationOutcome.Rejected
+                ? await RejectAsync(order, operation, ticket, refund, cancellationToken)
+                : await SuspendAsync(order, operation, ticket, refund, outcome, cancellationToken, providerReference);
         }
 
         private StagedRefundCorrection PrepareCorrection(
@@ -365,6 +374,23 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                 .FirstOrDefault(evidence =>
                     evidence.Stage == ServicingEvidenceStage.RefundCorrection && evidence.IsConfirmed);
 
+        private async Task<ServicingEvidenceRecording> RecordCorrectionEvidenceAsync(
+            OrderOperation operation,
+            ElectronicTicket ticket,
+            ProviderOperationOutcome outcome,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken)
+            => await _evidence.RecordAsync(
+                operation.OperationId,
+                ServicingEvidenceStage.RefundCorrection,
+                outcome,
+                providerReference,
+                detail,
+                AccountableDocumentKind.ElectronicTicket,
+                ticket.DocumentNumber,
+                cancellationToken);
+
         private async Task<CancelRefundOutcome> SettleUnfinishedAsync(
             Order order,
             OrderOperation operation,
@@ -380,15 +406,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
             string? providerReference = null,
             string? detail = null)
         {
-            await _evidence.RecordAsync(
-                operation.OperationId,
-                ServicingEvidenceStage.RefundCorrection,
-                documentOutcome,
-                providerReference,
-                detail,
-                AccountableDocumentKind.ElectronicTicket,
-                ticket.DocumentNumber,
-                cancellationToken);
+            var checkpoint = await RecordCorrectionEvidenceAsync(
+                operation, ticket, documentOutcome, providerReference, detail, cancellationToken);
+
+            if (ServicingEvidencePolicy.Contradicts(checkpoint))
+                return await ReconcileAsync(
+                    order, operation, ticket, refund, ProviderOperationOutcome.Unknown, cancellationToken,
+                    providerReference, detail);
 
             await _operationStore.TransitionAsync(
                 operation.OperationId,
@@ -428,7 +452,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                     ProviderOperationOutcome.Rejected, ProviderOperationOutcome.Pending,
                     prior.Status, correctionNotAvailable: false, isReplay: true);
 
-            if (prior.Status is not (ServicingOperationStatus.Executing
+            if (prior.Status is not (ServicingOperationStatus.Prepared
+                or ServicingOperationStatus.Executing
                 or ServicingOperationStatus.AwaitingExternal
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
@@ -437,6 +462,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                 return await AdoptCorrectionAsync(
                     order, operation, ticket, refund, execution,
                     durable.ProviderReference, durable.Detail, cancellationToken);
+
+            if (prior.Status == ServicingOperationStatus.Prepared)
+                return null;
 
             var recovery = await _documents.RecoverAsync(
                 new DocumentRefundCorrectionRecoveryRequest(
@@ -453,6 +481,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
             if (recovery.Outcome != ProviderOperationOutcome.Confirmed)
                 return await ReconcileAsync(
                     order, operation, ticket, refund, recovery.Outcome, cancellationToken,
+                    recovery.ProviderReference, recovery.Detail);
+
+            var checkpoint = await RecordCorrectionEvidenceAsync(
+                operation, ticket, recovery.Outcome, recovery.ProviderReference, recovery.Detail, cancellationToken);
+
+            if (ServicingEvidencePolicy.Contradicts(checkpoint))
+                return await ReconcileAsync(
+                    order, operation, ticket, refund, ProviderOperationOutcome.Unknown, cancellationToken,
                     recovery.ProviderReference, recovery.Detail);
 
             return await AdoptCorrectionAsync(

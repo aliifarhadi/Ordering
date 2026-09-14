@@ -1,5 +1,6 @@
-﻿using AeroTech.Messages.Ordering.Enums;
+using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation.Policies;
 using AeroTech.Ordering.Domain.Tests._Shared;
 using AeroTech.Ordering.Persistence.Servicing;
 using AeroTech.Ordering.Persistence.Tests._Shared;
@@ -14,6 +15,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         private const ServicingEvidenceStage Stage = ServicingEvidenceStage.DocumentVoid;
         private const string ConfirmedReference = "VOID-CONFIRMED";
         private const string ConfirmedDetail = "issuer confirmed";
+        private const int RaceRepetitions = 20;
 
         private readonly OrderingDatabaseFixture _fixture;
         private readonly long _operationId;
@@ -21,7 +23,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         public ServicingEvidenceConcurrencyTests(OrderingDatabaseFixture fixture)
         {
             _fixture = fixture;
-            _operationId = Random.Shared.NextInt64(700_000_000_000, 799_999_999_999);
+            _operationId = NewOperationId();
         }
 
         [Theory]
@@ -45,7 +47,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await ObserveAsync(loserContext);
 
             await winner.RecordAsync(_operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
-            await stale.RecordAsync(_operationId, Stage, loser, "STALE", "stale attempt");
+            var recording = await stale.RecordAsync(_operationId, Stage, loser, "STALE", "stale attempt");
+
+            Assert.False(recording.Applied);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, recording.Durable.Outcome);
+            Assert.Equal(loser == ProviderOperationOutcome.Rejected, ServicingEvidencePolicy.Contradicts(recording));
 
             await AssertConfirmedAsync();
         }
@@ -59,8 +65,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await Store(firstContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Unknown, "WEAK", "weak attempt");
 
-            await Store(secondContext).RecordAsync(
+            var upgrade = await Store(secondContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
+
+            Assert.True(upgrade.Applied);
+            Assert.False(ServicingEvidencePolicy.Contradicts(upgrade));
 
             await AssertConfirmedAsync();
         }
@@ -80,8 +89,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
 
             later.Advance(TimeSpan.FromHours(3));
 
-            await new ServicingExternalEvidenceStore(replayContext, later).RecordAsync(
+            var replay = await new ServicingExternalEvidenceStore(replayContext, later).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
+
+            Assert.False(replay.Applied);
+            Assert.False(ServicingEvidencePolicy.Contradicts(replay));
 
             var after = await RowAsync();
 
@@ -101,8 +113,11 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await Store(confirmedContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
 
-            await Store(weakContext).RecordAsync(
+            var stale = await Store(weakContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Unknown, "STALE", "stale attempt");
+
+            Assert.False(stale.Applied);
+            Assert.False(ServicingEvidencePolicy.Contradicts(stale));
 
             await AssertConfirmedAsync();
         }
@@ -116,8 +131,10 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await Store(weakContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Unknown, "WEAK", "weak attempt");
 
-            await Store(confirmedContext).RecordAsync(
+            var confirmation = await Store(confirmedContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
+
+            Assert.True(confirmation.Applied);
 
             await AssertConfirmedAsync();
         }
@@ -131,14 +148,17 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await Store(firstContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
 
-            await Store(secondContext).RecordAsync(
+            var second = await Store(secondContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
+
+            Assert.False(second.Applied);
+            Assert.False(ServicingEvidencePolicy.Contradicts(second));
 
             await AssertConfirmedAsync();
         }
 
         [Fact]
-        public async Task C9_A_contradictory_confirmed_identity_never_overwrites_the_durable_one()
+        public async Task C9_A_contradictory_confirmed_identity_is_flagged_and_never_overwrites_the_durable_one()
         {
             await using var firstContext = _fixture.NewCommandContext();
             await using var secondContext = _fixture.NewCommandContext();
@@ -146,13 +166,21 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await Store(firstContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
 
-            await Store(secondContext).RecordAsync(
+            var before = await RowAsync();
+
+            var contradiction = await Store(secondContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Confirmed, "VOID-OTHER", "a different issuer answer");
 
-            var row = await AssertConfirmedAsync();
+            Assert.False(contradiction.Applied);
+            Assert.True(ServicingEvidencePolicy.Contradicts(contradiction));
+            Assert.Equal(ConfirmedReference, contradiction.Durable.ProviderReference);
 
-            Assert.Equal(ConfirmedReference, row.ProviderReference);
-            Assert.Equal(ConfirmedDetail, row.Detail);
+            var after = await RowAsync();
+
+            Assert.Equal(ProviderOperationOutcome.Confirmed, after.Outcome);
+            Assert.Equal(ConfirmedReference, after.ProviderReference);
+            Assert.Equal(ConfirmedDetail, after.Detail);
+            Assert.Equal(before.UpdatedAt, after.UpdatedAt);
         }
 
         [Fact]
@@ -183,42 +211,56 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         }
 
         [Fact]
-        public async Task C9b_A_parallel_burst_of_writers_leaves_exactly_one_confirmed_row()
+        public async Task C9b_A_parallel_burst_of_unresolved_writers_and_one_confirmation_leaves_exactly_one_confirmed_row()
         {
             var outcomes = new[]
             {
                 ProviderOperationOutcome.Unknown,
                 ProviderOperationOutcome.Pending,
                 ProviderOperationOutcome.Confirmed,
-                ProviderOperationOutcome.Rejected,
+                ProviderOperationOutcome.Pending,
                 ProviderOperationOutcome.Unknown
             };
 
-            await Task.WhenAll(outcomes.Select(RecordInOwnContextAsync));
+            await Task.WhenAll(outcomes.Select(outcome => RecordInOwnContextAsync(_operationId, outcome)));
 
             await AssertConfirmedAsync();
         }
 
         [Fact]
-        public async Task C10a_A_pending_and_an_unknown_racing_on_the_first_insert_leave_one_non_terminal_row()
+        public async Task C10a_A_pending_and_an_unknown_racing_on_the_first_insert_always_leave_unknown()
         {
-            await Task.WhenAll(
-                RecordInOwnContextAsync(ProviderOperationOutcome.Pending),
-                RecordInOwnContextAsync(ProviderOperationOutcome.Unknown));
+            for (var repetition = 0; repetition < RaceRepetitions; repetition++)
+            {
+                var operationId = NewOperationId();
 
-            await using var reading = _fixture.NewCommandContext();
-            var row = Assert.Single(await Store(reading).ListAsync(_operationId));
+                await Task.WhenAll(
+                    RecordInOwnContextAsync(operationId, ProviderOperationOutcome.Pending),
+                    RecordInOwnContextAsync(operationId, ProviderOperationOutcome.Unknown));
 
-            Assert.Contains(row.Outcome, new[] { ProviderOperationOutcome.Pending, ProviderOperationOutcome.Unknown });
-            Assert.False(row.IsConfirmed);
+                Assert.Equal(ProviderOperationOutcome.Unknown, (await SingleEvidenceAsync(operationId)).Outcome);
+            }
+        }
 
-            await RecordInOwnContextAsync(ProviderOperationOutcome.Confirmed);
+        [Theory]
+        [InlineData(ProviderOperationOutcome.Pending, ProviderOperationOutcome.Unknown, true)]
+        [InlineData(ProviderOperationOutcome.Unknown, ProviderOperationOutcome.Pending, false)]
+        public async Task C10c_Sequential_unresolved_answers_settle_on_unknown(
+            ProviderOperationOutcome first,
+            ProviderOperationOutcome second,
+            bool secondApplies)
+        {
+            await RecordInOwnContextAsync(_operationId, first);
 
-            await AssertConfirmedAsync();
+            var recording = await RecordInOwnContextAsync(_operationId, second);
+
+            Assert.Equal(secondApplies, recording.Applied);
+            Assert.False(ServicingEvidencePolicy.Contradicts(recording));
+            Assert.Equal(ProviderOperationOutcome.Unknown, (await SingleEvidenceAsync(_operationId)).Outcome);
         }
 
         [Fact]
-        public async Task C10b_A_rejected_row_is_upgraded_by_a_later_confirmed_answer()
+        public async Task C10b_A_rejected_row_is_never_upgraded_by_a_later_confirmed_answer()
         {
             await using var rejectingContext = _fixture.NewCommandContext();
             await using var confirmingContext = _fixture.NewCommandContext();
@@ -226,21 +268,48 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await Store(rejectingContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Rejected, "REJECTED-FIRST", "provider said no");
 
-            await Store(confirmingContext).RecordAsync(
+            var before = await RowAsync();
+
+            var confirmation = await Store(confirmingContext).RecordAsync(
                 _operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
 
-            var row = await AssertConfirmedAsync();
+            Assert.False(confirmation.Applied);
+            Assert.True(ServicingEvidencePolicy.Contradicts(confirmation));
 
-            Assert.Equal(ConfirmedReference, row.ProviderReference);
-            Assert.Equal(ConfirmedDetail, row.Detail);
+            var after = await RowAsync();
+
+            Assert.Equal(ProviderOperationOutcome.Rejected, after.Outcome);
+            Assert.Equal("REJECTED-FIRST", after.ProviderReference);
+            Assert.Equal("provider said no", after.Detail);
+            Assert.Equal(before.UpdatedAt, after.UpdatedAt);
         }
 
-        private async Task RecordInOwnContextAsync(ProviderOperationOutcome outcome)
+        [Fact]
+        public async Task C10d_A_confirmed_and_a_rejected_racing_keep_one_terminal_row_and_flag_the_other_writer()
+        {
+            for (var repetition = 0; repetition < RaceRepetitions; repetition++)
+            {
+                var operationId = NewOperationId();
+
+                var recordings = await Task.WhenAll(
+                    RecordInOwnContextAsync(operationId, ProviderOperationOutcome.Confirmed),
+                    RecordInOwnContextAsync(operationId, ProviderOperationOutcome.Rejected));
+
+                var kept = Assert.Single(recordings, recording => !ServicingEvidencePolicy.Contradicts(recording));
+
+                Assert.True(kept.Applied);
+                Assert.Equal(kept.Attempted.Outcome, (await SingleEvidenceAsync(operationId)).Outcome);
+            }
+        }
+
+        private async Task<ServicingEvidenceRecording> RecordInOwnContextAsync(
+            long operationId,
+            ProviderOperationOutcome outcome)
         {
             await using var context = _fixture.NewCommandContext();
 
-            await Store(context).RecordAsync(
-                _operationId,
+            return await Store(context).RecordAsync(
+                operationId,
                 Stage,
                 outcome,
                 outcome == ProviderOperationOutcome.Confirmed ? ConfirmedReference : "WEAK",
@@ -258,20 +327,24 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
         private static ServicingExternalEvidenceStore Store(Persistence.OrderingDbContext context)
             => new(context, new TestClock());
 
+        private static long NewOperationId() => Random.Shared.NextInt64(700_000_000_000, 799_999_999_999);
+
         private async Task<ServicingExternalEvidence> AssertConfirmedAsync()
         {
-            await using var context = _fixture.NewCommandContext();
-
-            var rows = await new ServicingExternalEvidenceStore(context, new TestClock())
-                .ListAsync(_operationId);
-
-            var row = Assert.Single(rows);
+            var row = await SingleEvidenceAsync(_operationId);
 
             Assert.Equal(Stage, row.Stage);
             Assert.Equal(ProviderOperationOutcome.Confirmed, row.Outcome);
             Assert.True(row.IsConfirmed);
 
             return row;
+        }
+
+        private async Task<ServicingExternalEvidence> SingleEvidenceAsync(long operationId)
+        {
+            await using var context = _fixture.NewCommandContext();
+
+            return Assert.Single(await Store(context).ListAsync(operationId));
         }
 
         private async Task<ServicingExternalEvidenceRow> RowAsync()
