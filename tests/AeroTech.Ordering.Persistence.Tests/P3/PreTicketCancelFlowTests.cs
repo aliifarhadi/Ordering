@@ -241,6 +241,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(releaseCalls, ReleaseKeys(harness));
             Assert.Empty(harness.Reservation.ObservedRecoveryKeys);
             Assert.Equal(before, await SnapshotAsync(order.Id));
+            Assert.False(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
         }
 
         [Fact]

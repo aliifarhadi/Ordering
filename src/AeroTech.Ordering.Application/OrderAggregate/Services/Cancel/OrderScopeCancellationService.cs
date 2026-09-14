@@ -172,9 +172,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 order.EnsureScopeCanBeCancelled(intent, orderItemId, scope);
                 await EnsureScopeIsNotDocumentedAsync(orderId, scope, kind, cancellationToken);
 
-                await _operationStore.TransitionAsync(
+                await _operationStore.BeginExecutionAsync(
                     operation.OperationId,
-                    ServicingOperationStatus.Executing,
                     operation.ClaimGeneration,
                     cancellationToken);
 
@@ -198,12 +197,20 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                     scope,
                     quotedCancellationId,
                     expectedCommercialVersion.Value);
-
-                releaseOutcome = await _release.ReleaseAsync(orderId, operation, scope, cancellationToken);
             }
             catch
             {
                 await TryReleaseRejectedAsync(orderId, operation, cancellationToken);
+                throw;
+            }
+
+            try
+            {
+                releaseOutcome = await _release.ReleaseAsync(orderId, operation, scope, cancellationToken);
+            }
+            catch
+            {
+                await TrySuspendAsUnknownAsync(order, operation, intent);
                 throw;
             }
 
@@ -338,6 +345,17 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
             return Outcome(order, operation, intent, null, outcome, ServicingOperationStatus.AwaitingExternal, false);
         }
 
+        private async Task TrySuspendAsUnknownAsync(Order order, OrderOperation operation, OrderChangeType intent)
+        {
+            try
+            {
+                await SuspendAsync(order, operation, intent, ProviderOperationOutcome.Unknown, CancellationToken.None);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         private async Task<ScopeCancellationOutcome> ReconcileAsync(
             Order order,
             OrderOperation operation,
@@ -370,7 +388,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 return null;
 
             if (prior.Status == ServicingOperationStatus.Rejected)
+            {
+                await _operations.ResolveAsync(order.Id, operation, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+
                 return Outcome(order, operation, intent, null, ProviderOperationOutcome.Rejected, prior.Status, true);
+            }
 
             if (prior.Status is not (ServicingOperationStatus.Executing
                 or ServicingOperationStatus.AwaitingExternal

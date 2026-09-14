@@ -124,17 +124,24 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
 
                 scope = decision.EffectiveScopeServiceIds;
 
-                await _operationStore.TransitionAsync(
+                await _operationStore.BeginExecutionAsync(
                     operation.OperationId,
-                    ServicingOperationStatus.Executing,
                     operation.ClaimGeneration,
                     cancellationToken);
-
-                releaseOutcome = await _release.ReleaseAsync(orderId, operation, null, cancellationToken);
             }
             catch
             {
                 await TryReleaseRejectedAsync(orderId, operation, cancellationToken);
+                throw;
+            }
+
+            try
+            {
+                releaseOutcome = await _release.ReleaseAsync(orderId, operation, null, cancellationToken);
+            }
+            catch
+            {
+                await TrySuspendAsUnknownAsync(order, operation);
                 throw;
             }
 
@@ -253,6 +260,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 return null;
 
             if (prior.Status == ServicingOperationStatus.Rejected)
+            {
+                await _operations.ResolveAsync(order.Id, operation, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+
                 return Outcome(
                     order,
                     operation,
@@ -260,6 +271,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                     ProviderOperationOutcome.Rejected,
                     prior.Status,
                     isReplay: true);
+            }
 
             if (prior.Status is not (ServicingOperationStatus.Prepared
                 or ServicingOperationStatus.Executing
@@ -267,9 +279,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
 
-            var durablyReleased = await HasConfirmedReleaseEvidenceAsync(operation.OperationId, cancellationToken);
+            var releaseEvidence = await ReleaseEvidenceAsync(operation.OperationId, cancellationToken);
+            var durablyReleased = releaseEvidence is { IsConfirmed: true };
 
-            if (!durablyReleased && prior.Status == ServicingOperationStatus.Prepared)
+            if (releaseEvidence is null && prior.Status == ServicingOperationStatus.Prepared)
                 return null;
 
             var recovered = await _release.RecoverAsync(order.Id, operation, null, cancellationToken);
@@ -348,11 +361,22 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Cancel
                 null,
                 cancellationToken: cancellationToken);
 
-        private async Task<bool> HasConfirmedReleaseEvidenceAsync(
+        private async Task<ServicingExternalEvidence?> ReleaseEvidenceAsync(
             long operationId,
             CancellationToken cancellationToken)
             => (await _evidence.ListAsync(operationId, cancellationToken))
-                .Any(evidence => evidence.Stage == ServicingEvidenceStage.ReservationRelease && evidence.IsConfirmed);
+                .FirstOrDefault(evidence => evidence.Stage == ServicingEvidenceStage.ReservationRelease);
+
+        private async Task TrySuspendAsUnknownAsync(Order order, OrderOperation operation)
+        {
+            try
+            {
+                await SuspendAsync(order, operation, ProviderOperationOutcome.Unknown, CancellationToken.None);
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         private static bool CanStillBeCancelled(Order order)
         {

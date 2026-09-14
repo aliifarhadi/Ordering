@@ -1781,3 +1781,292 @@ P3 READY TO FREEZE: YES
 ```
 
 P4 was not started.
+
+**Superseded by §32.** The verdict above was issued before the provider-dispatch boundary was audited. §31.9's
+"Residual, unchanged" statement — that a `Prepared` operation with unresolved evidence may re-dispatch under
+the same key — is withdrawn: a stable key is not proof that redispatch is safe.
+
+---
+
+## 32. Durable dispatch boundary and recovery closure
+
+Baseline `0d2b4c541b40ba24303469a4e60e9ceb8409c136` (`P3-H Mutation Fix`).
+
+### 32.1 Baseline defect, re-proved from source
+
+| # | Statement | Source evidence | True at baseline |
+| --- | --- | --- | --- |
+| A | Receipt, OperationId, claim and the `Prepared` operation are durable before provider I/O | `OrderOperationCoordinator.BeginAsync` → `CommandReceiptStore.AcquireAsync`, `OperationClaimStore.AcquireAsync`, `ServicingOperationStore.PrepareAsync`, each saving through `OperationsWriteBoundary.SaveAsync` | yes |
+| B | `TransitionAsync(Executing)` is not committed at the call | `ServicingOperationStore.TransitionAsync` only mutates the tracked row; it commits with the rail's final `IUnitOfWork.SaveChangesAsync` | yes |
+| C | The irreversible mutation runs while the stored row is still `Prepared` | `DocumentVoidService`, `RefundService`, `CancelRefundService`, `OrderCancelService`, `OrderScopeCancellationService`: transition → (eligibility / accept / staging) → provider mutation, no save in between | yes |
+| D | A failure can occur after dispatch and before outcome evidence | nothing between the provider call and the rail's suspend / finalize write is durable | yes |
+| E | A later request can see `Prepared` although dispatch may have happened | on a provider exception the rail's `TryReleaseRejectedAsync` saves the tracked transition; if that save also fails (process death, broken connection) the row stays `Prepared` | yes |
+| F | Replay of `Prepared` without durable `Confirmed` re-enters the initial path | `ReplayUnfinishedAsync` returned `null` for `Prepared` (§31.6) unless `Confirmed` was durable — including `Prepared` + `Pending`/`Unknown` evidence | yes |
+
+A second defect sits at the same boundary:
+
+| # | Statement | Source evidence | True at baseline |
+| --- | --- | --- | --- |
+| G | A provider exception after dispatch **releases the Order claim** | the provider call was inside the `try` whose `catch` is `TryReleaseRejectedAsync` → `IOrderOperationCoordinator.ResolveAsync` | yes |
+
+A third defect was found by this correction's own rejected-outcome test (`DocumentVoidDispatchBoundaryTests.DD_…`,
+which asserts the claim is free after a rejected replay):
+
+| # | Statement | Source evidence | True at baseline |
+| --- | --- | --- | --- |
+| H | Replaying an already `Rejected` operation leaves a **new blocking claim** on the Order | `BeginAsync` acquires a fresh claim for the replay; the `prior.Status == Rejected` branch of `ReplayUnfinishedAsync` in DocumentVoid, Refund, CancelRefund, OrderCancel and OrderScopeCancellation returned the stored outcome without `ResolveAsync` | yes |
+
+H blocks every other servicing operation on the Order indefinitely: a different operation cannot take over a
+blocking claim, and lease expiry does not release it. The precedent for the fix exists in-repo:
+`ExchangeService.ReplayRejectionAsync` re-settles through `RejectAsync` and releases the claim, and
+`VoluntaryChangeCrashBoundaryTests.C5`/`C6` assert that a terminal replay releases the replay claim. The
+rejected branch now resolves the replay claim and saves before returning the stored outcome.
+
+G lets a different servicing operation start on the Order while the first mutation's outcome is unknown. That
+contradicts `07` §5 and `08` §5 ("unresolved effects keep claim blocking") and the brief's §2.2. The Exchange
+and VoluntaryChange rails already avoid it (`MarkAwaitingExternalAsync`: status `AwaitingExternal`, receipt
+`Unknown`, claim kept, exception rethrown).
+
+### 32.2 Mutation-rail inventory
+
+| Rail | OperationKind | Provider port method | Stable provider key source | Durable state immediately before Apply (baseline) | Existing Recover / read-back | Evidence stage | Terminal checkpoint | Replay behaviour (baseline) | Defect present? |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| DocumentVoid | `VoidDocument` | `IDocumentVoidPort.VoidAsync` | `document-void:{documentId}:{operationId}` | `Prepared` | `IDocumentVoidPort.RecoverAsync` | `DocumentVoid` | `FinalizeAsync` first statement | `Prepared` → fresh `VoidAsync` | **yes** |
+| Refund | `Refund` | `IDocumentRefundPort.RefundAsync` | `document-refund:{ticketId}:{operationId}` | `Prepared` | `IDocumentRefundPort.RecoverAsync` (`WasDispatched`) | `DocumentRefund` | first-attempt `Confirmed` arm; recovery `Confirmed` branch | `Prepared` → fresh accept + `RefundAsync` | **yes** |
+| CancelRefund | `CancelRefund` | `IDocumentRefundCorrectionPort.CancelRefundAsync` | `cancel-refund:{refundRecordId}:{operationId}` | `Prepared` | `IDocumentRefundCorrectionPort.RecoverAsync` | `RefundCorrection` | first-attempt `Confirmed` arm; recovery `Confirmed` branch | `Prepared` → fresh `CancelRefundAsync` | **yes** |
+| OrderCancel | `Cancel` | `IReservationPort.ReleaseAsync` via `ReservationReleaseCoordinator` | `release:{reservationId}:{operationId}` | `Prepared` | `IReservationPort.RecoverAsync` per reservation | `ReservationRelease` | first-attempt and recovery `Confirmed` | `Prepared` + no `Confirmed` → fresh `ReleaseAsync` | **yes** |
+| OrderScopeCancellation (P3-B) | `Cancel` / `RemoveService` | `IReservationPort.ReleaseAsync` via `ReservationReleaseCoordinator` | `release:{reservationId}:{operationId}` | `Prepared` | `IReservationPort.RecoverAsync` per reservation | none (the rail records no external evidence) | none | `Prepared` → fresh accept + `ReleaseAsync` | **yes** |
+| Exchange (P3-F/G) | `Exchange` | reservation change, document exchange, funding, refund value, residual, EMD association / exchange / void, fee EMD issuance | `ExchangeOperationKeys` | `Executing` and `AcceptedExchangePlan` committed by `_plans.SaveAsync` + `_unitOfWork.SaveChangesAsync` before the first dispatch | every step `RecoverAsync` with `WasDispatched`; ancillary void also `VoidDispatchedAt` | plan checkpoints | plan `Record*OutcomeAsync` | plan found → `ResumeAsync` → recover first | no |
+| VoluntaryChange (P3-E) | `Revalidate` | `IReservationChangePort.ApplyAsync`, `IDocumentRevalidationPort.RevalidateAsync` | `ProviderOperationKey` per step | `Executing` and `AcceptedChangePlan` committed before the first dispatch | `RecoverAsync` with `WasDispatched` | plan checkpoints | plan `Record*OutcomeAsync` | plan found → `ResumeAsync` → recover first | no |
+| Issue (P1, P3 regression rail) | `Issue` | `IDocumentIssuancePort.IssueAsync`, EMD issuance | `ProviderOperationKey(operation, "{IssueStep}:{travelerId}")` | `DocumentStockAllocation` `Reserved` committed by `_unitOfWork.SaveChangesAsync` before `IssueAsync` | `RecoverAsync` when a `Reserved` allocation exists | stock allocation state | confirmed issuance → `MarkIssued` | `Reserved` allocation → recover first | no |
+| OrderChange (AddService) | `AddService` | quote acceptance only | `ProviderOperationKey(operation, ProviderStep)` | — | — | — | — | no irreversible external mutation; acceptance replay is idempotent under the frozen receipt/claim rule (`P3-A` §3 rule 3) | no |
+
+**Outside P3 (reported, not changed).** `ReserveOrderService` (P1) commits the `FulfillmentReservation` intent
+first, but its replay calls `ReserveAsync` again under the same key instead of recovering.
+`WithdrawOrderService` (P1 pre-ticket withdraw, still reachable through `WithdrawOrderCommand`) calls
+`ReleaseAsync` and the funding release with no durable boundary and no replay handling. Both predate P3, are not
+P3 servicing rails, and changing them would redesign P1 flows. They are listed in 32.9.
+
+### 32.3 Transaction mechanics
+
+| Question | Answer from source |
+| --- | --- |
+| Which `DbContext` owns the operation row? | the request-scoped `OrderingDbContext`, the same instance the rail's repositories, receipt, claim and evidence stores use |
+| Active EF transaction at the pre-dispatch point? | none — `OrderingUnitOfWork` opens its transaction only inside `SaveChangesAsync`; production never opens an ambient one on these rails |
+| Domain aggregate mutations tracked at that point? | none — the boundary call sits before quote acceptance, `PrepareRefund` / `PrepareRefundCorrection` and any aggregate change, and `OperationsWriteBoundary.EnsureNoPendingDomainState` rejects the save (20077) if one exists |
+| Can `OperationsWriteBoundary.SaveAsync` be used there? | yes — it is the existing mechanism that already commits the receipt, claim and `Prepared` row |
+| Does the save commit receipt status or domain changes that must stay atomic with finalization? | no — receipt status, claim resolution and aggregate changes are made later and commit with the finalizing unit of work |
+| Execution strategy / ambient transaction effects? | no retrying execution strategy is configured for `OrderingDbContext`; the save autocommits |
+| Can a failed boundary leave the provider uncalled? | yes — `BeginExecutionAsync` throws before any provider call and restores the tracked row, so the claim-release save cannot persist `Executing` either |
+| Does a successful boundary survive a later local rollback or crash? | yes — it is committed before the provider call; the finalizing unit of work cannot roll it back |
+
+### 32.4 The boundary
+
+`IServicingOperationStore.BeginExecutionAsync(operationId, claimGeneration)`, implemented in
+`ServicingOperationStore`:
+
+```text
+stored Prepared                         -> Executing, committed now through OperationsWriteBoundary
+stored Executing / AwaitingExternal /
+       NeedsReconciliation              -> Executing, tracked only (the may-have-dispatched fact is already durable)
+save fails                              -> tracked row restored, exception propagates, no provider call
+```
+
+It is `07` §5's "Prepared -> Executing after durable intent", made true. No new operation state, no enum change,
+no schema change. `Executing` already meant "may have dispatched" in every replay path, which recovers before
+acting.
+
+The tracked-only branch matters for one existing flow: OrderScopeCancellation's replay recovers, finds nothing
+outstanding and falls through to its initial path with recovery-tracked reservation changes. A second durable
+save there would trip the write boundary; the fact is already durable, so none is needed.
+
+### 32.5 Provider exception after dispatch
+
+In all five rails the provider mutation call moved out of the claim-releasing `try`. Its own `catch` calls the
+rail's existing `SuspendAsync` with `Unknown` (swallowing a failure of that save) and rethrows:
+
+```text
+AwaitingExternal, receipt Unknown, Unknown evidence where the rail records evidence, claim kept
+```
+
+`Unknown` is the binding classification of an ambiguous post-dispatch failure (`03` §3.5). A retry of the same
+request then recovers first; a different operation on the Order is refused with 20070 until it does.
+
+### 32.6 Replay decision matrix (implemented)
+
+| Durable workflow state | Durable stage evidence | Next external action | Where |
+| --- | --- | --- | --- |
+| `Prepared` | none | initial Apply | `ReplayUnfinishedAsync` returns `null` |
+| `Executing` / `AwaitingExternal` / `NeedsReconciliation` | none | `Recover` first | existing recovery branch |
+| any unresolved | `Confirmed` | zero Apply; local adoption (§31). OrderCancel still reads back per-reservation state | durable short-circuit |
+| any unresolved, **including `Prepared`** | `Pending` / `Unknown` | `Recover` first, zero Apply | `Prepared` no longer short-circuits when evidence exists |
+| any unresolved, **including `Prepared`** | `Rejected` | zero Apply, zero `Recover`; settle through the rail's `RejectAsync` | new durable-rejection short-circuit (void, refund, correction) |
+| any | contradictory terminal | existing reconciliation | §31.2, unchanged |
+
+OrderCancel records no rejected evidence, so a rejected release whose local save failed is `Executing` with no
+evidence: it recovers first and settles from the recovered answer. OrderScopeCancellation records no evidence
+at all: `Prepared` means "before the boundary", and `Executing` recovers first.
+
+### 32.7 Existing rows and backward safety
+
+| Baseline-shaped row | Handling |
+| --- | --- |
+| `Prepared` + `Confirmed` | adopt, zero Apply (unchanged) |
+| `Prepared` + `Pending` / `Unknown` | `Recover` first, zero Apply |
+| `Prepared` + `Rejected` | settle `Rejected`, zero Apply, zero `Recover` |
+| `Prepared` + no evidence | initial path |
+
+The last row needs an authoritative reason, not a stable key. It has one in the repository. A pre-fix row can
+never represent a crossed **real** provider boundary:
+
+* production DI binds `IDocumentVoidPort`, `IDocumentRefundPort` and `IDocumentRefundCorrectionPort` to
+  `Unconfigured*` stubs whose methods throw before any I/O (`AeroTech.Ordering.Providers/DependencyInjection.cs`);
+* `IReservationPort` has **no** production binding — only `AeroTech.Ordering.Providers.Deterministic` registers
+  it;
+* the deterministic adapters (enabled only by `Providers:UseDeterministicTestAdapters`, set in
+  `appsettings.Development.json`) keep dispatch state in process memory, which no restart preserves.
+
+No migration and no status backfill were written. Any real adapter must be enabled on post-fix code; that is a
+`BLOCKED_INTEGRATION` precondition (32.9).
+
+### 32.8 Tests
+
+All tests run on SQL Server through the real application service path and the real receipt, claim, operation
+and evidence stores. Failures are injected only at the edges:
+
+| Seam | What it simulates |
+| --- | --- |
+| `DispatchThenFailReservationPort`, `DispatchThenFailDocumentRefundCorrectionPort`, the deterministic `ThrowAfterVoid` / `ThrowAfterDispatch` switches | the provider received and executed the mutation, then the response was lost |
+| `InterruptibleUnitOfWork` (`ServicingUnitOfWork.FailSaves`) | every local unit-of-work commit of the crashing scope fails |
+| `UnreachableEvidenceStore` | the process dies before any outcome evidence can be written |
+| `RefusingExecutionBoundaryOperationStore` | the durable `Prepared -> Executing` commit fails |
+| `ServicingCrashWindow.ExpireRecoveryLeaseAsync` / `DowngradeToPreparedAsync` | the passage of the 900 s recovery lease; a row in the baseline shape |
+
+Each crash test disposes the failing scope and resumes in a new harness with the same caller and idempotency key.
+
+| Brief case | Tests |
+| --- | --- |
+| D-A crash after Apply, before evidence | `DocumentVoidDispatchBoundaryTests.DA_…`, `OrderCancelDispatchBoundaryTests.DA_…`, `DocumentRefundFlowTests.DA_…`, `CancelRefundFlowTests.DA_…`, `ScopeCancellationFlowTests.DA_…` |
+| provider exception keeps the claim (defect G) | the five `DA2_…` tests — a competing operation on the Order is refused with 20070 |
+| D-B / D-C `Pending` / `Unknown` + failed local save | `DocumentVoidDispatchBoundaryTests.DB_DC_…` (Pending and Unknown × recovered Unknown and Confirmed), `OrderCancelDispatchBoundaryTests.DB_…`, `DocumentRefundFlowTests.DB_…`, `CancelRefundFlowTests.DB_…`, `ScopeCancellationFlowTests.DB_…` |
+| D-D `Rejected` + failed local save | `DocumentVoidDispatchBoundaryTests.DD_…` (durable `Rejected`: zero Apply, zero `Recover`, evidence unchanged); `OrderCancelDispatchBoundaryTests.DD_…` (no rejected evidence: the boundary forces `Recover`, never `Release`) |
+| D-E failure before the boundary | the five `DE_…` tests — zero eligibility, acceptance and mutation calls; the same key retries once |
+| D-F baseline `Prepared` + unresolved evidence | `DocumentVoidDispatchBoundaryTests.DF_…` (Pending, Unknown), `OrderCancelDispatchBoundaryTests.DF_…` |
+
+The four §31 crash-window tests (`D4`, refund, correction, `R20`/`R21`) asserted `Prepared` after their forced
+commit failure. That was the defect. They now assert `Executing`; every other assertion is unchanged.
+
+**Red before the fix.** The new tests were built against the unchanged baseline production code and run there:
+
+```text
+28 tests   23 failed   5 passed
+  crash / failed-save cases      Expected: Executing          Actual: Prepared
+  claim-kept cases (DA2)         Expected: AwaitingExternal   Actual: Executing   (claim released)
+  DocumentVoid DF                Expected: Completed          Actual: AwaitingExternal  (a second void was dispatched)
+  OrderCancel DF                 resuming scope's release calls were not empty (a second release was dispatched)
+  the five DE tests passed       baseline also stops before the provider when the Executing transition throws;
+                                 they guard the new boundary rather than discriminate the old one
+```
+
+A first attempt at this run is discarded: all 28 failed in 1 ms at `OrderingDatabaseFixture.ResetIssuedDocumentState`
+with SQL timeouts, because the host had 231 MB of free memory. It was re-run unchanged after memory recovered.
+
+**Green after the fix.** Build 0 errors, Domain 585/585, both EF model checks clean. Focused run of the new tests
+plus the rail and P3-H regression classes (DocumentVoid, DocumentRefund, CancelRefund, PreTicketCancel,
+ScopeCancellation, evidence durability and concurrency, inventory consistency, confirmed truth, coordinator
+interleaving, reconciliation query, resolution audit, AncillaryCancel, checkpoint parity): 257 of 262 passed.
+
+| Failure | Disposition |
+| --- | --- |
+| `DocumentVoidDispatchBoundaryTests.DD_…` — claim still blocking after a rejected replay | **real defect H** (32.1): fixed, then covered on every rail by `A_rejected_refund_replay_releases_the_replay_claim`, `A_rejected_correction_replay_releases_the_replay_claim`, `A_rejected_scope_release_replay_releases_the_replay_claim`, and a claim assertion added to `PreTicketCancelFlowTests.A_rejected_replay_returns_the_rejection_without_calling_the_provider_again` |
+| four `AncillaryCancelFlowTests` (Exchange rail, not changed) — SQL timeouts | environmental: every timeout struck in test setup (`OrderProjector.ProjectAsync` inside `CreateOrderAsync`); re-run of the class 30/30, 0 timeouts |
+
+After the defect-H fix: 43 targeted tests, 40 passed. Three `CancelRefundFlowTests` failed twice with SQL timeouts,
+again in setup (`TicketedOrderAsync` → `OrderProjector.ProjectAsync`), never in the changed path. A read-only
+poll of SQL Server during the next re-run captured the cause: while the test host runs, SQL Express shrinks its
+query memory-grant pool from about 881 MB to 14–22 MB, and the projector's order-load query waits on
+`RESOURCE_SEMAPHORE` for a 13 MB grant. Lock waits stayed negligible, and the pool recovered to 866–898 MB when the
+run ended. That re-run passed 4/4 with 0 timeouts.
+
+**Mutation proof.** Each safety property was broken, built into a separate output folder, run against the
+affected classes, and restored. Mutations within one round touch disjoint test classes, so every failure is
+attributable.
+
+| Round | Mutation (one line each) | Tests that turned red |
+| --- | --- | --- |
+| A | `BeginExecutionAsync`: `if (!crossesDispatchBoundary) return;` → `return;` (boundary never committed) | all 16 crash / failed-save tests on the five rails (`DA_…`, `DB_…`, `DB_DC_…`, `DD_…`) and §31's `D4` — `Expected: Executing, Actual: Prepared` |
+| B | DocumentVoid replay: drop `Executing` from the unresolved-status filter (may-have-dispatched falls through to fresh Apply) | `DocumentVoidDispatchBoundaryTests.DA_…` and `DD_…` — **2 void dispatches**; `DB_DC_…` ×4 |
+| B | OrderCancel replay: `releaseEvidence is null && Prepared` → `Prepared` (ignore unresolved evidence) | `OrderCancelDispatchBoundaryTests.DF_…` — a second release |
+| B | Refund: provider-exception catch releases the claim again | `DocumentRefundFlowTests.DA2_…` |
+| C | DocumentVoid replay: durable `Rejected` short-circuit disabled | `DocumentVoidDispatchBoundaryTests.DD_…` |
+| C | DocumentVoid replay: `durable is null && Prepared` → `Prepared` | `DocumentVoidDispatchBoundaryTests.DF_…` (Pending, Unknown) |
+| C | OrderCancel replay: drop `Executing` from the unresolved-status filter | `OrderCancelDispatchBoundaryTests.DA_…`, `DB_…` (a second release), `DD_…` |
+| D | DocumentVoid `FinalizeAsync`: `Confirmed` checkpoint replaced by a no-op recording (evidence after materialization) | `DocumentVoidDispatchBoundaryTests.DA_…`, §31's `D4`, `D5` — no durable evidence |
+| D | OrderScopeCancellation: provider-exception catch releases the claim again | `ScopeCancellationFlowTests.DA2_…` |
+| E | all five rails: rejected replay no longer resolves the replay claim | `A_rejected_refund_replay_…`, `A_rejected_correction_replay_…`, `A_rejected_scope_release_replay_…`, `PreTicketCancelFlowTests.A_rejected_replay_…`, `DocumentVoidDispatchBoundaryTests.DD_…` |
+
+One unrelated failure in round C (`DocumentVoidDispatchBoundaryTests.DE_…`) was a SQL setup timeout. That test is not
+affected by round C's mutations, which sit on the replay branches that `DE_…` never reaches; it passed in every
+unmutated run. After restore, the source was verified mechanically before the gate:
+
+* no mutation text remains;
+* the boundary guard is present;
+* all five rejected-replay branches resolve their claim.
+
+### 32.9 Findings and limits
+
+**Changed call sites.** `ServicingOperationStore.BeginExecutionAsync` and `IServicingOperationStore` (new
+member). `DocumentVoidService`, `RefundService`, `CancelRefundService`, `OrderCancelService` and
+`OrderScopeCancellationService`, each with the same four changes:
+
+1. `TransitionAsync(Executing)` → `BeginExecutionAsync`.
+2. The provider mutation call is moved out of the claim-releasing `catch` into its own `TrySuspendAsUnknownAsync` hold.
+3. The replay no longer treats `Prepared` + stage evidence as a fresh start: durable `Rejected` settles, and unresolved evidence recovers first. OrderScopeCancellation records no evidence, so this does not apply to it.
+4. The rejected replay releases its claim.
+
+Test support: `InterruptibleUnitOfWork`, `RefusingExecutionBoundaryOperationStore`,
+`DispatchThenFailReservationPort`, `DispatchThenFailDocumentRefundCorrectionPort`, `UnreachableEvidenceStore`,
+`ServicingCrashWindow` (three helpers), and harness decorators for the operation store, the reservation port and
+the correction port. No migration, no schema change, no DI change, no enum change, no new exception code, no port
+added.
+
+**Inspected, unchanged, with the reason.**
+
+* Exchange and VoluntaryChange: the accepted plan and `Executing` commit before the first dispatch, and every
+  step resumes through `RecoverAsync` with `WasDispatched`.
+* Issue: the stock-number allocation commits `Reserved` before `IssueAsync`, and a `Reserved` allocation forces
+  recovery.
+* OrderChange (AddService): no irreversible external mutation.
+* Value movement inside refund and correction (`RefundValueMovementCoordinator`,
+  `RefundValueCorrectionCoordinator`): runs only after the durable document checkpoint, and on replay uses
+  `RecoverAsync` + `WasDispatched` (§31.7).
+
+**Outside P3-H scope — reported, not changed.**
+
+* `ReserveOrderService` (P1): replay calls `ReserveAsync` again under the same key instead of recovering.
+* `WithdrawOrderService` (P1 pre-ticket withdraw, reachable through `WithdrawOrderCommand`): `ReleaseAsync` and the
+  funding release run with no durable boundary and no replay handling.
+
+Both have the same class of defect this section closes for P3. Fixing them changes P1 flows and needs its own
+brief.
+
+**Limits.**
+
+* The reconciliation query lists only `AwaitingExternal` and `NeedsReconciliation`. An operation left
+  `Executing` by a process crash (claim blocking, no evidence) is recoverable by replaying the same request but
+  is not listed as unresolved work. Before this change the same operation was `Prepared` and equally invisible.
+  Surfacing it is a Query change and was not made.
+* `BLOCKED_INTEGRATION`: every recovery path depends on the real provider answering read-back under the stable
+  key (`03` §3.6, `13` §9). No real adapter exists for any of the five rails. A real adapter may only be enabled on
+  code that includes this boundary (32.7).
+* On this workstation SQL Express shrinks its query memory-grant pool while the test host runs, which produces
+  setup timeouts unrelated to the code under test (32.8). Results in this section are counted only from runs
+  where the affected slice passed.
+
+### 32.10 Gate from final source
+
+GATE32-PENDING
+
+### 32.11 Verdict
+
+VERDICT32-PENDING

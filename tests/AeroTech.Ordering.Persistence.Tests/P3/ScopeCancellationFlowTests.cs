@@ -637,6 +637,214 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.DoesNotContain("OrderServicesRemoved", names);
         }
 
+        [Fact]
+        public async Task DA_a_crash_after_the_scope_release_reached_the_provider_recovers_first_and_never_releases_twice()
+        {
+            var (order, item, scope, caller) = await ReservedItemAsync();
+            var key = NewKey();
+
+            await using (var crashing = new OrderSliceHarness(
+                             _fixture, caller, decorateReservationPort: port => new DispatchThenFailReservationPort(port)))
+            {
+                QuoteCredit(crashing, order, scope, OrderChangeType.Cancel);
+                crashing.ServicingUnitOfWork.FailSaves = true;
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => crashing.ScopeCancel.CancelItemAsync(order.Id, item, QuoteId, key, order.CommercialVersion));
+
+                Assert.NotEmpty(ReleaseKeys(crashing));
+            }
+
+            var crashed = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Cancel);
+
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
+            Assert.True(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+
+            await ServicingCrashWindow.ExpireRecoveryLeaseAsync(_fixture, order.Id);
+
+            await using (var resuming = new OrderSliceHarness(_fixture, caller))
+            {
+                QuoteCredit(resuming, order, scope, OrderChangeType.Cancel);
+                resuming.Reservation.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+                var resumed = await resuming.ScopeCancel.CancelItemAsync(
+                    order.Id, item, QuoteId, key, order.CommercialVersion);
+
+                Assert.Equal(crashed.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+                Assert.Empty(ReleaseKeys(resuming));
+                Assert.NotEmpty(resuming.Reservation.ObservedRecoveryKeys);
+            }
+
+            var cancelled = await ReloadAsync(order.Id);
+
+            Assert.Single(cancelled.PriceChangeSets, set => set.Reason == PriceChangeReason.Cancellation);
+
+            await using (var replaying = new OrderSliceHarness(_fixture, caller))
+            {
+                var replay = await replaying.ScopeCancel.CancelItemAsync(
+                    order.Id, item, QuoteId, key, order.CommercialVersion);
+
+                Assert.True(replay.IsReplay);
+                Assert.Empty(ReleaseKeys(replaying));
+            }
+
+            Assert.Equal(cancelled.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
+        }
+
+        [Fact]
+        public async Task DA2_a_transport_failure_after_the_scope_release_reached_the_provider_keeps_the_order_claimed()
+        {
+            var (order, item, scope, caller) = await ReservedItemAsync();
+            var key = NewKey();
+
+            await using (var failing = new OrderSliceHarness(
+                             _fixture, caller, decorateReservationPort: port => new DispatchThenFailReservationPort(port)))
+            {
+                QuoteCredit(failing, order, scope, OrderChangeType.Cancel);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => failing.ScopeCancel.CancelItemAsync(order.Id, item, QuoteId, key, order.CommercialVersion));
+            }
+
+            var held = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Cancel);
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, held.Status);
+            Assert.True(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+
+            await using (var competing = NewHarness())
+            {
+                var refusal = await Assert.ThrowsAsync<BusinessException>(
+                    () => competing.Cancel.CancelAsync(order.Id, VoidReason.AgentError, 7, NewKey(), null));
+
+                Assert.Equal(20070, refusal.Code);
+            }
+
+            await using (var resuming = new OrderSliceHarness(_fixture, caller))
+            {
+                QuoteCredit(resuming, order, scope, OrderChangeType.Cancel);
+                resuming.Reservation.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+                var resumed = await resuming.ScopeCancel.CancelItemAsync(
+                    order.Id, item, QuoteId, key, order.CommercialVersion);
+
+                Assert.Equal(held.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+                Assert.Empty(ReleaseKeys(resuming));
+            }
+        }
+
+        [Fact]
+        public async Task DB_an_unknown_scope_release_whose_local_save_failed_is_recovered_before_any_second_release()
+        {
+            var (order, item, scope, caller) = await ReservedItemAsync();
+            var key = NewKey();
+
+            await using (var crashing = new OrderSliceHarness(_fixture, caller))
+            {
+                QuoteCredit(crashing, order, scope, OrderChangeType.Cancel);
+                crashing.Reservation.ReleaseOutcome = ProviderOperationOutcome.Unknown;
+                crashing.ServicingUnitOfWork.FailSaves = true;
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => crashing.ScopeCancel.CancelItemAsync(order.Id, item, QuoteId, key, order.CommercialVersion));
+            }
+
+            var crashed = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Cancel);
+
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
+
+            await ServicingCrashWindow.ExpireRecoveryLeaseAsync(_fixture, order.Id);
+
+            await using (var resuming = new OrderSliceHarness(_fixture, caller))
+            {
+                QuoteCredit(resuming, order, scope, OrderChangeType.Cancel);
+                resuming.Reservation.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+                var resumed = await resuming.ScopeCancel.CancelItemAsync(
+                    order.Id, item, QuoteId, key, order.CommercialVersion);
+
+                Assert.Equal(crashed.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+                Assert.Empty(ReleaseKeys(resuming));
+                Assert.NotEmpty(resuming.Reservation.ObservedRecoveryKeys);
+            }
+        }
+
+        [Fact]
+        public async Task DE_a_failed_execution_boundary_never_reaches_the_scope_release_provider()
+        {
+            var (order, item, scope, caller) = await ReservedItemAsync();
+            var key = NewKey();
+            RefusingExecutionBoundaryOperationStore? boundary = null;
+
+            await using (var refusing = new OrderSliceHarness(
+                             _fixture, caller,
+                             decorateOperationStore: store => boundary = new RefusingExecutionBoundaryOperationStore(store)))
+            {
+                QuoteCredit(refusing, order, scope, OrderChangeType.Cancel);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => refusing.ScopeCancel.CancelItemAsync(order.Id, item, QuoteId, key, order.CommercialVersion));
+
+                Assert.Equal(0, refusing.CancellationQuotes.CallCount);
+                Assert.Empty(ReleaseKeys(refusing));
+            }
+
+            var refused = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Cancel);
+
+            Assert.Equal(1, boundary!.Refusals);
+            Assert.Equal(ServicingOperationStatus.Prepared, refused.Status);
+
+            await using (var retrying = new OrderSliceHarness(_fixture, caller))
+            {
+                QuoteCredit(retrying, order, scope, OrderChangeType.Cancel);
+
+                var retried = await retrying.ScopeCancel.CancelItemAsync(
+                    order.Id, item, QuoteId, key, order.CommercialVersion);
+
+                Assert.Equal(refused.Id, retried.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, retried.OperationStatus);
+                Assert.NotEmpty(ReleaseKeys(retrying));
+            }
+        }
+
+        [Fact]
+        public async Task A_rejected_scope_release_replay_releases_the_replay_claim()
+        {
+            var (order, item, scope, caller) = await ReservedItemAsync();
+            var key = NewKey();
+
+            await using var harness = new OrderSliceHarness(_fixture, caller);
+
+            QuoteCredit(harness, order, scope, OrderChangeType.Cancel);
+            harness.Reservation.ReleaseOutcome = ProviderOperationOutcome.Rejected;
+
+            await harness.ScopeCancel.CancelItemAsync(order.Id, item, QuoteId, key, order.CommercialVersion);
+
+            var releases = ReleaseKeys(harness);
+
+            var replay = await harness.ScopeCancel.CancelItemAsync(
+                order.Id, item, QuoteId, key, order.CommercialVersion);
+
+            Assert.Equal(ServicingOperationStatus.Rejected, replay.OperationStatus);
+            Assert.Equal(releases, ReleaseKeys(harness));
+            Assert.False(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+        }
+
+        private async Task<(Order Order, long ItemId, IReadOnlyList<long> Scope, Domain._Shared.Contracts.ICallerContext Caller)>
+            ReservedItemAsync()
+        {
+            var caller = TestCallerContexts.AgencyUser(11, $"subject-{Guid.NewGuid():N}");
+
+            await using var setup = new OrderSliceHarness(_fixture, caller);
+
+            var order = await ReservedOrderAsync(setup);
+            var item = order.Items.First();
+
+            return (order, item.Id, order.ServiceIdsOfItem(item.Id).ToList(), caller);
+        }
+
         private static void QuoteCredit(
             OrderSliceHarness harness,
             Order order,

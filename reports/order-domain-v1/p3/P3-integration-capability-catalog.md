@@ -2848,13 +2848,30 @@ did not apply disagrees with the durable row. An exact replay applies nothing an
 record `Confirmed` at the point it is established — first attempt and recovery — before any local mutation.
 A contradiction routes the operation through the rail's existing reconciliation path, never to completion.
 
-**Crash-window resume.** A local commit failure after the checkpoint leaves the operation `Prepared` (its
-`Executing` transition rolls back with the local work; the receipt, operation and claim rows were already
-committed at `BeginAsync`). Resume with the same idempotency key finds the same operation. With durable
-`Confirmed` present it adopts locally with no second provider mutation. Void, refund and correction also make no
-`Recover` call. Reservation release performs its `Recover` readback, because the operation-level row does
-not carry the per-reservation release state (a different unresolved fact). A recovered `Rejected` against a
-durable release confirmation reconciles instead of rejecting.
+**Dispatch boundary.** Before any irreversible provider mutation — document void, document refund, refund
+correction, reservation release for whole-order and scope cancellation — the rail calls
+`IServicingOperationStore.BeginExecutionAsync`. It commits `Prepared -> Executing` immediately (`07` §5
+"after durable intent"). If that commit fails, the provider is never called. From then on the stored operation
+says "may have dispatched", and every replay recovers before acting. An exception from the provider call
+suspends the operation as `Unknown` (`AwaitingExternal`, receipt `Unknown`, evidence where the rail records it)
+and **keeps the Order claim**, so no other servicing operation starts until the outcome is recovered.
+
+**Crash-window resume.** A local commit failure after the checkpoint leaves the operation `Executing`: the
+boundary is already committed, and the local transition to a settled state rolls back. Resume with the same
+idempotency key finds the same operation:
+
+| Stored evidence | Resume action |
+| --- | --- |
+| `Confirmed` | adopt locally with no second provider mutation; void, refund and correction also make no `Recover` call. Reservation release performs its `Recover` read-back, because the operation-level row does not carry the per-reservation release state (a different unresolved fact) |
+| `Rejected` | settle rejected with zero provider calls |
+| `Pending` / `Unknown`, or none | recover first |
+
+A recovered `Rejected` against a durable release confirmation reconciles instead of rejecting.
+
+**Rows from before the boundary existed.** `Prepared` with unresolved evidence recovers first. `Prepared` with no
+evidence takes the initial path. That is safe only because no real provider adapter has ever been bound to these
+ports (void, refund and correction stubs throw before I/O; `IReservationPort` has no production binding). Enabling
+a real adapter is therefore only valid on code that includes the boundary.
 
 ### Ordering And Isolation
 

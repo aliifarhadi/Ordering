@@ -255,7 +255,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var durable = await ServicingCrashWindow.EvidenceAsync(
                 _fixture, crashed.Id, ServicingEvidenceStage.ReservationRelease);
 
-            Assert.Equal(ServicingOperationStatus.Prepared, crashed.Status);
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
             Assert.Equal(ProviderOperationOutcome.Confirmed, durable.Outcome);
             Assert.NotEqual(OrderStatus.Cancelled, (await ReloadAsync(orderId)).Status);
 

@@ -28,6 +28,11 @@ namespace AeroTech.Ordering.Domain.Servicing.Operations.Contracts
             long claimGeneration,
             CancellationToken cancellationToken = default);
 
+        Task BeginExecutionAsync(
+            long operationId,
+            long claimGeneration,
+            CancellationToken cancellationToken = default);
+
         Task<ServicingOperationRecord?> FindAsync(long operationId, CancellationToken cancellationToken = default);
     }
 }

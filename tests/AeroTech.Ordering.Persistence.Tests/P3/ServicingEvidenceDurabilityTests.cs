@@ -191,7 +191,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 _fixture, issued.OrderId, ServicingOperationKind.VoidDocument);
             var durable = await ServicingCrashWindow.EvidenceAsync(_fixture, crashed.Id, Stage);
 
-            Assert.Equal(ServicingOperationStatus.Prepared, crashed.Status);
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
             Assert.Equal(ProviderOperationOutcome.Confirmed, durable.Outcome);
             Assert.Equal($"VOID-{before.DocumentNumber}", durable.ProviderReference);
             Assert.Equal(

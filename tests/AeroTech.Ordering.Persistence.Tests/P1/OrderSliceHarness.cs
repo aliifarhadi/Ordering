@@ -72,7 +72,13 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             DeterministicDocumentVoidAdapter? documentVoids = null,
             IDocumentVoidPort? unconfiguredDocumentVoids = null,
             Func<Domain.Servicing.Reconciliation.Contracts.IServicingExternalEvidenceStore,
-                Domain.Servicing.Reconciliation.Contracts.IServicingExternalEvidenceStore>? decorateEvidence = null)
+                Domain.Servicing.Reconciliation.Contracts.IServicingExternalEvidenceStore>? decorateEvidence = null,
+            Func<Domain.Servicing.Operations.Contracts.IServicingOperationStore,
+                Domain.Servicing.Operations.Contracts.IServicingOperationStore>? decorateOperationStore = null,
+            Func<Domain.Ports.Reservation.IReservationPort,
+                Domain.Ports.Reservation.IReservationPort>? decorateReservationPort = null,
+            Func<Domain.Ports.DocumentRefundCorrection.IDocumentRefundCorrectionPort,
+                Domain.Ports.DocumentRefundCorrection.IDocumentRefundCorrectionPort>? decorateDocumentRefundCorrectionPort = null)
         {
             _fixture = fixture;
 
@@ -143,17 +149,20 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Withdraw = new WithdrawOrderService(Orders, reservations, tickets, Reservation, Funding, coordinator, new StubIdentity(), unitOfWork, Ids, frameworkClock, projector);
             OrderChange = new OrderChangeService(Orders, Quotes, coordinator, caller, unitOfWork, Ids, frameworkClock, projector);
             AccessGuard = new OrderCustomerAccessGuard(Orders, caller);
-            var releaseCoordinator = new ReservationReleaseCoordinator(reservations, Reservation, coordinator, frameworkClock);
+            var releasePort = decorateReservationPort?.Invoke(Reservation) ?? Reservation;
+            var releaseCoordinator = new ReservationReleaseCoordinator(reservations, releasePort, coordinator, frameworkClock);
 
             CancellationQuotes = new DeterministicOrderCancellationQuoteAdapter();
             DocumentVoids = documentVoids ?? new DeterministicDocumentVoidAdapter();
             ServicingEvidence = new ServicingExternalEvidenceStore(_command, frameworkClock);
             var railEvidence = decorateEvidence?.Invoke(ServicingEvidence) ?? ServicingEvidence;
+            var railOperationStore = decorateOperationStore?.Invoke(operationStore) ?? operationStore;
+            ServicingUnitOfWork = new InterruptibleUnitOfWork(unitOfWork);
             ManualResolutions = new ServicingManualResolutionStore(_command);
             VoidDocument = new Application.OrderAggregate.Services.DocumentVoid.DocumentVoidService(
-                Orders, tickets, miscDocuments, DocumentVoids, railEvidence, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
-            Cancel = new OrderCancelService(railEvidence, Orders, tickets, miscDocuments, releaseCoordinator, coordinator, operationStore, receipts, unitOfWork, Ids, frameworkClock, projector);
-            ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
+                Orders, tickets, miscDocuments, DocumentVoids, railEvidence, coordinator, railOperationStore, receipts, ServicingUnitOfWork, Ids, frameworkClock, projector);
+            Cancel = new OrderCancelService(railEvidence, Orders, tickets, miscDocuments, releaseCoordinator, coordinator, railOperationStore, receipts, ServicingUnitOfWork, Ids, frameworkClock, projector);
+            ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, railOperationStore, receipts, caller, ServicingUnitOfWork, Ids, frameworkClock, projector);
 
             RefundQuotes = new DeterministicRefundQuoteAdapter();
             DocumentRefunds = documentRefunds ?? new DeterministicDocumentRefundAdapter();
@@ -177,18 +186,18 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 railEvidence,
                 Orders,
                 tickets,
-                DocumentRefundCorrections,
+                decorateDocumentRefundCorrectionPort?.Invoke(DocumentRefundCorrections) ?? DocumentRefundCorrections,
                 new RefundValueCorrectionCoordinator(RefundValueCorrections, coordinator, frameworkClock),
                 new CancelRefundAuthorizer(CancelRefundAuthorizations, caller),
                 coordinator,
-                operationStore,
+                railOperationStore,
                 receipts,
                 caller,
-                unitOfWork,
+                ServicingUnitOfWork,
                 Ids,
                 frameworkClock,
                 projector);
-            Refund = new RefundService(railEvidence, Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, operationStore, receipts, caller, unitOfWork, Ids, frameworkClock, projector);
+            Refund = new RefundService(railEvidence, Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, railOperationStore, receipts, caller, ServicingUnitOfWork, Ids, frameworkClock, projector);
             ExchangeQuotes = new DeterministicExchangeQuoteAdapter();
             DocumentExchanges = documentExchanges ?? new DeterministicDocumentExchangeAdapter();
             ExchangeFunding = exchangeFunding ?? new DeterministicExchangeFundingAdapter();
@@ -262,6 +271,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
         public DocumentStockRepository Stocks { get; }
 
         public OrderingUnitOfWork UnitOfWork { get; }
+
+        public InterruptibleUnitOfWork ServicingUnitOfWork { get; }
 
         public OrderProjector Projector { get; }
 

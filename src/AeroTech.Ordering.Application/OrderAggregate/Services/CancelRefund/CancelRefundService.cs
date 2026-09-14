@@ -139,9 +139,8 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
 
                 await _authorizer.AuthorizeAsync(order, operation, ticket, refund, execution, cancellationToken);
 
-                await _operationStore.TransitionAsync(
+                await _operationStore.BeginExecutionAsync(
                     operation.OperationId,
-                    ServicingOperationStatus.Executing,
                     operation.ClaimGeneration,
                     cancellationToken);
 
@@ -164,7 +163,15 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                         order, operation, ticket, refund, ProviderOperationOutcome.Pending, cancellationToken);
 
                 staged = PrepareCorrection(order, operation, ticket, refund, execution);
+            }
+            catch
+            {
+                await TryReleaseRejectedAsync(execution.OrderId, operation, cancellationToken);
+                throw;
+            }
 
+            try
+            {
                 var result = await _documents.CancelRefundAsync(
                     new DocumentRefundCorrectionRequest(
                         CorrectionKey(operation, refund),
@@ -183,7 +190,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
             }
             catch
             {
-                await TryReleaseRejectedAsync(execution.OrderId, operation, cancellationToken);
+                await TrySuspendAsUnknownAsync(order, operation, ticket, refund);
                 throw;
             }
 
@@ -367,12 +374,27 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                 providerReference, RefundValueDispatch.AfterRecovery, cancellationToken);
         }
 
-        private async Task<ServicingExternalEvidence?> ConfirmedEvidenceAsync(
+        private async Task<ServicingExternalEvidence?> StageEvidenceAsync(
             long operationId,
             CancellationToken cancellationToken)
             => (await _evidence.ListAsync(operationId, cancellationToken))
-                .FirstOrDefault(evidence =>
-                    evidence.Stage == ServicingEvidenceStage.RefundCorrection && evidence.IsConfirmed);
+                .FirstOrDefault(evidence => evidence.Stage == ServicingEvidenceStage.RefundCorrection);
+
+        private async Task TrySuspendAsUnknownAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket ticket,
+            DocumentRefundRecord refund)
+        {
+            try
+            {
+                await SuspendAsync(
+                    order, operation, ticket, refund, ProviderOperationOutcome.Unknown, CancellationToken.None);
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         private async Task<ServicingEvidenceRecording> RecordCorrectionEvidenceAsync(
             OrderOperation operation,
@@ -447,10 +469,15 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                 return null;
 
             if (prior.Status == ServicingOperationStatus.Rejected)
+            {
+                await _operations.ResolveAsync(order.Id, operation, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+
                 return Outcome(
                     order, operation, ticket, refund, null, null,
                     ProviderOperationOutcome.Rejected, ProviderOperationOutcome.Pending,
                     prior.Status, correctionNotAvailable: false, isReplay: true);
+            }
 
             if (prior.Status is not (ServicingOperationStatus.Prepared
                 or ServicingOperationStatus.Executing
@@ -458,12 +485,17 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
 
-            if (await ConfirmedEvidenceAsync(operation.OperationId, cancellationToken) is { } durable)
+            var durable = await StageEvidenceAsync(operation.OperationId, cancellationToken);
+
+            if (durable is { IsConfirmed: true })
                 return await AdoptCorrectionAsync(
                     order, operation, ticket, refund, execution,
                     durable.ProviderReference, durable.Detail, cancellationToken);
 
-            if (prior.Status == ServicingOperationStatus.Prepared)
+            if (durable is { Outcome: ProviderOperationOutcome.Rejected })
+                return await RejectAsync(order, operation, ticket, refund, cancellationToken);
+
+            if (durable is null && prior.Status == ServicingOperationStatus.Prepared)
                 return null;
 
             var recovery = await _documents.RecoverAsync(

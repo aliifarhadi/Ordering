@@ -105,6 +105,39 @@ namespace AeroTech.Ordering.Persistence.Servicing
             operation.UpdatedAt = _clock.GetDateTime();
         }
 
+        public async Task BeginExecutionAsync(
+            long operationId,
+            long claimGeneration,
+            CancellationToken cancellationToken = default)
+        {
+            var operation = await _dbContext.Set<ServicingOperation>()
+                .SingleOrDefaultAsync(candidate => candidate.Id == operationId, cancellationToken)
+                ?? throw ExceptionFactory.ServicingOperationNotFound(operationId);
+
+            var crossesDispatchBoundary = operation.Status == ServicingOperationStatus.Prepared;
+
+            operation.Status = ServicingOperationStatus.Executing;
+            operation.ClaimGeneration = claimGeneration;
+            operation.UpdatedAt = _clock.GetDateTime();
+
+            if (!crossesDispatchBoundary)
+                return;
+
+            try
+            {
+                await OperationsWriteBoundary.SaveAsync(_dbContext, cancellationToken);
+            }
+            catch
+            {
+                var entry = _dbContext.Entry(operation);
+
+                entry.CurrentValues.SetValues(entry.OriginalValues);
+                entry.State = EntityState.Unchanged;
+
+                throw;
+            }
+        }
+
         public async Task<ServicingOperationRecord?> FindAsync(long operationId, CancellationToken cancellationToken = default)
         {
             var operation = await _dbContext.Set<ServicingOperation>()

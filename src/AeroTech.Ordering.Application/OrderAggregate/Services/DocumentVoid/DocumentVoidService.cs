@@ -107,16 +107,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                     return unfinished;
             }
 
-            ProviderOperationOutcome outcome;
-            string? providerReference;
-
             try
             {
                 target.EnsureCanBeVoided(_clock.GetDateTime());
 
-                await _operationStore.TransitionAsync(
+                await _operationStore.BeginExecutionAsync(
                     operation.OperationId,
-                    ServicingOperationStatus.Executing,
                     operation.ClaimGeneration,
                     cancellationToken);
 
@@ -134,8 +130,18 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
 
                 if (eligibility.Outcome == EligibilityOutcome.PendingEvidence)
                     return await SuspendAsync(order, operation, target, ProviderOperationOutcome.Pending, cancellationToken);
+            }
+            catch
+            {
+                await TryReleaseRejectedAsync(orderId, operation, cancellationToken);
+                throw;
+            }
 
-                var result = await _provider.VoidAsync(
+            DocumentVoidResult result;
+
+            try
+            {
+                result = await _provider.VoidAsync(
                     new DocumentVoidRequest(
                         VoidKey(operation, target),
                         orderId,
@@ -144,23 +150,20 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                         target.DocumentNumber,
                         target.IssuerCarrierId),
                     cancellationToken);
-
-                outcome = result.Outcome;
-                providerReference = result.ProviderReference;
             }
             catch
             {
-                await TryReleaseRejectedAsync(orderId, operation, cancellationToken);
+                await TrySuspendAsUnknownAsync(order, operation, target);
                 throw;
             }
 
-            return outcome switch
+            return result.Outcome switch
             {
                 ProviderOperationOutcome.Confirmed =>
-                    await FinalizeAsync(order, operation, target, provenance, providerReference, cancellationToken),
+                    await FinalizeAsync(order, operation, target, provenance, result.ProviderReference, cancellationToken),
                 ProviderOperationOutcome.Rejected => await RejectAsync(order, operation, target, cancellationToken),
                 _ => await SuspendAsync(
-                    order, operation, target, outcome, cancellationToken, providerReference)
+                    order, operation, target, result.Outcome, cancellationToken, result.ProviderReference)
             };
         }
 
@@ -314,7 +317,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                 return null;
 
             if (prior.Status == ServicingOperationStatus.Rejected)
+            {
+                await _operations.ResolveAsync(order.Id, operation, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+
                 return Outcome(order, operation, target, ProviderOperationOutcome.Rejected, prior.Status, false, true);
+            }
 
             if (prior.Status is not (ServicingOperationStatus.Prepared
                 or ServicingOperationStatus.Executing
@@ -322,11 +330,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
 
-            if (await ConfirmedEvidenceAsync(operation.OperationId, cancellationToken) is { } confirmed)
-                return await FinalizeAsync(
-                    order, operation, target, provenance, confirmed.ProviderReference, cancellationToken);
+            var durable = await StageEvidenceAsync(operation.OperationId, cancellationToken);
 
-            if (prior.Status == ServicingOperationStatus.Prepared)
+            if (durable is { IsConfirmed: true })
+                return await FinalizeAsync(
+                    order, operation, target, provenance, durable.ProviderReference, cancellationToken);
+
+            if (durable is { Outcome: ProviderOperationOutcome.Rejected })
+                return await RejectAsync(order, operation, target, cancellationToken);
+
+            if (durable is null && prior.Status == ServicingOperationStatus.Prepared)
                 return null;
 
             var recovery = await _provider.RecoverAsync(
@@ -361,12 +374,22 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
             return Outcome(order, operation, target, ProviderOperationOutcome.Confirmed, ServicingOperationStatus.Completed, false, true);
         }
 
-        private async Task<ServicingExternalEvidence?> ConfirmedEvidenceAsync(
+        private async Task<ServicingExternalEvidence?> StageEvidenceAsync(
             long operationId,
             CancellationToken cancellationToken)
             => (await _evidence.ListAsync(operationId, cancellationToken))
-                .FirstOrDefault(evidence =>
-                    evidence.Stage == ServicingEvidenceStage.DocumentVoid && evidence.IsConfirmed);
+                .FirstOrDefault(evidence => evidence.Stage == ServicingEvidenceStage.DocumentVoid);
+
+        private async Task TrySuspendAsUnknownAsync(Order order, OrderOperation operation, VoidTarget target)
+        {
+            try
+            {
+                await SuspendAsync(order, operation, target, ProviderOperationOutcome.Unknown, CancellationToken.None);
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         private async Task<ServicingEvidenceRecording> RecordEvidenceAsync(
             OrderOperation operation,

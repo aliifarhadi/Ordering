@@ -429,7 +429,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var durable = await ServicingCrashWindow.EvidenceAsync(
                 _fixture, crashed.Id, ServicingEvidenceStage.RefundCorrection);
 
-            Assert.Equal(ServicingOperationStatus.Prepared, crashed.Status);
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
             Assert.Equal(ProviderOperationOutcome.Confirmed, durable.Outcome);
             Assert.Equal($"CXRFND-{ticket.DocumentNumber}-{refund.Id}", durable.ProviderReference);
             Assert.Empty((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
@@ -514,6 +514,243 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal(before.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
             Assert.Empty(harness.RefundValueCorrections.ObservedRequests);
         }
+
+        [Fact]
+        public async Task DA_a_crash_after_the_correction_reached_the_provider_recovers_first_and_never_corrects_twice()
+        {
+            var (order, ticket, refund, before) = await RefundedAsync();
+            var caller = Caller();
+            var key = NewKey();
+
+            await using (var crashing = new OrderSliceHarness(
+                             _fixture, caller,
+                             decorateEvidence: store => new UnreachableEvidenceStore(store),
+                             decorateDocumentRefundCorrectionPort: port => new DispatchThenFailDocumentRefundCorrectionPort(port)))
+            {
+                Approve(crashing);
+                crashing.ServicingUnitOfWork.FailSaves = true;
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => crashing.CancelRefund.CancelRefundAsync(
+                        Execution(order.Id, ticket, refund, key, before.CommercialVersion)));
+
+                Assert.Single(crashing.DocumentRefundCorrections.ObservedCorrectionKeys);
+            }
+
+            var crashed = await ServicingCrashWindow.OperationAsync(
+                _fixture, order.Id, ServicingOperationKind.CancelRefund);
+
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
+            Assert.Null(await ServicingCrashWindow.EvidenceOrNullAsync(
+                _fixture, crashed.Id, ServicingEvidenceStage.RefundCorrection));
+            Assert.True(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+
+            await ServicingCrashWindow.ExpireRecoveryLeaseAsync(_fixture, order.Id);
+
+            await using (var resuming = new OrderSliceHarness(_fixture, caller))
+            {
+                Approve(resuming);
+                resuming.DocumentRefundCorrections.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+                var resumed = await resuming.CancelRefund.CancelRefundAsync(
+                    Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+                Assert.Equal(crashed.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+                Assert.Empty(resuming.DocumentRefundCorrections.ObservedCorrectionKeys);
+                Assert.Single(resuming.DocumentRefundCorrections.ObservedRecoveryKeys);
+            }
+
+            var after = await ReloadAsync(order.Id);
+
+            Assert.Single((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
+            Assert.Equal(before.CommercialVersion + 1, after.CommercialVersion);
+
+            await using (var replaying = new OrderSliceHarness(_fixture, caller))
+            {
+                var replay = await replaying.CancelRefund.CancelRefundAsync(
+                    Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+                Assert.True(replay.IsReplay);
+                Assert.Empty(replaying.DocumentRefundCorrections.ObservedCorrectionKeys);
+                Assert.Empty(replaying.DocumentRefundCorrections.ObservedRecoveryKeys);
+            }
+
+            Assert.Single((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
+            Assert.Equal(after.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
+        }
+
+        [Fact]
+        public async Task DA2_a_transport_failure_after_the_correction_reached_the_provider_keeps_the_order_claimed()
+        {
+            var (order, ticket, refund, before) = await RefundedAsync();
+            var caller = Caller();
+            var key = NewKey();
+
+            await using (var failing = new OrderSliceHarness(
+                             _fixture, caller,
+                             decorateDocumentRefundCorrectionPort: port => new DispatchThenFailDocumentRefundCorrectionPort(port)))
+            {
+                Approve(failing);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => failing.CancelRefund.CancelRefundAsync(
+                        Execution(order.Id, ticket, refund, key, before.CommercialVersion)));
+            }
+
+            var held = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.CancelRefund);
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, held.Status);
+            Assert.Equal(
+                ProviderOperationOutcome.Unknown,
+                (await ServicingCrashWindow.EvidenceAsync(_fixture, held.Id, ServicingEvidenceStage.RefundCorrection)).Outcome);
+            Assert.True(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+
+            await using (var competing = NewHarness())
+            {
+                var refusal = await Assert.ThrowsAsync<BusinessException>(
+                    () => competing.Cancel.CancelAsync(order.Id, VoidReason.AgentError, 7, NewKey(), null));
+
+                Assert.Equal(20070, refusal.Code);
+            }
+
+            await using (var resuming = new OrderSliceHarness(_fixture, caller))
+            {
+                Approve(resuming);
+                resuming.DocumentRefundCorrections.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+                var resumed = await resuming.CancelRefund.CancelRefundAsync(
+                    Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+                Assert.Equal(held.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+                Assert.Empty(resuming.DocumentRefundCorrections.ObservedCorrectionKeys);
+            }
+
+            Assert.Single((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
+        }
+
+        [Fact]
+        public async Task DB_unknown_correction_evidence_survives_a_failed_local_save_and_is_recovered_first()
+        {
+            var (order, ticket, refund, before) = await RefundedAsync();
+            var caller = Caller();
+            var key = NewKey();
+
+            await using (var crashing = new OrderSliceHarness(_fixture, caller))
+            {
+                Approve(crashing);
+                crashing.DocumentRefundCorrections.CorrectionOutcome = ProviderOperationOutcome.Unknown;
+                crashing.ServicingUnitOfWork.FailSaves = true;
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => crashing.CancelRefund.CancelRefundAsync(
+                        Execution(order.Id, ticket, refund, key, before.CommercialVersion)));
+            }
+
+            var crashed = await ServicingCrashWindow.OperationAsync(
+                _fixture, order.Id, ServicingOperationKind.CancelRefund);
+
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
+            Assert.Equal(
+                ProviderOperationOutcome.Unknown,
+                (await ServicingCrashWindow.EvidenceAsync(_fixture, crashed.Id, ServicingEvidenceStage.RefundCorrection)).Outcome);
+
+            await ServicingCrashWindow.ExpireRecoveryLeaseAsync(_fixture, order.Id);
+
+            await using (var resuming = new OrderSliceHarness(_fixture, caller))
+            {
+                Approve(resuming);
+                resuming.DocumentRefundCorrections.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+                var resumed = await resuming.CancelRefund.CancelRefundAsync(
+                    Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+                Assert.Equal(crashed.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+                Assert.Empty(resuming.DocumentRefundCorrections.ObservedCorrectionKeys);
+                Assert.Single(resuming.DocumentRefundCorrections.ObservedRecoveryKeys);
+            }
+
+            Assert.Single((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
+        }
+
+        [Fact]
+        public async Task DE_a_failed_execution_boundary_never_reaches_the_correction_provider()
+        {
+            var (order, ticket, refund, before) = await RefundedAsync();
+            var caller = Caller();
+            var key = NewKey();
+            RefusingExecutionBoundaryOperationStore? boundary = null;
+
+            await using (var refusing = new OrderSliceHarness(
+                             _fixture, caller,
+                             decorateOperationStore: store => boundary = new RefusingExecutionBoundaryOperationStore(store)))
+            {
+                Approve(refusing);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => refusing.CancelRefund.CancelRefundAsync(
+                        Execution(order.Id, ticket, refund, key, before.CommercialVersion)));
+
+                Assert.Empty(refusing.DocumentRefundCorrections.ObservedEligibilityKeys);
+                Assert.Empty(refusing.DocumentRefundCorrections.ObservedCorrectionKeys);
+            }
+
+            var refused = await ServicingCrashWindow.OperationAsync(
+                _fixture, order.Id, ServicingOperationKind.CancelRefund);
+
+            Assert.Equal(1, boundary!.Refusals);
+            Assert.Equal(ServicingOperationStatus.Prepared, refused.Status);
+
+            await using (var retrying = new OrderSliceHarness(_fixture, caller))
+            {
+                Approve(retrying);
+
+                var retried = await retrying.CancelRefund.CancelRefundAsync(
+                    Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+                Assert.Equal(refused.Id, retried.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, retried.OperationStatus);
+                Assert.Single(retrying.DocumentRefundCorrections.ObservedCorrectionKeys);
+            }
+        }
+
+        [Fact]
+        public async Task A_rejected_correction_replay_releases_the_replay_claim()
+        {
+            var (order, ticket, refund, before) = await RefundedAsync();
+            var key = NewKey();
+
+            await using var harness = NewHarness();
+
+            Approve(harness);
+            harness.DocumentRefundCorrections.CorrectionOutcome = ProviderOperationOutcome.Rejected;
+
+            await harness.CancelRefund.CancelRefundAsync(
+                Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+            var replay = await harness.CancelRefund.CancelRefundAsync(
+                Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+            Assert.True(replay.IsReplay);
+            Assert.Equal(ServicingOperationStatus.Rejected, replay.OperationStatus);
+            Assert.Single(harness.DocumentRefundCorrections.ObservedCorrectionKeys);
+            Assert.False(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+        }
+
+        private async Task<(Order Order, ElectronicTicket Ticket, DocumentRefundRecord Refund, Order Before)> RefundedAsync()
+        {
+            await using var setup = NewHarness();
+            var order = await TicketedOrderAsync(setup);
+            var ticket = await FirstTicketAsync(order.Id);
+            var refund = await RefundAsync(setup, order.Id, ticket, ticket.RefundableCouponIds().ToList(), "RFND-1");
+
+            return (order, ticket, refund, await ReloadAsync(order.Id));
+        }
+
+        private static Domain._Shared.Contracts.ICallerContext Caller()
+            => TestCallerContexts.AirlineUser(7401, $"cxrfnd-{Guid.NewGuid():N}");
 
         [Fact]
         public async Task An_unsettled_value_correction_leaves_the_document_and_pricing_corrected()

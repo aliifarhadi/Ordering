@@ -435,7 +435,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             var durable = await ServicingCrashWindow.EvidenceAsync(
                 _fixture, crashed.Id, ServicingEvidenceStage.DocumentRefund);
 
-            Assert.Equal(ServicingOperationStatus.Prepared, crashed.Status);
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
             Assert.Equal(ProviderOperationOutcome.Confirmed, durable.Outcome);
             Assert.Equal($"RFND-{ticket.DocumentNumber}", durable.ProviderReference);
             Assert.Empty((await FirstTicketAsync(order.Id)).Refunds);
@@ -520,6 +520,249 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Empty((await FirstTicketAsync(order.Id)).Refunds);
             Assert.Equal(order.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
             Assert.Empty(harness.RefundValues.ObservedRequests);
+        }
+
+        [Fact]
+        public async Task DA_a_crash_after_the_document_refund_reached_the_provider_recovers_first_and_never_refunds_twice()
+        {
+            await using var setup = NewHarness();
+            var order = await TicketedOrderAsync(setup);
+            var ticket = await FirstTicketAsync(order.Id);
+            var caller = TestCallerContexts.AgencyUser(11, $"subject-{Guid.NewGuid():N}");
+            var documents = new DeterministicDocumentRefundAdapter { ThrowAfterDispatch = true };
+            var values = new DeterministicRefundValueAdapter();
+            var key = NewKey();
+
+            await using (var crashing = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents,
+                             decorateEvidence: store => new UnreachableEvidenceStore(store)))
+            {
+                Quote(crashing, order, ticket);
+                crashing.ServicingUnitOfWork.FailSaves = true;
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => crashing.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion)));
+            }
+
+            var crashed = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Refund);
+            var dispatchedKey = Assert.Single(documents.ObservedRefundKeys);
+
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
+            Assert.Null(await ServicingCrashWindow.EvidenceOrNullAsync(
+                _fixture, crashed.Id, ServicingEvidenceStage.DocumentRefund));
+            Assert.True(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+            Assert.Empty(values.ObservedRequests);
+
+            await ServicingCrashWindow.ExpireRecoveryLeaseAsync(_fixture, order.Id);
+
+            documents.ThrowAfterDispatch = false;
+
+            await using (var resuming = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                Quote(resuming, order, ticket);
+
+                var resumed = await resuming.Refund.RefundAsync(
+                    Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+                Assert.Equal(crashed.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+            }
+
+            Assert.Single(documents.ObservedRefundKeys);
+            Assert.Equal(dispatchedKey, Assert.Single(documents.ObservedRecoveryKeys));
+            Assert.Equal(
+                ProviderOperationOutcome.Confirmed,
+                (await ServicingCrashWindow.EvidenceAsync(_fixture, crashed.Id, ServicingEvidenceStage.DocumentRefund)).Outcome);
+
+            var after = await ReloadAsync(order.Id);
+
+            Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
+            Assert.Equal(order.CommercialVersion + 1, after.CommercialVersion);
+
+            await using (var replaying = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                var replay = await replaying.Refund.RefundAsync(
+                    Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+                Assert.True(replay.IsReplay);
+            }
+
+            Assert.Single(documents.ObservedRefundKeys);
+            Assert.Single(documents.ObservedRecoveryKeys);
+            Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
+            Assert.Equal(after.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
+        }
+
+        [Fact]
+        public async Task DA2_a_transport_failure_after_the_document_refund_reached_the_provider_keeps_the_order_claimed()
+        {
+            await using var setup = NewHarness();
+            var order = await TicketedOrderAsync(setup);
+            var ticket = await FirstTicketAsync(order.Id);
+            var caller = TestCallerContexts.AgencyUser(11, $"subject-{Guid.NewGuid():N}");
+            var documents = new DeterministicDocumentRefundAdapter { ThrowAfterDispatch = true };
+            var values = new DeterministicRefundValueAdapter();
+            var key = NewKey();
+
+            await using (var failing = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                Quote(failing, order, ticket);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => failing.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion)));
+            }
+
+            var held = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Refund);
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, held.Status);
+            Assert.Equal(
+                ProviderOperationOutcome.Unknown,
+                (await ServicingCrashWindow.EvidenceAsync(_fixture, held.Id, ServicingEvidenceStage.DocumentRefund)).Outcome);
+            Assert.True(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+
+            await using (var competing = NewHarness())
+            {
+                var refusal = await Assert.ThrowsAsync<BusinessException>(
+                    () => competing.Cancel.CancelAsync(order.Id, VoidReason.AgentError, 7, NewKey(), null));
+
+                Assert.Equal(ExchangeScenarios.ClaimConflict, refusal.Code);
+            }
+
+            documents.ThrowAfterDispatch = false;
+
+            await using (var resuming = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                Quote(resuming, order, ticket);
+
+                var resumed = await resuming.Refund.RefundAsync(
+                    Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+                Assert.Equal(held.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+            }
+
+            Assert.Single(documents.ObservedRefundKeys);
+            Assert.Single(documents.ObservedRecoveryKeys);
+            Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
+        }
+
+        [Fact]
+        public async Task DB_unknown_document_refund_evidence_survives_a_failed_local_save_and_is_recovered_first()
+        {
+            await using var setup = NewHarness();
+            var order = await TicketedOrderAsync(setup);
+            var ticket = await FirstTicketAsync(order.Id);
+            var caller = TestCallerContexts.AgencyUser(11, $"subject-{Guid.NewGuid():N}");
+            var documents = new DeterministicDocumentRefundAdapter { RefundOutcome = ProviderOperationOutcome.Unknown };
+            var values = new DeterministicRefundValueAdapter();
+            var key = NewKey();
+
+            await using (var crashing = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                Quote(crashing, order, ticket);
+                crashing.ServicingUnitOfWork.FailSaves = true;
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => crashing.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion)));
+            }
+
+            var crashed = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Refund);
+
+            Assert.Equal(ServicingOperationStatus.Executing, crashed.Status);
+            Assert.Equal(
+                ProviderOperationOutcome.Unknown,
+                (await ServicingCrashWindow.EvidenceAsync(_fixture, crashed.Id, ServicingEvidenceStage.DocumentRefund)).Outcome);
+
+            await ServicingCrashWindow.ExpireRecoveryLeaseAsync(_fixture, order.Id);
+
+            documents.RecoveryOutcome = ProviderOperationOutcome.Confirmed;
+
+            await using (var resuming = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                Quote(resuming, order, ticket);
+
+                var resumed = await resuming.Refund.RefundAsync(
+                    Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+                Assert.Equal(crashed.Id, resumed.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, resumed.OperationStatus);
+            }
+
+            Assert.Single(documents.ObservedRefundKeys);
+            Assert.Single(documents.ObservedRecoveryKeys);
+            Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
+        }
+
+        [Fact]
+        public async Task DE_a_failed_execution_boundary_never_reaches_the_document_refund_provider()
+        {
+            await using var setup = NewHarness();
+            var order = await TicketedOrderAsync(setup);
+            var ticket = await FirstTicketAsync(order.Id);
+            var caller = TestCallerContexts.AgencyUser(11, $"subject-{Guid.NewGuid():N}");
+            var documents = new DeterministicDocumentRefundAdapter();
+            var values = new DeterministicRefundValueAdapter();
+            var key = NewKey();
+            RefusingExecutionBoundaryOperationStore? boundary = null;
+
+            await using (var refusing = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents,
+                             decorateOperationStore: store => boundary = new RefusingExecutionBoundaryOperationStore(store)))
+            {
+                Quote(refusing, order, ticket);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => refusing.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion)));
+            }
+
+            var refused = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Refund);
+
+            Assert.Equal(1, boundary!.Refusals);
+            Assert.Empty(documents.ObservedEligibilityKeys);
+            Assert.Empty(documents.ObservedRefundKeys);
+            Assert.Equal(ServicingOperationStatus.Prepared, refused.Status);
+
+            await using (var retrying = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                Quote(retrying, order, ticket);
+
+                var retried = await retrying.Refund.RefundAsync(
+                    Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+                Assert.Equal(refused.Id, retried.OperationId);
+                Assert.Equal(ServicingOperationStatus.Completed, retried.OperationStatus);
+            }
+
+            Assert.Single(documents.ObservedRefundKeys);
+        }
+
+        [Fact]
+        public async Task A_rejected_refund_replay_releases_the_replay_claim()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = await FirstTicketAsync(order.Id);
+            var key = NewKey();
+
+            Quote(harness, order, ticket);
+            harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Rejected;
+
+            await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+            var replay = await harness.Refund.RefundAsync(
+                Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+            Assert.True(replay.IsReplay);
+            Assert.Equal(ServicingOperationStatus.Rejected, replay.OperationStatus);
+            Assert.Single(harness.DocumentRefunds.ObservedRefundKeys);
+            Assert.False(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
         }
 
         [Fact]

@@ -33,6 +33,39 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             return evidence.Single(candidate => candidate.Stage == stage);
         }
 
+        public static async Task<ServicingExternalEvidence?> EvidenceOrNullAsync(
+            OrderingDatabaseFixture fixture,
+            long operationId,
+            ServicingEvidenceStage stage)
+        {
+            await using var context = fixture.NewCommandContext();
+
+            var evidence = await new ServicingExternalEvidenceStore(context, new OrderingDatabaseFixture.FixedClock())
+                .ListAsync(operationId);
+
+            return evidence.SingleOrDefault(candidate => candidate.Stage == stage);
+        }
+
+        public static async Task<bool> ClaimIsBlockingAsync(OrderingDatabaseFixture fixture, long orderId)
+        {
+            await using var context = fixture.NewCommandContext();
+
+            return await context.Set<OperationOrderClaim>()
+                .AsNoTracking()
+                .AnyAsync(claim => claim.OrderId == orderId && claim.IsBlocking);
+        }
+
+        public static async Task DowngradeToPreparedAsync(OrderingDatabaseFixture fixture, long operationId)
+        {
+            await using var context = fixture.NewCommandContext();
+
+            var operation = await context.Set<ServicingOperation>().SingleAsync(candidate => candidate.Id == operationId);
+
+            operation.Status = ServicingOperationStatus.Prepared;
+
+            await context.SaveChangesAsync();
+        }
+
         public static async Task ExpireRecoveryLeaseAsync(OrderingDatabaseFixture fixture, long orderId)
         {
             await using var context = fixture.NewCommandContext();
