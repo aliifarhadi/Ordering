@@ -78,7 +78,9 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             Func<Domain.Ports.Reservation.IReservationPort,
                 Domain.Ports.Reservation.IReservationPort>? decorateReservationPort = null,
             Func<Domain.Ports.DocumentRefundCorrection.IDocumentRefundCorrectionPort,
-                Domain.Ports.DocumentRefundCorrection.IDocumentRefundCorrectionPort>? decorateDocumentRefundCorrectionPort = null)
+                Domain.Ports.DocumentRefundCorrection.IDocumentRefundCorrectionPort>? decorateDocumentRefundCorrectionPort = null,
+            Func<Domain.OrderAggregate.Contracts.IOrderRepository,
+                Domain.OrderAggregate.Contracts.IOrderRepository>? decorateOrders = null)
         {
             _fixture = fixture;
 
@@ -157,12 +159,13 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             ServicingEvidence = new ServicingExternalEvidenceStore(_command, frameworkClock);
             var railEvidence = decorateEvidence?.Invoke(ServicingEvidence) ?? ServicingEvidence;
             var railOperationStore = decorateOperationStore?.Invoke(operationStore) ?? operationStore;
+            var railOrders = decorateOrders?.Invoke(Orders) ?? Orders;
             ServicingUnitOfWork = new InterruptibleUnitOfWork(unitOfWork);
             ManualResolutions = new ServicingManualResolutionStore(_command);
             VoidDocument = new Application.OrderAggregate.Services.DocumentVoid.DocumentVoidService(
-                Orders, tickets, miscDocuments, DocumentVoids, railEvidence, coordinator, railOperationStore, receipts, ServicingUnitOfWork, Ids, frameworkClock, projector);
-            Cancel = new OrderCancelService(railEvidence, Orders, tickets, miscDocuments, releaseCoordinator, coordinator, railOperationStore, receipts, ServicingUnitOfWork, Ids, frameworkClock, projector);
-            ScopeCancel = new OrderScopeCancellationService(Orders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, railOperationStore, receipts, caller, ServicingUnitOfWork, Ids, frameworkClock, projector);
+                railOrders, tickets, miscDocuments, DocumentVoids, railEvidence, coordinator, railOperationStore, receipts, ServicingUnitOfWork, Ids, frameworkClock, projector);
+            Cancel = new OrderCancelService(railEvidence, railOrders, tickets, miscDocuments, releaseCoordinator, coordinator, railOperationStore, receipts, ServicingUnitOfWork, Ids, frameworkClock, projector);
+            ScopeCancel = new OrderScopeCancellationService(railOrders, tickets, miscDocuments, CancellationQuotes, releaseCoordinator, coordinator, railOperationStore, receipts, caller, ServicingUnitOfWork, Ids, frameworkClock, projector);
 
             RefundQuotes = new DeterministicRefundQuoteAdapter();
             DocumentRefunds = documentRefunds ?? new DeterministicDocumentRefundAdapter();
@@ -184,7 +187,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
             CancelRefundAuthorizations = new DeterministicCancelRefundAuthorizationAdapter();
             CancelRefund = new CancelRefundService(
                 railEvidence,
-                Orders,
+                railOrders,
                 tickets,
                 decorateDocumentRefundCorrectionPort?.Invoke(DocumentRefundCorrections) ?? DocumentRefundCorrections,
                 new RefundValueCorrectionCoordinator(RefundValueCorrections, coordinator, frameworkClock),
@@ -197,7 +200,7 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 Ids,
                 frameworkClock,
                 projector);
-            Refund = new RefundService(railEvidence, Orders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, railOperationStore, receipts, caller, ServicingUnitOfWork, Ids, frameworkClock, projector);
+            Refund = new RefundService(railEvidence, railOrders, tickets, RefundQuotes, DocumentRefunds, refundValueCoordinator, manualRefundAuthorizer, coordinator, railOperationStore, receipts, caller, ServicingUnitOfWork, Ids, frameworkClock, projector);
             ExchangeQuotes = new DeterministicExchangeQuoteAdapter();
             DocumentExchanges = documentExchanges ?? new DeterministicDocumentExchangeAdapter();
             ExchangeFunding = exchangeFunding ?? new DeterministicExchangeFundingAdapter();

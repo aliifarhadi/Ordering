@@ -832,6 +832,62 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.False(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
         }
 
+        [Fact]
+        public async Task DG_a_stale_snapshot_replay_of_a_completed_scope_cancellation_never_releases_twice()
+        {
+            var (order, item, scope, caller) = await ReservedItemAsync();
+            var key = NewKey();
+            IReadOnlyList<string> releases = [];
+            Order? cancelled = null;
+            CompletingElsewhereOrderRepository? interleaving = null;
+
+            await using var stale = new OrderSliceHarness(
+                _fixture, caller,
+                decorateOrders: orders => interleaving = new CompletingElsewhereOrderRepository(orders, async () =>
+                {
+                    await using var completing = new OrderSliceHarness(_fixture, caller);
+
+                    QuoteCredit(completing, order, scope, OrderChangeType.Cancel);
+
+                    var completed = await completing.ScopeCancel.CancelItemAsync(
+                        order.Id, item, QuoteId, key, order.CommercialVersion);
+
+                    Assert.Equal(ServicingOperationStatus.Completed, completed.OperationStatus);
+
+                    releases = ReleaseKeys(completing);
+                    cancelled = await ReloadAsync(order.Id);
+                }));
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(
+                () => stale.ScopeCancel.CancelItemAsync(order.Id, item, QuoteId, key, order.CommercialVersion));
+
+            Assert.Equal(1, interleaving!.Completions);
+            Assert.NotEmpty(releases);
+            Assert.Equal(20334, refusal.Code);
+            Assert.Empty(ReleaseKeys(stale));
+            Assert.Empty(stale.Reservation.ObservedRecoveryKeys);
+            Assert.Equal(0, stale.CancellationQuotes.CallCount);
+
+            var operation = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Cancel);
+            var after = await ReloadAsync(order.Id);
+
+            Assert.Equal(ServicingOperationStatus.Completed, operation.Status);
+            Assert.Equal(cancelled!.CommercialVersion, after.CommercialVersion);
+            Assert.Single(after.Changes, change => change.OperationId == operation.Id);
+            Assert.Single(after.PriceChangeSets, set => set.Reason == PriceChangeReason.Cancellation);
+            Assert.False(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+
+            await using (var retrying = new OrderSliceHarness(_fixture, caller))
+            {
+                var replay = await retrying.ScopeCancel.CancelItemAsync(
+                    order.Id, item, QuoteId, key, order.CommercialVersion);
+
+                Assert.True(replay.IsReplay);
+                Assert.Equal(ServicingOperationStatus.Completed, replay.OperationStatus);
+                Assert.Empty(ReleaseKeys(retrying));
+            }
+        }
+
         private async Task<(Order Order, long ItemId, IReadOnlyList<long> Scope, Domain._Shared.Contracts.ICallerContext Caller)>
             ReservedItemAsync()
         {

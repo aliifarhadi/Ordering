@@ -307,6 +307,59 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Single(voids.ObservedRecoveryKeys);
         }
 
+        [Fact]
+        public async Task DG_a_stale_snapshot_replay_of_a_completed_void_never_voids_twice()
+        {
+            var issued = await IssuedTicketAsync();
+            var caller = Caller();
+            var voids = new DeterministicDocumentVoidAdapter();
+            var key = NewKey();
+
+            await using var stale = new OrderSliceHarness(_fixture, caller, documentVoids: voids);
+
+            await stale.Orders.GetAsync(issued.OrderId);
+            await stale.Tickets.ListByOrderAsync(issued.OrderId);
+
+            await using (var completing = new OrderSliceHarness(_fixture, caller, documentVoids: voids))
+            {
+                var completed = await VoidAsync(completing, issued, key);
+
+                Assert.Equal(ServicingOperationStatus.Completed, completed.OperationStatus);
+            }
+
+            var voided = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
+            var order = await ReloadAsync(_fixture, issued.OrderId);
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(() => VoidAsync(stale, issued, key));
+
+            Assert.Equal(20334, refusal.Code);
+            Assert.Single(voids.ObservedVoidKeys);
+            Assert.Single(voids.ObservedEligibilityKeys);
+            Assert.Empty(voids.ObservedRecoveryKeys);
+
+            var operation = await OperationAsync(_fixture, issued.OrderId, ServicingOperationKind.VoidDocument);
+            var ticket = await TicketAsync(_fixture, issued.OrderId, issued.TicketId);
+            var after = await ReloadAsync(_fixture, issued.OrderId);
+
+            Assert.Equal(ServicingOperationStatus.Completed, operation.Status);
+            Assert.Equal(ProviderOperationOutcome.Confirmed, (await EvidenceAsync(_fixture, operation.Id, Stage)).Outcome);
+            Assert.Equal(ElectronicTicketStatus.Voided, ticket.StatusSummary);
+            Assert.Equal(voided.DocumentVersion, ticket.DocumentVersion);
+            Assert.Equal(order.CommercialVersion, after.CommercialVersion);
+            Assert.Equal(order.Changes.Count, after.Changes.Count);
+            Assert.False(await ClaimIsBlockingAsync(_fixture, issued.OrderId));
+
+            await using (var retrying = new OrderSliceHarness(_fixture, caller, documentVoids: voids))
+            {
+                var replay = await VoidAsync(retrying, issued, key);
+
+                Assert.True(replay.IsReplay);
+                Assert.Equal(ServicingOperationStatus.Completed, replay.OperationStatus);
+            }
+
+            Assert.Single(voids.ObservedVoidKeys);
+        }
+
         private async Task<IssuedTicket> IssuedTicketAsync()
         {
             await using var setup = new OrderSliceHarness(_fixture, Caller());

@@ -1163,6 +1163,72 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.Equal($"VAL-{ticket.DocumentNumber}", record.ValueMovementReference);
         }
 
+        [Fact]
+        public async Task DG_a_stale_snapshot_replay_of_a_completed_refund_never_refunds_twice()
+        {
+            await using var setup = NewHarness();
+            var order = await TicketedOrderAsync(setup);
+            var ticket = await FirstTicketAsync(order.Id);
+            var caller = TestCallerContexts.AgencyUser(11, $"subject-{Guid.NewGuid():N}");
+            var documents = new DeterministicDocumentRefundAdapter();
+            var values = new DeterministicRefundValueAdapter();
+            var key = NewKey();
+            Order? refunded = null;
+            var valueRequests = 0;
+            CompletingElsewhereOrderRepository? interleaving = null;
+
+            await using var stale = new OrderSliceHarness(
+                _fixture, caller, refundValues: values, documentRefunds: documents,
+                decorateOrders: orders => interleaving = new CompletingElsewhereOrderRepository(orders, async () =>
+                {
+                    await using var completing = new OrderSliceHarness(
+                        _fixture, caller, refundValues: values, documentRefunds: documents);
+
+                    Quote(completing, order, ticket);
+
+                    var completed = await completing.Refund.RefundAsync(
+                        Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+                    Assert.Equal(ServicingOperationStatus.Completed, completed.OperationStatus);
+
+                    refunded = await ReloadAsync(order.Id);
+                    valueRequests = values.ObservedRequests.Count;
+                }));
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(
+                () => stale.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion)));
+
+            Assert.Equal(1, interleaving!.Completions);
+            Assert.Equal(20334, refusal.Code);
+            Assert.Single(documents.ObservedRefundKeys);
+            Assert.Single(documents.ObservedEligibilityKeys);
+            Assert.Empty(documents.ObservedRecoveryKeys);
+            Assert.Equal(valueRequests, values.ObservedRequests.Count);
+            Assert.Empty(stale.RefundQuotes.ObservedSelections);
+
+            var operation = await ServicingCrashWindow.OperationAsync(_fixture, order.Id, ServicingOperationKind.Refund);
+            var after = await ReloadAsync(order.Id);
+
+            Assert.Equal(ServicingOperationStatus.Completed, operation.Status);
+            Assert.Equal(refunded!.CommercialVersion, after.CommercialVersion);
+            Assert.Equal(refunded.FinancialSequence, after.FinancialSequence);
+            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Refund);
+            Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
+            Assert.False(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+
+            await using (var retrying = new OrderSliceHarness(
+                             _fixture, caller, refundValues: values, documentRefunds: documents))
+            {
+                var replay = await retrying.Refund.RefundAsync(
+                    Execution(order.Id, ticket, QuoteId, key, order.CommercialVersion));
+
+                Assert.True(replay.IsReplay);
+                Assert.Equal(ServicingOperationStatus.Completed, replay.OperationStatus);
+            }
+
+            Assert.Single(documents.ObservedRefundKeys);
+        }
+
         private async Task AssertNothingHappenedAsync(
             OrderSliceHarness harness,
             Order order,

@@ -1030,6 +1030,9 @@ namespace AeroTech.Ordering.Domain._Shared.Resources
         public static BusinessException ServicingEvidenceNotRecorded(params object?[] args) =>
             new(20333, ExceptionMessages.ServicingEvidenceNotRecorded, args) { HttpStatus = 500 };
 
+        public static BusinessException ServicingOperationAlreadyDispatched(params object?[] args) =>
+            new(20334, ExceptionMessages.ServicingOperationAlreadyDispatched, args) { HttpStatus = 409 };
+
         private static string Detail(string? detail, string fallback) =>
             string.IsNullOrWhiteSpace(detail) ? fallback : detail;
     }

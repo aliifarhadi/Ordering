@@ -2479,3 +2479,179 @@ P3 READY TO FREEZE: NO
 ```
 
 Blocking evidence: R39-B `Expected: 1, Actual: 2` dispatches (34.4), reproduced deterministically in 34.5.
+
+**Superseded by §35.** The claim-store correction in 34.2 was accepted at `a583884`; the 34.5 blocker is closed in §35.
+
+---
+
+## 35. Closure — a stale snapshot can no longer re-dispatch a Completed operation
+
+Baseline `a583884998dbb72821414e4401f7b616b79679aa`. The claim-store TOCTOU fix (34.2) is unchanged.
+
+### 35.1 Invariant
+
+> An operation crosses the provider-dispatch boundary exactly once, from `Prepared`. A replay whose durable prior
+> status is `Completed` never reaches a provider, never materializes local truth again and never rewrites the
+> operation, whatever the worker's in-memory aggregates say.
+
+### 35.2 Correction
+
+**Store — the hard boundary.** `ServicingOperationStore.BeginExecutionAsync` now refuses every status other than
+`Prepared`, before the tracked row is touched, with the new `ExceptionFactory.ServicingOperationAlreadyDispatched`
+(20334, HTTP 409). `Prepared -> Executing` is the only transition it performs, and it is always saved durably.
+Previously a non-`Prepared` operation was silently set to `Executing` in memory and dispatch went ahead.
+
+**Rails — the terminal replay is decided before any external call.** `DocumentVoidService`, `RefundService`,
+`CancelRefundService`, `OrderCancelService` and `OrderScopeCancellationService` each handle a durable `Completed`
+prior status in `ReplayUnfinishedAsync`, next to the existing `Rejected` branch and before authorization,
+eligibility, quote acceptance or dispatch. The stale worker releases the claim it acquired for the replay and
+throws 20334. A request that is retried runs in a fresh unit of work, whose aggregates show the committed result,
+so the existing finalized-replay path returns the completed outcome.
+
+The refusal is deliberate. A stale worker's tracked aggregates cannot be refreshed through any existing repository
+or unit-of-work contract, so returning a "completed" outcome from them would report pre-completion data. This
+mirrors the existing 20076 refusal of a duplicate that arrives while the first worker is still running.
+
+`Rejected` replay behavior is unchanged. `Pending`, `Unknown`, `AwaitingExternal` and `NeedsReconciliation` replay
+still recovers or reads back first.
+
+**Scope cancellation — its recovered path no longer crosses the boundary.** After a Confirmed recovery with no
+outstanding reservation obligation, `OrderScopeCancellationService` used to fall through to `BeginExecutionAsync`
+from `Executing`, `AwaitingExternal` or `NeedsReconciliation`, re-run the checks and quote acceptance, and call a
+release that found nothing to release. `ReplayUnfinishedAsync` now finishes that path itself: the same checks and
+quote acceptance (extracted unchanged into `EnsureScopeIsExecutableAsync` and `AcceptQuotedCancellationAsync`),
+then `FinalizeAsync`, without `BeginExecutionAsync` and without the no-op release. Its observable calls are the same
+as before.
+
+There is no schema, migration, enum, provider-contract, claim-store or P1 change.
+
+### 35.3 Changed files
+
+```text
+src/AeroTech.Ordering.Persistence/Servicing/ServicingOperationStore.cs                                strict dispatch boundary
+src/AeroTech.Ordering.Domain/_Shared/Resources/ExceptionFactory.cs, ExceptionMessages.cs              20334
+src/AeroTech.Ordering.Application/OrderAggregate/Services/DocumentVoid/DocumentVoidService.cs         Completed replay refusal
+src/AeroTech.Ordering.Application/OrderAggregate/Services/Refund/RefundService.cs                     Completed replay refusal
+src/AeroTech.Ordering.Application/OrderAggregate/Services/CancelRefund/CancelRefundService.cs          Completed replay refusal
+src/AeroTech.Ordering.Application/OrderAggregate/Services/Cancel/OrderCancelService.cs                Completed replay refusal
+src/AeroTech.Ordering.Application/OrderAggregate/Services/Cancel/OrderScopeCancellationService.cs     Completed replay refusal, recovered path
+tests/AeroTech.Ordering.Persistence.Tests/Servicing/ServicingOperationExecutionBoundaryTests.cs       new, direct store tests
+tests/AeroTech.Ordering.Persistence.Tests/P3/CompletingElsewhereOrderRepository.cs                    new, interleaving decorator
+tests/AeroTech.Ordering.Persistence.Tests/P1/OrderSliceHarness.cs                                     decorateOrders hook (rail services only)
+tests/.../P3/DocumentVoidDispatchBoundaryTests.cs, OrderCancelDispatchBoundaryTests.cs,
+  ScopeCancellationFlowTests.cs, DocumentRefundFlowTests.cs, CancelRefundFlowTests.cs                 one DG_ test each
+```
+
+### 35.4 Deterministic stale-snapshot proof
+
+Each rail has one `DG_a_stale_snapshot_replay_of_a_completed_…` test.
+
+```text
+B  rail loads its order (and document) snapshot                  actionable: no committed change
+A  same caller, same key: runs the operation to Completed        provider mutation once, claim resolved
+B  BeginAsync replays the same OperationId, acquires a new claim
+B  durable prior status is Completed                             releases its claim, 20334
+```
+
+The interleaving is forced, not scheduled:
+
+* For **OrderCancel, ScopeCancel, Refund and CancelRefund**, `CompletingElsewhereOrderRepository` wraps the stale
+  worker's order repository. Worker A completes inside B's first `GetAsync`, after B's order snapshot is
+  materialized. Each test asserts that the interleaving fired exactly once.
+* For **DocumentVoid**, B's order and ticket are loaded before A runs. The void decision reads a scalar on the
+  ticket root, which EF does not refresh for an already tracked entity.
+* Preloading alone does not reproduce the defect for the four order-based rails. A later tracked `GetAsync` fixes
+  up the newly committed `OrderChange` rows into the stale order's collections, so the replay takes the finalized
+  path. Hence the decorator.
+
+Every test asserts all of the following:
+
+* B is refused with 20334;
+* the provider mutation count stays at A's (void 1, refund 1, correction 1, release keys only from A), with zero
+  recovery, eligibility, quote or value calls from B;
+* the operation is still `Completed`;
+* no duplicate local materialization: commercial version, financial sequence, change count, refund, correction
+  and document version all unchanged;
+* no blocking claim remains;
+* a retry from a fresh unit of work returns the completed replay with no further provider call.
+
+`ServicingOperationExecutionBoundaryTests` proves the store directly:
+
+* `BeginExecutionAsync` refuses 20334 for `Completed`, `Rejected`, `Executing`, `AwaitingExternal` and
+  `NeedsReconciliation`, and leaves status and generation unchanged even after the caller saves;
+* `Prepared` durably becomes `Executing` without a caller save.
+
+### 35.5 Red before the fix
+
+The new tests were built against the `a583884` production sources. The eight production files were restored
+byte-identically (SHA-256 checked) before the run.
+
+```text
+FAILED  ServicingOperationExecutionBoundaryTests (Completed, Rejected, Executing, AwaitingExternal, NeedsReconciliation)
+                                                    No exception was thrown
+passed  ServicingOperationExecutionBoundaryTests.A_prepared_operation_durably_crosses_the_dispatch_boundary
+FAILED  DocumentVoidDispatchBoundaryTests.DG_…      DbUpdateConcurrencyException (second void dispatched, then the stale save failed)
+FAILED  OrderCancelDispatchBoundaryTests.DG_…       DbUpdateException (stale worker passed the boundary)
+FAILED  ScopeCancellationFlowTests.DG_…             20198 instead of 20334 (stale worker passed the terminal replay)
+FAILED  DocumentRefundFlowTests.DG_…                20211 instead of 20334 (stale worker passed the terminal replay)
+FAILED  CancelRefundFlowTests.DG_…                  20240 instead of 20334 (stale worker passed the terminal replay)
+passed  R39_Parallel_workers_cannot_duplicate_the_same_mutation   (timing-dependent; red in 34.4)
+```
+
+On HEAD, the void and whole-order cancel stale workers crossed the dispatch boundary. The three quote- or
+refund-based rails were stopped later, by a domain rule that happened to read fresh child rows. That was not a
+guarantee: it depended on which data each rail reloads after `BeginAsync`.
+
+### 35.6 Focused verification
+
+167 / 167, 0 SQL timeouts. The run covered:
+
+* the five `DG_` tests and `ServicingOperationExecutionBoundaryTests`;
+* the complete `DocumentVoidDispatchBoundaryTests`, `OrderCancelDispatchBoundaryTests`, `ScopeCancellationFlowTests`,
+  `DocumentRefundFlowTests`, `CancelRefundFlowTests` and `DocumentVoidFlowTests`;
+* `ServicingConfirmedTruthReconciliationTests` (R39-B), `OperationCoordinatorInterleavingTests` (R39-A, R39-C,
+  R39-D and the original interleaving test), `ClaimFencingTests` (including R39-F), `OperationClaimStoreTests`,
+  `PersistenceConstraintTests` and `FoundationLifecycleTests`.
+
+### 35.7 Final gate
+
+One run from the final source, with no source edit after focused verification. All results are local; there is no GitHub CI.
+
+```text
+BUILD                  0 errors (AeroTech.Ordering.sln)
+DOMAIN                 585 / 585
+EF OrderingDbContext   No changes have been made to the model since the last migration.
+EF OrderQueryDbContext No changes have been made to the model since the last migration.
+PERSISTENCE           1444 / 1444, 0 skipped, 0 failed, 0 SQL timeouts, 8 m 46 s
+```
+
+The last full run had 1433 tests (1432 plus R39-F). The +11 are the five `DG_` tests and the six
+`ServicingOperationExecutionBoundaryTests` cases. No test carries a skip attribute.
+
+Required tests, all green in this run (49 passed, 0 failed):
+
+| Test | Result |
+| --- | --- |
+| R39-A `A_refused_concurrent_worker_leaves_the_winners_fencing_generation_untouched` | passed |
+| R39-B `R39_Parallel_workers_cannot_duplicate_the_same_mutation` | passed |
+| R39-C `A_sequential_replay_of_a_quiescent_operation_is_still_allowed` | passed |
+| R39-D `A_different_operation_cannot_take_or_advance_a_live_claim` | passed |
+| `A_claim_that_appears_between_the_guard_read_and_the_acquire_refuses_the_second_worker` | passed |
+| R39-F `A_contender_whose_claim_read_saw_nothing_cannot_advance_a_claim_inserted_after_that_read`, and the other four `ClaimFencingTests` | passed |
+| `DG_` stale-snapshot replay: DocumentVoid, OrderCancel, ScopeCancellation, Refund, CancelRefund | 5 passed |
+| `ServicingOperationExecutionBoundaryTests` (Prepared; Completed, Rejected, Executing, AwaitingExternal, NeedsReconciliation) | 6 passed |
+| Dispatch-boundary DA / DA2 / DB / DC / DD / DE / DF in the void, cancel, scope, refund and cancel-refund classes | 32 passed |
+
+### 35.8 Verdict
+
+Both P3-H blockers are closed. The claim generation can no longer be advanced by a contender that never observed
+it (34.2, R39-F), and an operation crosses the provider-dispatch boundary only from `Prepared`: a stale snapshot
+replaying a `Completed` operation is refused before any external call (35.2, R39-B and the five `DG_` tests). Each
+proof was red before its fix and is green in the final gate.
+
+```text
+P3-H READY TO FREEZE: YES
+P3 READY TO FREEZE: YES
+```
+
+P4 was not started.

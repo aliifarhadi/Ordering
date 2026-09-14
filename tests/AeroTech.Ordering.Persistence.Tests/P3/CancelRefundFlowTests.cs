@@ -739,6 +739,64 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.False(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
         }
 
+        [Fact]
+        public async Task DG_a_stale_snapshot_replay_of_a_completed_correction_never_corrects_twice()
+        {
+            var (order, ticket, refund, before) = await RefundedAsync();
+            var caller = Caller();
+            var key = NewKey();
+            Order? corrected = null;
+            CompletingElsewhereOrderRepository? interleaving = null;
+
+            await using var stale = new OrderSliceHarness(
+                _fixture, caller,
+                decorateOrders: orders => interleaving = new CompletingElsewhereOrderRepository(orders, async () =>
+                {
+                    await using var completing = new OrderSliceHarness(_fixture, caller);
+
+                    Approve(completing);
+
+                    var completed = await completing.CancelRefund.CancelRefundAsync(
+                        Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+                    Assert.Equal(ServicingOperationStatus.Completed, completed.OperationStatus);
+                    Assert.Single(completing.DocumentRefundCorrections.ObservedCorrectionKeys);
+
+                    corrected = await ReloadAsync(order.Id);
+                }));
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(
+                () => stale.CancelRefund.CancelRefundAsync(
+                    Execution(order.Id, ticket, refund, key, before.CommercialVersion)));
+
+            Assert.Equal(1, interleaving!.Completions);
+            Assert.Equal(20334, refusal.Code);
+            Assert.Empty(stale.DocumentRefundCorrections.ObservedEligibilityKeys);
+            Assert.Empty(stale.DocumentRefundCorrections.ObservedCorrectionKeys);
+            Assert.Empty(stale.DocumentRefundCorrections.ObservedRecoveryKeys);
+            Assert.Empty(stale.RefundValueCorrections.ObservedRequests);
+
+            var operation = await ServicingCrashWindow.OperationAsync(
+                _fixture, order.Id, ServicingOperationKind.CancelRefund);
+            var after = await ReloadAsync(order.Id);
+
+            Assert.Equal(ServicingOperationStatus.Completed, operation.Status);
+            Assert.Equal(corrected!.CommercialVersion, after.CommercialVersion);
+            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.CancelRefund);
+            Assert.Single((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
+            Assert.False(await ServicingCrashWindow.ClaimIsBlockingAsync(_fixture, order.Id));
+
+            await using (var retrying = new OrderSliceHarness(_fixture, caller))
+            {
+                var replay = await retrying.CancelRefund.CancelRefundAsync(
+                    Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+                Assert.True(replay.IsReplay);
+                Assert.Equal(ServicingOperationStatus.Completed, replay.OperationStatus);
+                Assert.Empty(retrying.DocumentRefundCorrections.ObservedCorrectionKeys);
+            }
+        }
+
         private async Task<(Order Order, ElectronicTicket Ticket, DocumentRefundRecord Refund, Order Before)> RefundedAsync()
         {
             await using var setup = NewHarness();

@@ -265,6 +265,57 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             }
         }
 
+        [Fact]
+        public async Task DG_a_stale_snapshot_replay_of_a_completed_cancel_never_releases_twice()
+        {
+            var order = await ReservedOrderAsync();
+            var caller = Caller();
+            var key = NewKey();
+            IReadOnlyList<string> releases = [];
+            Order? cancelled = null;
+            CompletingElsewhereOrderRepository? interleaving = null;
+
+            await using var stale = new OrderSliceHarness(
+                _fixture, caller,
+                decorateOrders: orders => interleaving = new CompletingElsewhereOrderRepository(orders, async () =>
+                {
+                    await using var completing = new OrderSliceHarness(_fixture, caller);
+
+                    var completed = await CancelAsync(completing, order.Id, key);
+
+                    Assert.Equal(ServicingOperationStatus.Completed, completed.OperationStatus);
+
+                    releases = ReleaseKeys(completing);
+                    cancelled = await ReloadAsync(order.Id);
+                }));
+
+            var refusal = await Assert.ThrowsAsync<BusinessException>(() => CancelAsync(stale, order.Id, key));
+
+            Assert.Equal(1, interleaving!.Completions);
+            Assert.NotEmpty(releases);
+            Assert.Equal(20334, refusal.Code);
+            Assert.Empty(ReleaseKeys(stale));
+            Assert.Empty(stale.Reservation.ObservedRecoveryKeys);
+
+            var operation = await OperationAsync(_fixture, order.Id, ServicingOperationKind.Cancel);
+            var after = await ReloadAsync(order.Id);
+
+            Assert.Equal(ServicingOperationStatus.Completed, operation.Status);
+            Assert.Equal(OrderStatus.Cancelled, after.Status);
+            Assert.Equal(cancelled!.CommercialVersion, after.CommercialVersion);
+            Assert.Single(after.Changes, change => change.ChangeType == OrderChangeType.Cancel);
+            Assert.False(await ClaimIsBlockingAsync(_fixture, order.Id));
+
+            await using (var retrying = new OrderSliceHarness(_fixture, caller))
+            {
+                var replay = await CancelAsync(retrying, order.Id, key);
+
+                Assert.True(replay.IsReplay);
+                Assert.Equal(ServicingOperationStatus.Completed, replay.OperationStatus);
+                Assert.Empty(ReleaseKeys(retrying));
+            }
+        }
+
         private async Task<Order> ReservedOrderAsync()
         {
             await using var setup = new OrderSliceHarness(_fixture, Caller());

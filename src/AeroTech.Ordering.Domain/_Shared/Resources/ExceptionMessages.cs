@@ -460,5 +460,7 @@
         public const string ServicingResolutionAttributionRequired = "A manual resolution of servicing operation {0} requires both an actor and a reason.";
 
         public const string ServicingEvidenceNotRecorded = "External servicing evidence for operation {0} stage {1} could not be recorded.";
+
+        public const string ServicingOperationAlreadyDispatched = "Servicing operation {0} has already left Prepared (status {1}) and cannot be dispatched again; retry the request to read its outcome.";
     }
 }

@@ -324,6 +324,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                 return Outcome(order, operation, target, ProviderOperationOutcome.Rejected, prior.Status, false, true);
             }
 
+            if (prior.Status == ServicingOperationStatus.Completed)
+            {
+                await TryReleaseRejectedAsync(order.Id, operation, cancellationToken);
+                throw ExceptionFactory.ServicingOperationAlreadyDispatched(operation.OperationId, prior.Status);
+            }
+
             if (prior.Status is not (ServicingOperationStatus.Prepared
                 or ServicingOperationStatus.Executing
                 or ServicingOperationStatus.AwaitingExternal

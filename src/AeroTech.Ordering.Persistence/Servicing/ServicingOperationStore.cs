@@ -114,14 +114,12 @@ namespace AeroTech.Ordering.Persistence.Servicing
                 .SingleOrDefaultAsync(candidate => candidate.Id == operationId, cancellationToken)
                 ?? throw ExceptionFactory.ServicingOperationNotFound(operationId);
 
-            var crossesDispatchBoundary = operation.Status == ServicingOperationStatus.Prepared;
+            if (operation.Status != ServicingOperationStatus.Prepared)
+                throw ExceptionFactory.ServicingOperationAlreadyDispatched(operationId, operation.Status);
 
             operation.Status = ServicingOperationStatus.Executing;
             operation.ClaimGeneration = claimGeneration;
             operation.UpdatedAt = _clock.GetDateTime();
-
-            if (!crossesDispatchBoundary)
-                return;
 
             try
             {
