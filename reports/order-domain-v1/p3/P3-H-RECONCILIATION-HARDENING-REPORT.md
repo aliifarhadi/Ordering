@@ -2103,8 +2103,244 @@ with zero provider calls (§31.6). The defect is liveness: the refused concurren
 lives in the §30 guard (`OrderOperationCoordinator.BeginAsync` with `OperationClaimStore.AcquireAsync`'s frozen
 re-entrant bump). This brief did not touch that window — the boundary save comes after `BeginAsync`.
 `OperationCoordinatorInterleavingTests` asserts only that B is refused, never that A can still finish, which is
-how it stayed hidden. Isolated re-runs of R39: R39-RATE-PENDING.
+how it stayed hidden.
+
+Isolated re-runs of R39: **10/10 on the final build and 10/10 on the untouched baseline build.** The race needs
+full-suite timing, exactly as §30 recorded for this test. It predates this brief, and the change does not make
+it more likely. It is still a real, reachable defect, and it turned a required regression test red in the final
+gate, so it is not waived.
 
 ### 32.11 Verdict
 
-VERDICT32-PENDING
+| Completion criterion | Status |
+| --- | --- |
+| complete P3 mutation-rail inventory audited | met — 32.2 |
+| every affected irreversible mutation has a durable may-have-dispatched boundary | met — five rails, 32.4 |
+| failed boundary → zero provider calls | met — five `DE_…` tests |
+| crash after Apply before evidence → zero second Apply, same OperationId and key | met — five `DA_…` tests, red on baseline, mutation-proven |
+| Pending / Unknown after a local-save failure → Recover before any Apply | met — `DB_…` / `DB_DC_…`, red on baseline |
+| Rejected cannot lead to blind re-Apply | met — `DD_…` (void, release) |
+| Confirmed → zero redispatch and exact local adoption | met — `DA_…`, §31 `D4`, mutation-proven |
+| contradictory terminal evidence still fails closed | met — §31.2 tests green in the final gate |
+| no duplicate document / history / price / service consequence | met |
+| old baseline rows handled without fabricated provider facts | met — 32.7 |
+| no invented business or provider concept, no unrelated semantic change | met — no new state, enum, schema, DI or port |
+| both EF model checks clean | met |
+| operation claim / concurrency invariants green | **not met** — R39 |
+| full final build and tests pass | **not met** — 1429 / 1430 |
+
+```text
+P3-H READY TO FREEZE: NO
+P3 READY TO FREEZE: NO
+```
+
+| Required field | Value |
+| --- | --- |
+| failing invariant | two concurrent workers for the same request must leave one of them able to finish. A refused concurrent worker's re-entrant claim acquire bumps the claim generation and fences out the worker that already dispatched, so neither finishes. Dispatch safety holds: one dispatch, durable `Confirmed`. |
+| production source | `src/AeroTech.Ordering.Application/OrderAggregate/Operations/OrderOperationCoordinator.cs` `BeginAsync` — the post-acquire refusal `if (!observedClaim && claim.Generation > 1)` runs after `OperationClaimStore.AcquireAsync` (`src/AeroTech.Ordering.Persistence/Servicing/OperationClaimStore.cs`) has already committed `existing.Generation++` |
+| reproducing test | `ServicingConfirmedTruthReconciliationTests.R39_Parallel_workers_cannot_duplicate_the_same_mutation` — intermittent under full-suite timing, 10/10 in isolation on both baseline and final builds |
+| classification | `CODE_DEFECT`, pre-existing (§30 guard). The fix needs `BLOCKED_DECISION`: it changes the frozen claim-store contract (`OperationClaimStoreTests` lines 43–47 and 58–59, `PersistenceConstraintTests` 119–120 require the unconditional re-entrant bump) |
+| smallest next action | decide whether same-operation re-acquire may become a compare-and-set on the generation the caller observed. The coordinator would pass the guard's observation, and a worker that observed no claim would get the existing refusal without bumping. Then add a deterministic interleaving test proving the first worker still finalizes. |
+
+The dispatch-boundary work of this brief is complete and proven. The freeze is held only by the pre-existing
+claim-concurrency liveness defect above. P4 was not started.
+
+**Superseded by §33**, which closes that defect.
+
+---
+
+## 33. Final closure — R39 claim-generation race
+
+Baseline `bd8bfdd84d5f27f7278820b52a8f43d0d16c06f1` (implementation parent `8283fce`).
+
+### 33.1 Root cause
+
+Two workers run the same command: same caller, same idempotency key, and so the same `OperationId`.
+
+```text
+1  B  OrderOperationCoordinator.EnsureNoLiveWorkerAsync -> FindBlockingAsync    sees no claim
+2  A  OperationClaimStore.AcquireAsync                  -> inserts claim, generation 1, committed
+3  B  OperationClaimStore.AcquireAsync                  -> finds A's same-operation claim
+                                                           re-entrant branch: Generation++ -> 2, committed
+4  B  BeginAsync post-acquire check (!observedClaim && Generation > 1) -> 20076, refused
+5  A  finalization: EnsureCurrentGenerationAsync(generation 1)          -> 20072 stale
+```
+
+Step 3 is the defect. The refusal in step 4 is correct but too late: the rejected contender has already
+rewritten the durable fencing token of the legitimate owner. The persisted shape observed in §32.10 is
+`Executing`, `Confirmed` evidence, operation generation 1 and claim generation 2.
+
+### 33.2 Invariant
+
+> A worker that is refused as a concurrent contender must not change the durable claim. Its generation,
+> recovery lease, blocking flag and row version stay exactly as the owner left them. The generation advances only for a
+> takeover whose guard observed the current claim.
+
+### 33.3 Correction
+
+`IOperationClaimStore` gains one compare-and-acquire overload:
+`AcquireAsync(orderId, operationId, recoveryLeaseUntil, OperationClaim? observed)`. The coordinator passes the
+blocking claim its guard actually read.
+
+```text
+blocking claim of another operation                  -> 20070, unchanged
+blocking claim of this operation, and observed
+  is the same operation at the same generation       -> legitimate takeover: Generation++ (RowVersion-checked)
+blocking claim of this operation, not observed or
+  observed at another generation                     -> 20076 before any write
+no blocking claim                                    -> insert (unique filtered index decides a race), unchanged
+```
+
+The existing three-argument `AcquireAsync` keeps its unconditional re-entrant bump. The frozen claim-store contract tests
+(`OperationClaimStoreTests`, `PersistenceConstraintTests`) exercise it directly, and no production code calls it
+any more. The comparison and the write are atomic with respect to other writers: the store increments the tracked
+row it just compared, and the row's `RowVersion` rejects any change in between (`DbUpdateConcurrencyException` →
+20076, as before). The coordinator's former post-acquire check is removed; the store now refuses the same
+contender before it writes. There is no schema, DI, enum or migration change, and no lock was added.
+
+**Why legitimate takeover still advances the generation.** A sequential replay reads the blocking claim first.
+Its guard therefore passes the same operation at the current generation. The store sees that the observation matches
+and takes the unchanged re-entrant branch (`Generation++`), which fences the obsolete worker exactly as before.
+**Why the loser no longer mutates ownership.** A late contender observed no claim (or an older generation), so
+the store refuses it before touching the row. No generation, lease, blocking flag, row version, operation,
+receipt or evidence is written.
+
+### 33.4 Changed files
+
+```text
+src/AeroTech.Ordering.Domain/Servicing/Operations/Contracts/IOperationClaimStore.cs   compare-and-acquire overload
+src/AeroTech.Ordering.Persistence/Servicing/OperationClaimStore.cs                   overload + IsObserved
+src/AeroTech.Ordering.Application/OrderAggregate/Operations/OrderOperationCoordinator.cs
+                                                     guard returns the observed claim; post-acquire check removed
+tests/AeroTech.Ordering.Persistence.Tests/P3/OperationCoordinatorInterleavingTests.cs  R39-A, R39-C, R39-D; decorator overload
+```
+
+The dispatch-boundary implementation (`BeginExecutionAsync` and the five rails) is untouched.
+
+### 33.5 Evidence
+
+**R39-A red before the fix.** `A_refused_concurrent_worker_leaves_the_winners_fencing_generation_untouched` was
+built and run against the unchanged baseline:
+
+```text
+A_refused_concurrent_worker_leaves_the_winners_fencing_generation_untouched   FAILED   Expected: 1   Actual: 2
+A_sequential_replay_of_a_quiescent_operation_is_still_allowed (R39-C)         passed   (guards legitimate takeover)
+A_different_operation_cannot_take_or_advance_a_live_claim (R39-D)             passed   (guards Order exclusivity)
+A_claim_that_appears_between_the_guard_read_and_the_acquire_refuses_...       passed
+```
+
+**Focused green after the fix.** 97 tests covered:
+
+* interleaving (4);
+* `OperationClaimStoreTests`, `PersistenceConstraintTests`, `ClaimFencingTests`;
+* `ServicingConfirmedTruthReconciliationTests`, including R39;
+* the dispatch-boundary classes and the `DA2_` / rejected-replay claim tests;
+* `VoluntaryChangeCrashBoundaryTests` and `ExchangeCrashBoundaryTests`.
+
+96 passed. The one failure was
+`ClaimFencingTests.Two_recovery_workers_for_the_same_operation_cannot_both_own_the_current_generation`.
+That test calls only the store's **three-argument** `AcquireAsync`, which is byte-identical to baseline
+(`git diff`: the change is purely additive). In that run its two "concurrent" tasks returned generations 2 and 3,
+which means they executed sequentially rather than overlapping. Isolated re-runs: 10/10 on the final build and
+10/10 on the baseline build. It is a scheduling-sensitive test on unchanged code, and it is re-checked by the
+final gate below rather than waived.
+
+**Focused verification, repeated from restored source.** A mutation chain was stopped before its mutated build
+finished, because focused verification was not yet green. The source was restored and mechanically checked
+(observed-claim guard present, no mutation text). It was then rebuilt, and the same 97-test focused set was run
+again: **97 / 97, 0 timeouts**. The set included:
+
+* `A_refused_concurrent_worker_leaves_the_winners_fencing_generation_untouched`;
+* `A_sequential_replay_of_a_quiescent_operation_is_still_allowed`;
+* `A_different_operation_cannot_take_or_advance_a_live_claim`;
+* all four `ClaimFencingTests`;
+* `R39_Parallel_workers_cannot_duplicate_the_same_mutation`.
+
+**Content check against `bd8bfdd`.** Only the four files in 33.4 differ. No existing test line was removed,
+no skip or disable attribute was added, and no debug text was added. `ServicingOperationStore`,
+`IServicingOperationStore` and the DocumentVoid, Refund, CancelRefund and Cancel services are unchanged.
+
+**Mutation proof R39-E (protection removed).** In the compare-and-acquire overload,
+`&& !IsObserved(existing, observed))` → `&& operationId < 0)`, so the late contender again enters the
+re-entrant branch. It was built into a separate folder, the source was restored, and the guard was verified present:
+
+```text
+mutated   A_refused_concurrent_worker_leaves_the_winners_fencing_generation_untouched   FAILED
+          Assert.Throws() Failure: No exception was thrown (expected BusinessException 20076)
+restored  same test                                                                   passed
+```
+
+Without the protection the contender is not refused at all: it takes the re-entrant branch, becomes generation
+2, and fences out the winner.
+
+**Mutation proof R39-E2 (baseline defect reintroduced exactly).** In the same line, the refusal now runs only
+after a durable re-entrant acquire: `&& !IsObserved(existing, observed)) throw …` →
+`&& !IsObserved(existing, observed) && (await AcquireAsync(orderId, operationId, recoveryLeaseUntil, cancellationToken)).Generation > 0) throw …`.
+The contender therefore writes the generation bump and is then refused with 20076, which is the baseline shape:
+
+```text
+mutated   A_refused_concurrent_worker_leaves_the_winners_fencing_generation_untouched   FAILED
+          Assert.Equal() Failure   Expected: 1   Actual: 2   (durable claim generation after B's refusal)
+restored  same test                                                                   passed
+```
+
+The test's rejection assertions pass under this mutation, and it fails precisely on the lost invariant: the refused
+contender advanced the winner's fencing generation. After both mutations the source was restored and checked
+mechanically:
+
+* observed-claim guard present;
+* no `operationId < 0` or `Generation > 0)` text remains;
+* only the four files in 33.4 differ from `bd8bfdd`.
+
+No mutation code is committed.
+
+### 33.6 Final gate
+
+One run from the restored final source, with no edit after the guard check. All results are local; there is no GitHub CI.
+
+```text
+BUILD                  0 errors (AeroTech.Ordering.sln)
+DOMAIN                 585 / 585
+EF OrderingDbContext   No changes have been made to the model since the last migration.
+EF OrderQueryDbContext No changes have been made to the model since the last migration.
+PERSISTENCE           1432 / 1432, 0 skipped, 0 SQL timeouts, 8 m 32 s
+```
+
+The previous full run had 1430 tests. The +2 are the new deterministic regression tests
+`A_refused_concurrent_worker_leaves_the_winners_fencing_generation_untouched` (R39-A) and
+`A_different_operation_cannot_take_or_advance_a_live_claim` (R39-D). R39-C strengthened the existing
+`A_sequential_replay_of_a_quiescent_operation_is_still_allowed` without adding a test.
+
+Required tests, green in this run:
+
+| Test | Result |
+| --- | --- |
+| `OperationCoordinatorInterleavingTests.A_refused_concurrent_worker_leaves_the_winners_fencing_generation_untouched` (R39-A) | passed |
+| `ServicingConfirmedTruthReconciliationTests.R39_Parallel_workers_cannot_duplicate_the_same_mutation` (R39-B) | passed |
+| `OperationCoordinatorInterleavingTests.A_sequential_replay_of_a_quiescent_operation_is_still_allowed` (R39-C) | passed |
+| `OperationCoordinatorInterleavingTests.A_different_operation_cannot_take_or_advance_a_live_claim` (R39-D) | passed |
+| `OperationCoordinatorInterleavingTests.A_claim_that_appears_between_the_guard_read_and_the_acquire_refuses_the_second_worker` | passed |
+| P3-H dispatch-boundary and recovery tests (`*DispatchBoundaryTests`, `DA_` / `DA2_` / `DB_` / `DE_`, rejected-replay claim release) | 33 passed, 0 failed |
+
+### 33.7 Non-blocking backlog — not P3-H freeze blockers
+
+* `Executing` operations are not listed by the reconciliation query (32.9).
+* Reconciliation UI and read-model enhancements.
+* P1 `ReserveOrderService` and `WithdrawOrderService` redispatch findings (32.9).
+* Real provider adapters and their `BLOCKED_INTEGRATION` read-back contracts.
+* Operational dashboards and background recovery workers.
+* CI setup.
+* `ClaimFencingTests.Two_recovery_workers_for_the_same_operation_cannot_both_own_the_current_generation` depends on its two
+  tasks actually overlapping (33.5). It passed in the final gate.
+
+### 33.8 Verdict
+
+The R39 invariant is proven: red on the baseline, green after the fix, and red again under both mutations. The
+final gate is fully green. §32.11's `NO` is superseded.
+
+```text
+P3-H READY TO FREEZE: YES
+P3 READY TO FREEZE: YES
+```
+
+P4 was not started.

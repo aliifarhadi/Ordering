@@ -4,6 +4,13 @@ namespace AeroTech.Ordering.Domain.Servicing.Operations.Contracts
     {
         Task<OperationClaim> AcquireAsync(long orderId, long operationId, DateTimeOffset recoveryLeaseUntil, CancellationToken cancellationToken = default);
 
+        Task<OperationClaim> AcquireAsync(
+            long orderId,
+            long operationId,
+            DateTimeOffset recoveryLeaseUntil,
+            OperationClaim? observed,
+            CancellationToken cancellationToken = default);
+
         Task<OperationClaim?> FindBlockingAsync(long orderId, CancellationToken cancellationToken = default);
 
         Task EnsureCurrentGenerationAsync(long orderId, long operationId, long generation, CancellationToken cancellationToken = default);

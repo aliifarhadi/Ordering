@@ -58,16 +58,14 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Operations
 
             var receipt = await _receipts.AcquireAsync(kind.ToString(), idempotencyKey, requestHash, cancellationToken);
 
-            var observedClaim = await EnsureNoLiveWorkerAsync(orderId, receipt.OperationId, cancellationToken);
+            var observed = await EnsureNoLiveWorkerAsync(orderId, receipt.OperationId, cancellationToken);
 
             var claim = await _claims.AcquireAsync(
                 orderId,
                 receipt.OperationId,
                 _clock.GetDateTime().Add(_recoveryLease),
+                observed,
                 cancellationToken);
-
-            if (!observedClaim && claim.Generation > 1)
-                throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
 
             await _operations.PrepareAsync(
                 receipt.OperationId,
@@ -82,19 +80,17 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Operations
             return new OrderOperation(receipt.ReceiptId, receipt.OperationId, claim.Generation, receipt.IsReplay);
         }
 
-        private async Task<bool> EnsureNoLiveWorkerAsync(
+        private async Task<OperationClaim?> EnsureNoLiveWorkerAsync(
             long orderId,
             long operationId,
             CancellationToken cancellationToken)
         {
             var blocking = await _claims.FindBlockingAsync(orderId, cancellationToken);
 
-            if (blocking is null)
-                return false;
-
-            if (blocking.OperationId != operationId
+            if (blocking is null
+                || blocking.OperationId != operationId
                 || blocking.RecoveryLeaseUntil <= _clock.GetDateTime())
-                return true;
+                return blocking;
 
             var prior = await _operations.FindAsync(operationId, cancellationToken);
 
@@ -102,7 +98,7 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Operations
                 || prior.Status is ServicingOperationStatus.Prepared or ServicingOperationStatus.Executing)
                 throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
 
-            return true;
+            return blocking;
         }
 
         public async Task ResolveAsync(long orderId, OrderOperation operation, CancellationToken cancellationToken = default)

@@ -84,6 +84,23 @@ namespace AeroTech.Ordering.Persistence.Servicing
             return Project(claim);
         }
 
+        public async Task<OperationClaim> AcquireAsync(
+            long orderId,
+            long operationId,
+            DateTimeOffset recoveryLeaseUntil,
+            OperationClaim? observed,
+            CancellationToken cancellationToken = default)
+        {
+            OperationsWriteBoundary.EnsureNoPendingDomainState(_dbContext);
+
+            var existing = await BlockingClaimQuery(orderId).SingleOrDefaultAsync(cancellationToken);
+
+            if (existing is not null && existing.OperationId == operationId && !IsObserved(existing, observed))
+                throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
+
+            return await AcquireAsync(orderId, operationId, recoveryLeaseUntil, cancellationToken);
+        }
+
         public async Task<OperationClaim?> FindBlockingAsync(long orderId, CancellationToken cancellationToken = default)
         {
             var claim = await BlockingClaimQuery(orderId).AsNoTracking().SingleOrDefaultAsync(cancellationToken);
@@ -126,6 +143,11 @@ namespace AeroTech.Ordering.Persistence.Servicing
 
         private IQueryable<OperationOrderClaim> BlockingClaimQuery(long orderId)
             => _dbContext.Set<OperationOrderClaim>().Where(claim => claim.OrderId == orderId && claim.IsBlocking);
+
+        private static bool IsObserved(OperationOrderClaim existing, OperationClaim? observed)
+            => observed is not null
+               && observed.OperationId == existing.OperationId
+               && observed.Generation == existing.Generation;
 
         private static OperationClaim Project(OperationOrderClaim claim)
             => new(claim.OperationId, claim.OrderId, claim.Generation, claim.RecoveryLeaseUntil);
