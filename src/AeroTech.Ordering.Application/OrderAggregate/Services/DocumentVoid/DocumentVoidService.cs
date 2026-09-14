@@ -10,6 +10,7 @@ using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Contracts;
 using AeroTech.Ordering.Domain.OrderAggregate;
 using AeroTech.Ordering.Domain.OrderAggregate.Contracts;
 using AeroTech.Ordering.Domain.Ports.DocumentVoid;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
 using AeroTech.Ordering.Domain._Shared.Resources;
 
@@ -312,6 +313,10 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
 
+            if (await ConfirmedEvidenceAsync(operation.OperationId, cancellationToken) is { } confirmed)
+                return await FinalizeAsync(
+                    order, operation, target, provenance, confirmed.ProviderReference, cancellationToken);
+
             var recovery = await _provider.RecoverAsync(
                 new DocumentVoidRecoveryRequest(
                     VoidKey(operation, target),
@@ -343,6 +348,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.DocumentVoid
 
             return Outcome(order, operation, target, ProviderOperationOutcome.Confirmed, ServicingOperationStatus.Completed, false, true);
         }
+
+        private async Task<ServicingExternalEvidence?> ConfirmedEvidenceAsync(
+            long operationId,
+            CancellationToken cancellationToken)
+            => (await _evidence.ListAsync(operationId, cancellationToken))
+                .FirstOrDefault(evidence =>
+                    evidence.Stage == ServicingEvidenceStage.DocumentVoid && evidence.IsConfirmed);
 
         private async Task RecordEvidenceAsync(
             OrderOperation operation,

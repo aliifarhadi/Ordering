@@ -2823,10 +2823,30 @@ vocabulary is `ServicingEvidenceStage` in `Contracts/AeroTech.Messages/Ordering/
 
 ### Durable Evidence And Idempotency
 
-Table `Order.ServicingExternalEvidences`, primary key `(OperationId, Stage)`. The upsert returns early when
-the stored outcome is already `Confirmed`, so re-recording after a later uncertain recovery cannot downgrade
-confirmed truth. Repeated recording of the same stage is an update in place, never a second row, so replay
-cannot inflate the evidence history.
+Table `Order.ServicingExternalEvidences`, primary key `(OperationId, Stage)`. One row per stable key; replay
+updates in place and never adds a second row.
+
+**Durability boundary.** `ServicingExternalEvidenceStore.RecordAsync` writes on a **separate physical
+connection** created from the command context's provider and connection string, inside a
+`TransactionScope(Suppress)`, with autocommit statements. It never uses the caller's `OrderingDbContext`
+connection or transaction, so the evidence commits before `RecordAsync` returns and survives a rollback of
+the caller's servicing unit of work. Proven by relational tests that begin a caller transaction, record
+`Confirmed`, roll back, dispose the context and read the row from a brand-new context
+(`ServicingEvidenceDurabilityTests.D1/D2`).
+
+**Monotonicity under concurrency.** The write is a database-evaluated CAS:
+`UPDATE ... WHERE [Outcome] <> Confirmed`, then `INSERT ... WHERE NOT EXISTS`, bounded to three attempts; a
+duplicate-key loss rereads and re-applies the rule. `Confirmed` is never downgraded, an exact replay does not
+move `UpdatedAt`, and a contradictory `Confirmed` does not overwrite the durable one
+(`ServicingEvidenceConcurrencyTests`, 13 cases, including a Pending-vs-Unknown first-insert race and a
+permitted Rejected → Confirmed upgrade).
+
+**Zero redispatch after durable Confirmed.** The void, document-refund and refund-correction rails consult
+durable evidence before any provider call on resume and adopt locally from it — no `Apply`, no `Recover`
+(`ServicingEvidenceDurabilityTests.D3`, `DocumentRefundFlowTests` and `CancelRefundFlowTests`
+durable-evidence cases). The order-cancel reservation-release rail still performs its `Recover` readback,
+because its single operation-level evidence row does not carry the per-reservation release state that
+readback supplies — the brief's "different unresolved fact" exception.
 
 ### Ordering And Isolation
 

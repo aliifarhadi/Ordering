@@ -230,6 +230,8 @@ namespace AeroTech.Ordering.Persistence.Tests.P1
                 unitOfWork, frameworkClock);
         }
 
+        public OrderingDbContext CommandContext => _command;
+
         public SequentialIdGenerator Ids { get; }
 
         public TestClock Clock { get; }

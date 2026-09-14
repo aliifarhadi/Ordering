@@ -1,5 +1,6 @@
 ﻿using AeroTech.Ordering.Domain.ElectronicTicketAggregate.Arguments;
 using AeroTech.Ordering.Domain.Servicing.Operations;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
 using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Framework.Core.Domain.Repository;
@@ -439,6 +440,13 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 releaseClaim: false, refundNotAvailable: false, isReplay: true, cancellationToken,
                 providerReference, detail);
 
+        private async Task<ServicingExternalEvidence?> ConfirmedEvidenceAsync(
+            long operationId,
+            CancellationToken cancellationToken)
+            => (await _evidence.ListAsync(operationId, cancellationToken))
+                .FirstOrDefault(evidence =>
+                    evidence.Stage == ServicingEvidenceStage.DocumentRefund && evidence.IsConfirmed);
+
         private async Task<RefundOutcome> SettleUnfinishedAsync(
             Order order,
             OrderOperation operation,
@@ -507,6 +515,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
 
+            if (await ConfirmedEvidenceAsync(operation.OperationId, cancellationToken) is { } durable)
+                return await AdoptRefundAsync(
+                    order, operation, ticket, execution, scope, authority,
+                    durable.ProviderReference, durable.Detail, cancellationToken);
+
             var recovery = await _documents.RecoverAsync(
                 new DocumentRefundRecoveryRequest(
                     DocumentKey(operation, ticket),
@@ -523,6 +536,22 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
                     order, operation, ticket, recovery.Outcome, cancellationToken,
                     recovery.ProviderReference, recovery.Detail);
 
+            return await AdoptRefundAsync(
+                order, operation, ticket, execution, scope, authority,
+                recovery.ProviderReference, recovery.Detail, cancellationToken);
+        }
+
+        private async Task<RefundOutcome> AdoptRefundAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket ticket,
+            RefundExecution execution,
+            IReadOnlyList<long> scope,
+            ManualRefundAuthority? authority,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken)
+        {
             AcceptedRefund accepted;
             StagedRefund staged;
 
@@ -535,12 +564,12 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.Refund
             {
                 return await ReconcileAsync(
                     order, operation, ticket, ProviderOperationOutcome.Unknown, cancellationToken,
-                    recovery.ProviderReference, recovery.Detail);
+                    providerReference, detail);
             }
 
             return await FinalizeAsync(
                 order, operation, ticket, accepted, staged, scope, authority,
-                recovery.ProviderReference, RefundValueDispatch.AfterRecovery, cancellationToken);
+                providerReference, RefundValueDispatch.AfterRecovery, cancellationToken);
         }
 
         private async Task<RefundOutcome> ReplayFinalizedAsync(

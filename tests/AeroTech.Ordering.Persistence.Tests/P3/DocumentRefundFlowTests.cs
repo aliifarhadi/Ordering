@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
 using AeroTech.Ordering.Domain.ElectronicTicketAggregate;
@@ -358,6 +358,55 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             Assert.True(settled.IsReplay);
             Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
             Assert.Equal(after.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
+        }
+
+        [Fact]
+        public async Task A_durably_confirmed_document_refund_is_adopted_without_asking_the_provider_again()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = await FirstTicketAsync(order.Id);
+            var key = NewKey();
+
+            var before = await ReloadAsync(order.Id);
+
+            Quote(harness, order, ticket);
+            harness.DocumentRefunds.RefundOutcome = ProviderOperationOutcome.Unknown;
+
+            var first = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, first.OperationStatus);
+            Assert.Empty((await FirstTicketAsync(order.Id)).Refunds);
+
+            await harness.ServicingEvidence.RecordAsync(
+                first.OperationId,
+                ServicingEvidenceStage.DocumentRefund,
+                ProviderOperationOutcome.Confirmed,
+                "RFND-DURABLE",
+                null,
+                AccountableDocumentKind.ElectronicTicket,
+                ticket.DocumentNumber);
+
+            var dispatched = harness.DocumentRefunds.ObservedRefundKeys.Count;
+
+            var adopted = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
+
+            var after = await ReloadAsync(order.Id);
+            var refunded = await FirstTicketAsync(order.Id);
+
+            Assert.Equal(first.OperationId, adopted.OperationId);
+            Assert.Equal(ElectronicTicketStatus.Refunded, refunded.StatusSummary);
+            Assert.Single(refunded.Refunds);
+            Assert.Equal(before.CommercialVersion + 1, after.CommercialVersion);
+            Assert.Equal(dispatched, harness.DocumentRefunds.ObservedRefundKeys.Count);
+            Assert.Empty(harness.DocumentRefunds.ObservedRecoveryKeys);
+
+            var replay = await harness.Refund.RefundAsync(Execution(order.Id, ticket, QuoteId, key, before.CommercialVersion));
+
+            Assert.True(replay.IsReplay);
+            Assert.Single((await FirstTicketAsync(order.Id)).Refunds);
+            Assert.Equal(after.CommercialVersion, (await ReloadAsync(order.Id)).CommercialVersion);
+            Assert.Empty(harness.DocumentRefunds.ObservedRecoveryKeys);
         }
 
         [Fact]

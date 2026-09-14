@@ -199,6 +199,42 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
             await AssertConfirmedAsync();
         }
 
+        [Fact]
+        public async Task C10a_A_pending_and_an_unknown_racing_on_the_first_insert_leave_one_non_terminal_row()
+        {
+            await Task.WhenAll(
+                RecordInOwnContextAsync(ProviderOperationOutcome.Pending),
+                RecordInOwnContextAsync(ProviderOperationOutcome.Unknown));
+
+            await using var reading = _fixture.NewCommandContext();
+            var row = Assert.Single(await Store(reading).ListAsync(_operationId));
+
+            Assert.Contains(row.Outcome, new[] { ProviderOperationOutcome.Pending, ProviderOperationOutcome.Unknown });
+            Assert.False(row.IsConfirmed);
+
+            await RecordInOwnContextAsync(ProviderOperationOutcome.Confirmed);
+
+            await AssertConfirmedAsync();
+        }
+
+        [Fact]
+        public async Task C10b_A_rejected_row_is_upgraded_by_a_later_confirmed_answer()
+        {
+            await using var rejectingContext = _fixture.NewCommandContext();
+            await using var confirmingContext = _fixture.NewCommandContext();
+
+            await Store(rejectingContext).RecordAsync(
+                _operationId, Stage, ProviderOperationOutcome.Rejected, "REJECTED-FIRST", "provider said no");
+
+            await Store(confirmingContext).RecordAsync(
+                _operationId, Stage, ProviderOperationOutcome.Confirmed, ConfirmedReference, ConfirmedDetail);
+
+            var row = await AssertConfirmedAsync();
+
+            Assert.Equal(ConfirmedReference, row.ProviderReference);
+            Assert.Equal(ConfirmedDetail, row.Detail);
+        }
+
         private async Task RecordInOwnContextAsync(ProviderOperationOutcome outcome)
         {
             await using var context = _fixture.NewCommandContext();

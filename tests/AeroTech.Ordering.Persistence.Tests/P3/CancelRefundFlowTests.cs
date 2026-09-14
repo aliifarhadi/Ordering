@@ -1,4 +1,4 @@
-using AeroTech.Framework.Core.Domain.Exceptions;
+﻿using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Messages.Ordering.Enums;
 using AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund;
 using AeroTech.Ordering.Application.OrderAggregate.Services.Refund;
@@ -349,6 +349,55 @@ namespace AeroTech.Ordering.Persistence.Tests.P3
                 harness.DocumentRefundCorrections.ObservedCorrectionKeys.Single(),
                 harness.DocumentRefundCorrections.ObservedRecoveryKeys.Single());
             Assert.Equal(ElectronicTicketStatus.Issued, after.StatusSummary);
+        }
+
+        [Fact]
+        public async Task A_durably_confirmed_document_correction_is_adopted_without_asking_the_provider_again()
+        {
+            await using var harness = NewHarness();
+            var order = await TicketedOrderAsync(harness);
+            var ticket = await FirstTicketAsync(order.Id);
+
+            var refund = await RefundAsync(harness, order.Id, ticket, ticket.RefundableCouponIds().ToList(), "RFND-1");
+            var before = await ReloadAsync(order.Id);
+            var key = NewKey();
+
+            Approve(harness);
+            harness.DocumentRefundCorrections.CorrectionOutcome = ProviderOperationOutcome.Unknown;
+
+            var first = await harness.CancelRefund.CancelRefundAsync(
+                Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+            Assert.Equal(ServicingOperationStatus.AwaitingExternal, first.OperationStatus);
+            Assert.Empty((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
+
+            await harness.ServicingEvidence.RecordAsync(
+                first.OperationId,
+                ServicingEvidenceStage.RefundCorrection,
+                ProviderOperationOutcome.Confirmed,
+                "CRFND-DURABLE",
+                null,
+                AccountableDocumentKind.ElectronicTicket,
+                ticket.DocumentNumber);
+
+            var dispatched = harness.DocumentRefundCorrections.ObservedCorrectionKeys.Count;
+
+            var adopted = await harness.CancelRefund.CancelRefundAsync(
+                Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+            var after = await TicketAsync(order.Id, ticket.Id);
+
+            Assert.Equal(first.OperationId, adopted.OperationId);
+            Assert.Single(after.RefundCorrections);
+            Assert.Equal(ElectronicTicketStatus.Issued, after.StatusSummary);
+            Assert.Equal(dispatched, harness.DocumentRefundCorrections.ObservedCorrectionKeys.Count);
+            Assert.Empty(harness.DocumentRefundCorrections.ObservedRecoveryKeys);
+
+            await harness.CancelRefund.CancelRefundAsync(
+                Execution(order.Id, ticket, refund, key, before.CommercialVersion));
+
+            Assert.Single((await TicketAsync(order.Id, ticket.Id)).RefundCorrections);
+            Assert.Empty(harness.DocumentRefundCorrections.ObservedRecoveryKeys);
         }
 
         [Fact]

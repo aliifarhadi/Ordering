@@ -1228,7 +1228,8 @@ INSERT ... SELECT ... WHERE NOT EXISTS (SELECT 1 ... WHERE OperationId = @operat
 bounded by at most three attempts so an interleaved insert converges, and the loop **throws**
 (`ServicingEvidenceNotRecorded`, 20333, 500) rather than falling through silently if it ever exhausts —
 losing an evidence write must never be a quiet no-op. Parameterised throughout
-(`ExecuteSqlInterpolatedAsync`), so no injection surface and no EF1002.
+(explicitly typed `DbCommand` parameters on the independent connection — see "Durability boundary —
+corrected" below), so no injection surface and no EF1002.
 
 `INSERT ... WHERE NOT EXISTS` is not atomic against a concurrent identical insert under READ COMMITTED, so a
 duplicate-key error can still escape. That case is caught provider-agnostically: on a `DbException`, if the
@@ -1266,16 +1267,189 @@ only the evidence `UPDATE`/`INSERT` statements. Every provider call is upstream 
 re-entered, so the fix cannot repeat an external mutation, a document mutation, a domain event, a version
 increment or any money movement. R39 continues to assert exactly one irreversible dispatch.
 
-### Transactional-semantics change — stated explicitly
+### Durability boundary — corrected (baseline `7954990`)
 
-The evidence write is now **immediately durable** rather than enlisted in the caller's unit of work. If the
-surrounding transaction later rolls back, the evidence survives.
+**Correction.** The previous revision of this section claimed the evidence write was independent of the
+caller's transaction. That was **unproven and false**. The store ran raw SQL through the caller's own
+`OrderingDbContext`. `OrderingUnitOfWork.SaveChangesAsync` explicitly supports an **ambient** transaction on
+that context (`if (_commandDbContext.Database.CurrentTransaction is { } ambient)`), and
+`SharedTransactionTests` exercises exactly that pattern — so whenever a caller transaction was open, the
+evidence statement enlisted in it and was rolled back with the local servicing work. Proven below: the new
+durability tests fail against the baseline store.
 
-This is deliberate and is the stronger guarantee: the row records *what the provider said*, which remains true
-regardless of whether local materialization committed. A surviving `Confirmed` row after a rolled-back local
-save is precisely the "provider Confirmed + local save crash" checkpoint the recover-first rails already
-consume (§5, §17b D2) — it makes recovery better informed, not worse. Evidence is only ever recorded after the
-provider has answered, so a throw-before-dispatch still records nothing.
+**Final boundary.** `RecordAsync` now writes on a **separate physical connection**, created from the command
+context's own `DbProviderFactory` and connection string, inside `TransactionScope(Suppress)`, using autocommit
+parameterised statements. It never touches the caller's connection or `DbTransaction`, and the suppress scope
+also excludes it from any `System.Transactions` ambient scope. The row is committed before `RecordAsync`
+returns. `ListAsync` still reads through the caller's context, which sees the committed row under READ
+COMMITTED.
+
+The monotonic CAS is unchanged (`UPDATE ... WHERE [Outcome] <> Confirmed`, `INSERT ... WHERE NOT EXISTS`,
+duplicate-key loser rereads, bounded, loud on exhaustion).
+
+**Effective order for a terminal outcome** (all four rails, verified in source):
+
+```text
+1. provider returns / recovery establishes the outcome
+2. RecordAsync commits evidence on the independent connection
+3. local materialization (document void/refund/correction, order consequence, transitions)
+4. OrderingUnitOfWork.SaveChangesAsync commits the local servicing transaction
+```
+
+In `DocumentVoidService.FinalizeAsync` the evidence call is the first statement, before `target.Void(...)`.
+
+**A regression I introduced and removed in this run.** The first attempt used
+`AddDbContextFactory<OrderingDbContext>` as a singleton. The ServiceHost container then failed validation
+("Cannot consume scoped service DbContextOptions<OrderingDbContext> from singleton
+IDbContextFactory<OrderingDbContext>"), and `OrderingDbContext` also takes scoped `IIdentityService` and
+`IDomainEventDispatcher`, which a singleton factory must not capture. Both EF design-time checks failed to
+construct either context, which is how it surfaced. The factory registration was removed entirely; the final
+design needs no DI change and keeps the original `(OrderingDbContext, IClock)` constructor.
+
+**Resume after durable `Confirmed` — §7.** Before this correction every rail's replay called the provider's
+`Recover` unconditionally, ignoring durable evidence. With evidence now surviving a local rollback, that path
+became reachable with `Confirmed` already on record, and the deterministic `Recover` default (`Unknown`) sent
+the operation to `NeedsReconciliation` instead of adopting it. Call-site audit:
+
+| Rail | Evidence stage | Resume with durable `Confirmed` |
+| --- | --- | --- |
+| `DocumentVoidService` | `DocumentVoid` | **fixed** — adopts via `FinalizeAsync` with the stored reference; zero `Void`, zero `Recover` |
+| `RefundService` | `DocumentRefund` | **fixed** — shared `AdoptRefundAsync` tail used by both recovery-confirmed and durable paths; zero document `Refund`, zero `Recover` |
+| `CancelRefundService` | `RefundCorrection` | **fixed** — shared `AdoptCorrectionAsync` tail; zero `CancelRefund`, zero `Recover` |
+| `OrderCancelService` | `ReservationRelease` | **unchanged, by design** — the single operation-level row carries no per-reservation release state; the `Recover` readback supplies that different unresolved fact (§7's stated exception). It is a readback, never a release re-dispatch. |
+
+The adoption tails were **extracted, not duplicated**: the recovery-confirmed path and the durable-evidence path
+call the same method with the provider reference and detail, so the frozen adoption semantics are unchanged.
+Operation claim and generation guards are untouched — adoption still runs inside the claimed replay.
+
+### Durability and zero-redispatch tests
+
+| Test | Proves |
+| --- | --- |
+| `ServicingEvidenceDurabilityTests.D1_Terminal_evidence_survives_a_rolled_back_caller_transaction` | caller `BeginTransaction` → record `Confirmed` → `Rollback` → dispose → **brand-new context** reads `Confirmed` with its reference |
+| `…D2_Terminal_evidence_survives_a_caller_transaction_that_throws` | same, with the caller transaction failing on a real SQL error before rollback |
+| `…D3_Durable_confirmed_evidence_is_adopted_with_zero_provider_calls` | void suspended `Unknown` → durable `Confirmed` checkpoint → **new harness/scope** resumes: same operation id, `Completed`, ticket voided once, version +1, **0 `Void`, 0 `Recover`**; a further replay changes nothing |
+| `DocumentRefundFlowTests.A_durably_confirmed_document_refund_is_adopted_without_asking_the_provider_again` | refund suspended → durable `Confirmed` → one refund record, commercial version +1, refund dispatch count unchanged, **0 `Recover`**; replay is a no-op |
+| `CancelRefundFlowTests.A_durably_confirmed_document_correction_is_adopted_without_asking_the_provider_again` | correction suspended → durable `Confirmed` → one correction, dispatch count unchanged, **0 `Recover`**; replay is a no-op |
+
+All run on the repository's real SQL Server harness (`DotAirOrderNewP0Tests`); nothing here uses EF InMemory.
+
+A first version of D3 wrapped a whole servicing call in an ambient transaction and rolled it back. It proved
+nothing useful: the command receipt and operation rows rolled back too, so the resume legitimately became a
+*new* operation with a new id. D3 now targets the real crash window directly — durable `Confirmed` while the
+operation is still `AwaitingExternal`.
+
+### Discrimination proof
+
+```text
+D1, D2 against the baseline 7954990 store (same-context raw SQL)
+    D1  Assert.NotNull() Failure: Value is null         <- evidence rolled back with the caller
+    D2  Assert.Single() Failure: The collection was empty
+D3 with the void short-circuit removed
+    Expected: Completed   Actual: NeedsReconciliation   <- asked the provider again despite durable Confirmed
+refund / correction durable tests with their short-circuits removed
+    both fail
+final code
+    all pass
+```
+
+### Second defect found by the gate — live-worker guard check-then-act gap
+
+The first full-suite run after the durability change failed **R39 with two irreversible provider voids**
+(`Expected: 1, Actual: 2` at the dispatch-count assertion). R39 passed 14/14 in isolation; the failure needs
+full-suite timing. It is a residual hole in the P3-H D1 guard (§17b), not something the evidence change
+created, but it violates the confirmed-truth invariant and is a failing required gate, so it is closed here.
+
+**Cause, from source.** `OrderOperationCoordinator.BeginAsync` ran two non-atomic steps:
+
+```text
+EnsureNoLiveWorkerAsync   -> FindBlockingAsync  (read)
+_claims.AcquireAsync      -> insert, or re-entrant same-operation generation bump
+```
+
+If a second worker's guard read lands **before** the first worker's claim commits, it sees no claim and skips
+the guard. Its acquire then finds the now-committed claim for the same operation and takes the frozen
+re-entrant branch (generation 1 → 2). If the first worker has not yet written its operation row,
+`ReplayUnfinishedAsync` returns null and the second worker fresh-dispatches.
+
+**Why not fix it in the claim store.** Frozen claim-contract tests (`OperationClaimStoreTests` lines 43–47 and
+58–59, `PersistenceConstraintTests` 119–120) require same-operation re-acquire with a live lease and no
+operation row to succeed with a generation bump. Refusing inside `OperationClaimStore.AcquireAsync` would
+redesign claim concurrency and break them.
+
+**Fix — coordinator only.** The guard now reports whether it *observed* a blocking claim. After acquire:
+
+```csharp
+if (!observedClaim && claim.Generation > 1)
+    throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
+```
+
+A generation above 1 is only reachable through the re-entrant branch, which requires a claim to exist at
+acquire time. If the guard, reading immediately before, saw none, the claim appeared in between — a concurrent
+live worker. It is refused **before** any provider call. A sequential replay always observes the claim first
+and is unaffected. No store, interface, schema or claim-contract test changed.
+
+**Deterministic test.** `OperationCoordinatorInterleavingTests`, two harnesses with the same caller:
+
+| Test | Proves |
+| --- | --- |
+| `A_claim_that_appears_between_the_guard_read_and_the_acquire_refuses_the_second_worker` | worker A commits its claim; worker B's guard read is shown no claim by a decorator over the **real SQL** claim store, while B's acquire still hits the database and takes the re-entrant branch; B is refused with 20076 |
+| `A_sequential_replay_of_a_quiescent_operation_is_still_allowed` | control — A suspends to `AwaitingExternal`; B replays the same key through the real store, gets the same operation id and generation +1 |
+
+The decorator simulates only *when* the guard reads; acquire, receipts and operation rows are real SQL Server.
+
+**Discrimination.** With the post-acquire check removed, the interleaving test fails and the control still
+passes (1 failed / 1 passed). With it restored, both pass, and the frozen claim-contract tests, R39, the void
+flows and the durability tests pass — 38/38.
+
+Additional files changed: `OrderOperationCoordinator` (guard returns the observation; post-acquire check),
+`OperationCoordinatorInterleavingTests` (new).
+
+### Gate after the durability correction
+
+```text
+BUILD                  0 errors (AeroTech.Ordering.sln)
+EF OrderingDbContext   no pending model changes   (container constructs again)
+EF OrderQueryDbContext no pending model changes
+DOMAIN                 585 / 585
+PERSISTENCE           1386 / 1386, 9 m 55 s   (final source, full output retained)
+FOCUSED                 38 / 38   (interleaving, frozen claim contracts, R39, void flows, durability)
+EVIDENCE CONCURRENCY    13 / 13   (three consecutive runs; includes C10a Pending-vs-Unknown first-insert
+                                   race and C10b Rejected -> Confirmed upgrade, both added after the
+                                   1386 full run above — store-level, own random operation ids)
+                       129 / 129  (concurrency, durability, void/refund/correction flows,
+                                   confirmed-truth incl. R39, checkpoint parity, boundary)
+```
+
+**Gate history in this run, recorded rather than smoothed over.** Three full Persistence runs failed before the
+final green one:
+
+| Run | Result | Disposition |
+| --- | --- | --- |
+| after the independent-connection change | 1383 / 1384 — R39 saw **two** provider voids | real defect: live-worker guard check-then-act gap; fixed and deterministically proven (above) |
+| after the interleaving fix | 1385 / 1386 — `AddCollectFundingRecoveryTests.E_an_unresolved_release_holds_the_operation_until_it_is_read_back`, 32 m 9 s run | environmental: the exception escaped `ExchangeService.cs:183`, the `_orders.GetAsync` order load, **before** `_operations.BeginAsync`, so the coordinator change is not on that path; `SecondOperationCodeAsync` catches `BusinessException`, so the escape was a non-business (infrastructure) exception under a 3× slower run; passed 3/3 isolated and 54/54 twice in its load-sensitive slice. Its message was lost because that run's output was piped through `tail` — fixed for the final run |
+| one earlier run was stopped deliberately | — | it was testing code that had just been replaced |
+| **final source** | **1386 / 1386** | build, Domain, both EF checks and Persistence all from this single run |
+
+The first run also exposed a production DI regression (singleton `AddDbContextFactory`) through the EF
+checks; it is described above and removed.
+
+Files changed: `ServicingExternalEvidenceStore` (independent connection), `DocumentVoidService`,
+`RefundService`, `CancelRefundService` (durable-`Confirmed` short-circuit, extracted adoption tails),
+`ServicingEvidenceDurabilityTests` (new), `DocumentRefundFlowTests` and `CancelRefundFlowTests` (one test each
+added, nothing changed), `OrderSliceHarness` (exposes `CommandContext`), ICC
+`ICC-P3-SERVICING-RECONCILIATION`. No migration, no schema change, no DI change, no port change.
+
+### BLOCKED_INTEGRATION
+
+Unchanged in kind, sharpened in wording: the deterministic adapters report a real outcome, so resume can adopt
+durable `Confirmed` safely. A **real** provider that cannot answer "was this keyed mutation dispatched, and what
+was its terminal outcome" leaves the rail at `AwaitingExternal`/`NeedsReconciliation` with its evidence
+preserved; Ordering does not guess and does not re-dispatch.
+
+**Not covered by this correction:** `CommandReceipt`, `ServicingOperation` and claim rows are still written on
+the caller's context via `OperationsWriteBoundary`, so they roll back with an ambient caller transaction. That
+is the frozen operations rail, outside this brief's evidence scope; D3's first version is what exposed it.
 
 ### Deterministic tests — C1–C10
 

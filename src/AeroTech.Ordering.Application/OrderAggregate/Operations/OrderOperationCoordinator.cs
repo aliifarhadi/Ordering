@@ -58,13 +58,16 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Operations
 
             var receipt = await _receipts.AcquireAsync(kind.ToString(), idempotencyKey, requestHash, cancellationToken);
 
-            await EnsureNoLiveWorkerAsync(orderId, receipt.OperationId, cancellationToken);
+            var observedClaim = await EnsureNoLiveWorkerAsync(orderId, receipt.OperationId, cancellationToken);
 
             var claim = await _claims.AcquireAsync(
                 orderId,
                 receipt.OperationId,
                 _clock.GetDateTime().Add(_recoveryLease),
                 cancellationToken);
+
+            if (!observedClaim && claim.Generation > 1)
+                throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
 
             await _operations.PrepareAsync(
                 receipt.OperationId,
@@ -79,23 +82,27 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Operations
             return new OrderOperation(receipt.ReceiptId, receipt.OperationId, claim.Generation, receipt.IsReplay);
         }
 
-        private async Task EnsureNoLiveWorkerAsync(
+        private async Task<bool> EnsureNoLiveWorkerAsync(
             long orderId,
             long operationId,
             CancellationToken cancellationToken)
         {
             var blocking = await _claims.FindBlockingAsync(orderId, cancellationToken);
 
-            if (blocking is null
-                || blocking.OperationId != operationId
+            if (blocking is null)
+                return false;
+
+            if (blocking.OperationId != operationId
                 || blocking.RecoveryLeaseUntil <= _clock.GetDateTime())
-                return;
+                return true;
 
             var prior = await _operations.FindAsync(operationId, cancellationToken);
 
             if (prior is null
                 || prior.Status is ServicingOperationStatus.Prepared or ServicingOperationStatus.Executing)
                 throw ExceptionFactory.OperationClaimConcurrentlyAcquired(orderId);
+
+            return true;
         }
 
         public async Task ResolveAsync(long orderId, OrderOperation operation, CancellationToken cancellationToken = default)

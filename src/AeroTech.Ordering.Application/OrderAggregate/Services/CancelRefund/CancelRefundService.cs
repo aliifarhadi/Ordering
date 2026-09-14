@@ -1,4 +1,5 @@
 ﻿using AeroTech.Ordering.Domain.Servicing.Operations;
+using AeroTech.Ordering.Domain.Servicing.Reconciliation;
 using AeroTech.Ordering.Domain.Servicing.Reconciliation.Contracts;
 using AeroTech.Ordering.Domain.Servicing.Operations.Contracts;
 using AeroTech.Framework.Core.Domain.Repository;
@@ -327,6 +328,43 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                 releaseClaim: false, correctionNotAvailable: false, isReplay: true, cancellationToken,
                 providerReference, detail);
 
+        private async Task<CancelRefundOutcome> AdoptCorrectionAsync(
+            Order order,
+            OrderOperation operation,
+            ElectronicTicket ticket,
+            DocumentRefundRecord refund,
+            CancelRefundExecution execution,
+            string? providerReference,
+            string? detail,
+            CancellationToken cancellationToken)
+        {
+            StagedRefundCorrection staged;
+
+            try
+            {
+                ticket.EnsureRefundCanBeCancelled(refund.Id);
+
+                staged = PrepareCorrection(order, operation, ticket, refund, execution);
+            }
+            catch
+            {
+                return await ReconcileAsync(
+                    order, operation, ticket, refund, ProviderOperationOutcome.Unknown, cancellationToken,
+                    providerReference, detail);
+            }
+
+            return await FinalizeAsync(
+                order, operation, ticket, refund, execution, staged,
+                providerReference, RefundValueDispatch.AfterRecovery, cancellationToken);
+        }
+
+        private async Task<ServicingExternalEvidence?> ConfirmedEvidenceAsync(
+            long operationId,
+            CancellationToken cancellationToken)
+            => (await _evidence.ListAsync(operationId, cancellationToken))
+                .FirstOrDefault(evidence =>
+                    evidence.Stage == ServicingEvidenceStage.RefundCorrection && evidence.IsConfirmed);
+
         private async Task<CancelRefundOutcome> SettleUnfinishedAsync(
             Order order,
             OrderOperation operation,
@@ -395,6 +433,11 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                 or ServicingOperationStatus.NeedsReconciliation))
                 return null;
 
+            if (await ConfirmedEvidenceAsync(operation.OperationId, cancellationToken) is { } durable)
+                return await AdoptCorrectionAsync(
+                    order, operation, ticket, refund, execution,
+                    durable.ProviderReference, durable.Detail, cancellationToken);
+
             var recovery = await _documents.RecoverAsync(
                 new DocumentRefundCorrectionRecoveryRequest(
                     CorrectionKey(operation, refund),
@@ -412,24 +455,9 @@ namespace AeroTech.Ordering.Application.OrderAggregate.Services.CancelRefund
                     order, operation, ticket, refund, recovery.Outcome, cancellationToken,
                     recovery.ProviderReference, recovery.Detail);
 
-            StagedRefundCorrection staged;
-
-            try
-            {
-                ticket.EnsureRefundCanBeCancelled(refund.Id);
-
-                staged = PrepareCorrection(order, operation, ticket, refund, execution);
-            }
-            catch
-            {
-                return await ReconcileAsync(
-                    order, operation, ticket, refund, ProviderOperationOutcome.Unknown, cancellationToken,
-                    recovery.ProviderReference, recovery.Detail);
-            }
-
-            return await FinalizeAsync(
-                order, operation, ticket, refund, execution, staged,
-                recovery.ProviderReference, RefundValueDispatch.AfterRecovery, cancellationToken);
+            return await AdoptCorrectionAsync(
+                order, operation, ticket, refund, execution,
+                recovery.ProviderReference, recovery.Detail, cancellationToken);
         }
 
         private async Task<CancelRefundOutcome> ReplayFinalizedAsync(
